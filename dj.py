@@ -931,6 +931,38 @@ class DJ:
                 self._invalidate_player()
                 return "Grouping failed"
 
+    def set_group_member(self, ip: str, member: bool) -> str | None:
+        """Add or remove one room from the group hearing this station.
+
+        Dropping the coordinator is refused rather than obeyed. The Sonos
+        queue, the needle and the resume position all live on that device,
+        and _match_queue reads the station's whole state from it — removing
+        it would strand playback, and honouring the request properly would
+        mean transferring the queue mid-episode, which is the most delicate
+        operation in this file and not worth building to service a checkbox.
+
+        The guard lives here rather than in the template because the
+        transport API is documented and plain HTTP: a UI-only guard is one
+        curl away from being bypassed."""
+        if not ip:
+            return "missing ip"
+        with self._lock:
+            player = self.get_player()
+            if player is None:
+                return self._NO_SPEAKER
+            try:
+                if not member and ip == player.coordinator_ip():
+                    return "That room is holding the queue — switch rooms instead."
+                if member:
+                    player.join(ip)
+                else:
+                    player.unjoin(ip)
+                return None
+            except Exception:
+                logger.exception("group change failed for %s", ip)
+                self._invalidate_player()
+                return "Speaker unreachable"
+
     def play_episode(self, episode_id: int,
                      mode: Literal["next", "now", "last"]) -> str | None:
         """Force-play a specific episode, any status. mode="next" queues it
@@ -1347,7 +1379,12 @@ class DJ:
         if player is None:
             return data
         try:
-            data["speaker"] = {"name": player.name, "ip": player.ip}
+            # members rides this poll rather than a scan: zone-group state is
+            # already cached for 5s behind the coordinator lookup every
+            # transport call makes, so reading it here costs nothing and the
+            # checkboxes track changes made from the Sonos app too.
+            data["speaker"] = {"name": player.name, "ip": player.ip,
+                               "members": player.group_members()}
             data["transport"] = player.transport_state()
             data["volume"] = player.get_volume()
             queue, matches, cur_idx, cur = self._match_queue(player)

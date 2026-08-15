@@ -140,6 +140,49 @@ class SonosPlayer:
         # leader, not whatever speaker currently coordinates its group.
         self._device.partymode()
 
+    def coordinator_ip(self) -> str | None:
+        """Whoever currently holds the queue. Usually the selected speaker —
+        joining points a new member at self._co, so the selection stays
+        coordinator — but a group formed from the Sonos app can leave the
+        selection a slave of some other room, and it is the coordinator that
+        must be protected either way."""
+        try:
+            return self._co.ip_address
+        except Exception:
+            return None
+
+    def group_members(self) -> list[dict]:
+        """Everyone hearing this station, sorted by name.
+
+        Free on the status poll: SoCo.group walks all_groups, which polls
+        zone-group state behind a 5-second cache (POLLING_CACHE_TIMEOUT) —
+        the same lookup _co already forces on every transport call.
+
+        Sorted because ZoneGroup.members is a set, and an arbitrary order
+        would change the render signature on every poll, defeating the guard
+        that keeps the page from repainting and reshuffling under the cursor.
+        """
+        group = self._device.group
+        if group is None:      # a slave in a stereo pair has no group of its own
+            return []
+        coordinator_uid = group.coordinator.uid
+        return sorted(
+            ({"name": m.player_name, "ip": m.ip_address,
+              "is_coordinator": m.uid == coordinator_uid}
+             for m in group.members),
+            key=lambda m: m["name"],
+        )
+
+    def join(self, ip: str) -> None:
+        """Point another speaker at this station's coordinator — the device
+        actually holding the queue, not necessarily the selected one."""
+        soco.SoCo(ip).join(self._co)
+
+    def unjoin(self, ip: str) -> None:
+        """Drop a speaker out of the group. Safe on one that is not grouped,
+        which is what lets the endpoint be idempotent under an optimistic UI."""
+        soco.SoCo(ip).unjoin()
+
 
 def discover_speakers(timeout: int = 5) -> list[dict[str, str]]:
     zones = soco.discover(timeout=timeout) or set()
