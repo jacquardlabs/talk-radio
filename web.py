@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import mimetypes
 import re
+from urllib.parse import urlparse
 
 from flask import (Flask, Response, jsonify, render_template, request,
                    send_from_directory, stream_with_context)
@@ -23,6 +24,18 @@ from dj import DJ
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
 logger = logging.getLogger(__name__)
 EPISODES_PAGE_SIZE = 25
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _origin_is_foreign(origin: str, host: str) -> bool:
+    """Whether a browser has told us this request came from another site.
+
+    Only host:port is compared. The scheme is not: a reverse proxy that
+    terminates TLS would make every request look foreign, and the header is
+    only ever trusted to say *which site*, never to authenticate anything.
+    "null" — a sandboxed iframe, a file:// page — has no netloc and is
+    foreign like any other value that is not ours."""
+    return urlparse(origin).netloc.lower() != host.lower()
 
 
 def _episode_json(e, feed_title: str) -> dict:
@@ -64,6 +77,30 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             if invalidate:
                 invalidate()
             return result("Speaker unreachable")
+
+    @app.before_request
+    def reject_cross_site():
+        """Refuse a state change a browser says came from another site.
+
+        There is no login here and no cookie to bind a CSRF token to, but
+        every POST moves a speaker or edits the library, and POST /feeds
+        takes request.form — so a plain auto-submitted HTML form on any page
+        a house browser visits reaches these routes, with no preflight to
+        stop it and without the attacker ever being on the LAN.
+
+        Only a *present* Origin is judged. curl sends none, and the
+        /player/<action> transport API the README documents is a scripting
+        surface: an absent header is not evidence of anything. Browsers are
+        the threat this closes, and a browser always sends one on a
+        cross-site POST."""
+        origin = request.headers.get("Origin")
+        if request.method in SAFE_METHODS or not origin:
+            return None
+        if _origin_is_foreign(origin, request.host):
+            logger.warning("refused %s %s from origin %r", request.method,
+                           request.path, origin)
+            return result("cross-site request rejected"), 403
+        return None
 
     @app.get("/")
     def index():
@@ -388,7 +425,12 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
     def media(filename: str):
         # conditional=True serves HTTP Range requests — what makes Sonos
         # seeking work on local files in download mode
-        return send_from_directory(cfg.media_dir, filename, conditional=True)
+        resp = send_from_directory(cfg.media_dir, filename, conditional=True)
+        # Names here are ep<id> plus an extension from audio.AUDIO_MIME, so
+        # the guessed type is already audio; nosniff keeps a browser from
+        # promoting a body back to HTML on this app's own origin.
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        return resp
 
     @app.get("/stream/<int:episode_id>.mp3")
     def stream(episode_id: int):
