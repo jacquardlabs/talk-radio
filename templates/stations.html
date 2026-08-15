@@ -96,7 +96,10 @@ function episodeRow(e, opts) {
     `<button type="button" class="tab small" data-episode="${e.id}/play_now" title="Interrupt and play now">Play now</button>` +
     (e.status === "archived"
       ? `<button type="button" class="tab small" data-episode="${e.id}/release">Release</button>` : "") +
-    `</span></div>`;
+    `</span>` +
+    discToggle(e.id, e.description, e.title) +
+    discPanel(e.id, e.description) +
+    `</div>`;
 }
 
 function paginationHTML(page, pageSize, total, kind, key) {
@@ -135,6 +138,9 @@ function sheetHeadHTML(f, categories) {
     `<div class="sheet-main">` +
     `<div class="sheet-top"><span class="sheet-title glow">${esc(f.title)}</span>` +
     `<button type="button" class="sheet-close" data-close-sheet>Close &times;</button></div>` +
+    // The show's own blurb, always open — it is what the sheet is about, and
+    // unlike an episode's notes there is only ever one of it.
+    (f.description ? `<div class="sheet-desc">${esc(f.description)}</div>` : "") +
     `<div class="sheet-counts"><b>${unplayed.toLocaleString()} unplayed</b> &middot; ` +
     `${c.played.toLocaleString()} played &middot; ${c.archived.toLocaleString()} in the vault` +
     (f.is_news ? ' &middot; <span class="pri">NEWS</span>' : "") +

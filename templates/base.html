@@ -15,6 +15,10 @@
 :root {
   --bg: #0b0906; --bezel: #14100a; --bezel2: #1c1610; --line: #2a2213;
   --amber: #ffb038; --amber-dim: #7a5a24; --green: #86e06b; --red: #ff6146;
+  /* Prose amber. --amber-dim is 3.14:1 on --bg, which carries uppercase
+     chrome labels but fails AA as body text; this is 7.03:1 and still reads
+     as secondary against full amber. */
+  --amber-prose: #c88f2e;
   --row-odd: #100c07;
   color-scheme: dark;
 }
@@ -152,9 +156,53 @@ button.tab.power { min-width: 52px; color: var(--red); border-color: #3c231d; fo
 
 /* up next: artwork rows with reveal-on-hover actions */
 .qrow {
-  display: grid; grid-template-columns: 18px 34px 1fr auto; gap: 12px; align-items: center;
+  display: grid; grid-template-columns: 18px 34px 1fr auto auto; gap: 12px; align-items: center;
   padding: 9px 0; border-bottom: 1px dashed #1c160c;
   background: var(--panel);
+}
+/* Disclosure caret. Its own grid cell rather than a member of .qact: that
+   container dims to .35 until hover, and a child cannot composite back above
+   its parent's alpha — a disclosure has to stay visible to be found. */
+.disc {
+  background: none; border: 0; padding: 2px 4px; cursor: pointer;
+  color: var(--amber-dim); font: inherit; font-size: 11px; line-height: 1;
+  transition: color .15s, transform .15s;
+}
+.disc:hover, .disc:focus-visible { color: var(--amber); }
+.disc:focus-visible { outline: 1px solid var(--amber); outline-offset: 2px; }
+.disc[aria-expanded="true"] { color: var(--amber); transform: rotate(180deg); }
+/* Content voice: mixed case, unletterspaced prose. Spans every column so the
+   panel is full width under the row it belongs to. */
+/* deck disclosure: a caret plus a quiet cue, since the deck has no row of
+   actions to hang it off */
+.np-desc-row { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
+.np-desc-row[hidden] { display: none; }
+.np-desc-cue {
+  font-size: 9px; letter-spacing: .28em; text-transform: uppercase;
+  color: var(--amber-dim); font-weight: 700;
+}
+.npdesc {
+  margin-top: 6px; max-width: 62ch;
+  font-size: 13px; line-height: 1.6; color: var(--amber-prose);
+  white-space: pre-wrap; text-transform: none; letter-spacing: normal;
+}
+.npdesc[hidden] { display: none; }
+.sheet-desc {
+  margin: 6px 0 2px; max-width: 68ch;
+  font-size: 12.5px; line-height: 1.55; color: var(--amber-prose);
+  white-space: pre-wrap; text-transform: none; letter-spacing: normal;
+  font-weight: 400;
+}
+.qdesc[hidden] { display: none; }
+.qdesc {
+  /* Up Next is a grid, the station sheet's episode rows are a wrapping
+     flexbox. Each layout ignores the other's property, so one rule spans
+     the row in both. */
+  grid-column: 1 / -1; flex-basis: 100%; width: 100%;
+  margin: 2px 0 4px 64px; padding-right: 8px;
+  font-size: 12.5px; line-height: 1.55; color: var(--amber-prose);
+  white-space: pre-wrap; text-transform: none; letter-spacing: normal;
+  font-weight: 400;
 }
 /* the grip: machine chrome, and touch-action none so a drag on a phone
    moves the row instead of scrolling the page */
@@ -395,6 +443,45 @@ function esc(s) {
   d.textContent = s == null ? "" : String(s);
   return d.innerHTML.replace(/"/g, "&quot;");
 }
+
+// ── episode descriptions ────────────────────────────────────────────
+// Which rows are open lives here rather than in the DOM: both pages rewrite
+// their row containers wholesale on the 5s poll, so an expansion held only
+// as markup would collapse under whoever is reading it every five seconds.
+// Same reasoning as lastStationsSig — server truth repaints, local intent
+// has to survive the repaint.
+const expandedEpisodes = new Set();
+
+// The panel is always rendered and toggled with [hidden], never inserted on
+// click. That keeps the description text in one place (the render, from the
+// poll payload) instead of needing a second copy to re-insert from, and it
+// means a poll landing mid-interaction repaints an already-correct row.
+function discToggle(id, description, title) {
+  if (!description) return "";                 // no notes, no caret
+  const open = expandedEpisodes.has(String(id));
+  return `<button type="button" class="disc" data-disc="${id}" ` +
+    `aria-expanded="${open}" aria-controls="desc-${id}" ` +
+    `aria-label="${open ? "Hide" : "Show"} description for ${esc(title)}"` +
+    `>&#9662;</button>`;
+}
+
+function discPanel(id, description) {
+  if (!description) return "";
+  const open = expandedEpisodes.has(String(id));
+  return `<div class="qdesc" id="desc-${id}"${open ? "" : " hidden"}>` +
+    `${esc(description)}</div>`;
+}
+
+document.addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-disc]");
+  if (!btn) return;
+  const id = String(btn.dataset.disc);
+  const open = !expandedEpisodes.has(id);
+  if (open) expandedEpisodes.add(id); else expandedEpisodes.delete(id);
+  btn.setAttribute("aria-expanded", String(open));
+  const panel = document.getElementById(`desc-${id}`);
+  if (panel) panel.hidden = !open;
+});
 function flash(msg, ok = false) {
   const el = $("flash");
   el.textContent = msg;

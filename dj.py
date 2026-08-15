@@ -1282,6 +1282,7 @@ class DJ:
                 {
                     "id": f["id"], "title": f["title"], "url": f["url"],
                     "image_url": f["image_url"],
+                    "description": f["description"],
                     "is_news": bool(f["is_news"]), "enabled": bool(f["enabled"]),
                     "category_id": f["category_id"],
                     "playback_mode": f["playback_mode"],
@@ -1331,7 +1332,8 @@ class DJ:
                     "image_url": feed["image_url"] if feed else None,
                     "published_at": ep["published_at"],
                     "pinned": bool(ep["pinned"]),
-                    "duration": ep["duration_seconds"]}
+                    "duration": ep["duration_seconds"],
+                    "description": ep["description"]}
 
         # Off air Up Next still exists — it just isn't on the speaker. Show it
         # from the saved order so the queue can be read and rearranged before

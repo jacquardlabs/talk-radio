@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from html.parser import HTMLParser
 from typing import NamedTuple
 
 import feedparser
@@ -16,6 +17,91 @@ from db import Database, EpisodeSeed, utcnow_iso
 logger = logging.getLogger(__name__)
 
 INCLUDE_MODES = ("new_only", "latest", "last_n", "all")
+
+# ── descriptions ─────────────────────────────────────────────────────
+# Show notes are arbitrary HTML written by strangers, and this app has no
+# authentication — every endpoint moves a speaker. So the markup never
+# reaches the database: it is reduced to plain text here, at the boundary,
+# and everything downstream handles a string that esc() already renders
+# safely. Tags are discarded rather than filtered, which is a smaller
+# problem than sanitizing: there is no allowlist to get wrong.
+EPISODE_DESCRIPTION_MAX = 2000
+FEED_DESCRIPTION_MAX = 1000
+
+# Text inside these never belongs to the prose.
+_DROP_CONTENT_TAGS = frozenset({"script", "style"})
+# Block-level ends that read as a line break once the tags are gone.
+_BREAK_TAGS = frozenset({
+    "br", "p", "div", "li", "tr", "blockquote", "section", "article",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+})
+
+
+class _TextExtractor(HTMLParser):
+    """HTML in, plain text out. convert_charrefs (on by default) decodes
+    entities exactly once, so a feed that publishes '&amp;amp;' yields
+    '&amp;' rather than '&'."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._dropping = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in _DROP_CONTENT_TAGS:
+            self._dropping += 1
+        elif tag == "br":
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _DROP_CONTENT_TAGS:
+            self._dropping = max(0, self._dropping - 1)
+        elif tag in _BREAK_TAGS:
+            self._parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self._dropping:
+            self._parts.append(data)
+
+    def text(self) -> str:
+        return "".join(self._parts)
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Cut at the last whitespace before the limit. Some feeds put a whole
+    transcript in <description>; without a cap the database would carry tens
+    of MB to render four lines in a disclosure panel."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    match = re.search(r"\s\S*$", cut)
+    if match and match.start() > 0:
+        cut = cut[:match.start()]
+    return cut.rstrip() + "…"
+
+
+def html_to_text(raw: str | None, limit: int = EPISODE_DESCRIPTION_MAX) -> str | None:
+    """Plain text, or None. Returns None rather than '' for a description
+    that is absent, markup-only, or whitespace — insert_episodes backfills
+    on `description IS NULL`, so storing '' would make that row permanently
+    ineligible for a description it later publishes."""
+    if not raw:
+        return None
+    parser = _TextExtractor()
+    try:
+        parser.feed(raw)
+        parser.close()
+    except Exception:
+        # A parse this malformed is not worth a failed ingest; the episode
+        # is still perfectly playable without its notes.
+        logger.debug("could not parse description as HTML", exc_info=True)
+        return None
+    text = parser.text()
+    # Collapse runs of spaces/tabs, then runs of blank lines, then strip.
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return _truncate(text, limit) or None
 
 # ── arc detection ────────────────────────────────────────────────────
 # Leading episode numbering is show-level info ("437. ", "Show 66 - ",
@@ -217,6 +303,22 @@ def entry_duration_seconds(entry) -> int | None:
         return None
 
 
+def entry_description(entry) -> str | None:
+    """Prefer <description>/<itunes:summary> over <content:encoded>: the
+    summary is the blurb a show writes for listings, while content is often
+    the same text wrapped in a page's worth of markup and player embeds."""
+    raw = entry.get("summary")
+    if not raw:
+        contents = entry.get("content") or []
+        raw = contents[0].get("value") if contents else None
+    return html_to_text(raw, EPISODE_DESCRIPTION_MAX)
+
+
+def feed_description(parsed) -> str | None:
+    raw = parsed.feed.get("subtitle") or parsed.feed.get("summary")
+    return html_to_text(raw, FEED_DESCRIPTION_MAX)
+
+
 def ingest_entries(db: Database, feed_id: int, parsed) -> int:
     """Hand the whole feed to the DB at once. Entries with no audio are
     dropped here — a feed's text-only posts are not episodes."""
@@ -224,7 +326,8 @@ def ingest_entries(db: Database, feed_id: int, parsed) -> int:
                          title=entry.get("title", ""),
                          audio_url=audio_url,
                          published_at=entry_published_iso(entry),
-                         duration_seconds=entry_duration_seconds(entry))
+                         duration_seconds=entry_duration_seconds(entry),
+                         description=entry_description(entry))
              for entry in parsed.entries
              if (audio_url := entry_audio_url(entry))]
     return db.insert_episodes(feed_id, seeds)
@@ -237,7 +340,8 @@ def add_feed_from_parsed(db: Database, parsed, url: str, is_news: bool,
     title = parsed.feed.get("title") or url
     image = (parsed.feed.get("image") or {}).get("href")
     feed_id = db.add_feed(url, title, image, is_news,
-                          playback_mode=detect_playback_mode(parsed))
+                          playback_mode=detect_playback_mode(parsed),
+                          description=feed_description(parsed))
     ingest_entries(db, feed_id, parsed)
     episodes = db.episodes_for_feed(feed_id)  # newest first
     keep = {"new_only": 0, "latest": 1,
@@ -281,6 +385,8 @@ def _refresh(db: Database, cfg: Config, feeds_to_fetch) -> None:
             # compared the validators for us and there is nothing to parse.
             if fetched.parsed is not None:
                 ingest_entries(db, feed["id"], fetched.parsed)
+                db.backfill_feed_description(feed["id"],
+                                             feed_description(fetched.parsed))
             # Last, and inside the try, so validators are only ever recorded
             # against a body that was actually ingested. A fetch or parse
             # that failed leaves the previous pair standing: the broken body

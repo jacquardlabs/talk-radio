@@ -34,7 +34,8 @@ def _episode_json(e, feed_title: str) -> dict:
             # parsing in JavaScript. series_key, matching what the action
             # actually groups on.
             "arc": feeds_mod.series_key(e["title"]),
-            "failures": e["failure_count"]}
+            "failures": e["failure_count"],
+            "description": e["description"]}
 
 
 def _page_arg() -> int:
