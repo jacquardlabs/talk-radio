@@ -168,7 +168,7 @@ function groupHeadHTML(cat, rows) {
   return `<span class="glow">${esc(cat.name)}</span>` + cnt +
     `<span class="spacer"></span>` +
     `<button type="button" class="tab small${cat.rotation_enabled ? " live" : " red"}" data-category="${cat.id}/toggle">` +
-    `${cat.rotation_enabled ? "Rotation on" : "Rotation off"}</button>` +
+    `${rotationLabel(cat.rotation_enabled)}</button>` +
     `<button type="button" class="tab small" data-category-rename="${cat.id}">Rename</button>` +
     `<button type="button" class="tab small red" data-category="${cat.id}/delete" data-confirm="1">Remove</button>`;
 }
