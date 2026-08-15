@@ -26,9 +26,16 @@ programs the speakers like a personal talk-radio station — forever.
    Up Next, oldest first. News older than 24 h (configurable) is dropped —
    you'll never hear Tuesday's headlines on Thursday.
 
+## What you need
+
+- A Sonos speaker on the same LAN broadcast domain as the server (discovery
+  is SSDP multicast — a VLAN or guest network between them will break it;
+  `SONOS_IP` is the escape hatch).
+- Docker, or Python 3.12+.
+
 ## Quickstart — Docker (recommended)
 
-    git clone <this repo> && cd talk-radio
+    git clone https://github.com/jacquardlabs/talk-radio.git && cd talk-radio
     TZ=America/Chicago docker compose up -d --build
 
 Open http://<server>:8080.
@@ -100,6 +107,18 @@ and it opens standalone like a remote control.
 | `TZ` | — | timezone wake alarms fire in (**set this in Docker**) |
 | `USER_AGENT` | `SonosTalkRadio/1.0` | for feed/audio requests |
 
+## Security
+
+There is no authentication. The app binds `0.0.0.0` and every control is an
+unauthenticated HTTP endpoint, so anyone who can reach the port owns your
+speakers. That is the intended trade for a LAN appliance — **do not
+port-forward it or expose it to the internet.** If you need access from
+outside, put it behind a VPN (Tailscale, WireGuard) rather than opening the
+port.
+
+It also runs Flask's development server. Fine for a handful of LAN clients
+and one speaker; not what you'd put in front of real traffic.
+
 ## DOWNLOAD_MODE
 
 By default episodes stream straight from the podcast CDN. Some CDNs
@@ -142,3 +161,25 @@ Actions: `play` `pause` `restart` `back_15` `fwd_30` `skip_later`
 - **Alarms fire at odd hours** — `TZ` isn't set in the container.
 - **Someone started Spotify** — the DJ notices its queue is gone and stands
   down; press ON AIR to take back over.
+
+## Development
+
+    python3.12 -m venv .venv
+    .venv/bin/pip install -r requirements-dev.txt
+    .venv/bin/python -m pytest
+
+345 tests, no network and no speaker required — Sonos is faked at the
+`sonos_ctl` seam (`tests/fake_player.py`) and feeds come from fixtures.
+
+Layout: `main.py` starts two threads (the DJ tick loop and the feed
+refresher) plus Flask. `dj.py` holds the programming rules, `db.py` all
+SQLite access, `feeds.py` RSS ingest, `audio.py` URL resolution,
+`sonos_ctl.py` the speaker adapter, `web.py` routes. Design notes for each
+feature live in `docs/superpowers/`.
+
+`make deploy DEPLOY_HOST=you@server` ships the committed tree to a home
+server over SSH and rebuilds the container there.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
