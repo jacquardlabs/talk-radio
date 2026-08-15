@@ -1,36 +1,36 @@
 # Sonos Talk Radio
 
-A self-hosted podcast DJ for your Sonos system. Add your science/history/
-philosophy shows plus a couple of news feeds, press **On air**, and it
-programs the speakers like a personal talk-radio station — forever.
+A self-hosted podcast DJ for your Sonos system. Add your science, history, and
+philosophy shows plus 2–3 news feeds, press **On air**, and it programs the
+speakers like a personal talk-radio station — forever.
+
+![The On air page — now-playing deck, transport, and Up Next](docs/screenshots/on-air.jpg)
 
 ## The three DJ rules
 
 1. **Random show rotation.** The DJ picks a random *show*, not a random
-   episode, and won't play the same show twice in a row while another show
-   has unplayed episodes. Assign shows to a category on the *Stations* page
-   and switch a whole category's rotation off (e.g. Comedy & Trivia) without
-   pausing or removing its stations — via the *In rotation* row under the
-   On air transport controls, or the category header on *Stations* — manual force-play ("Play next"
-   / "Play now") always works regardless of a category's rotation setting.
-   An episode already queued when you switch a category off still plays out;
-   only future automatic picks are affected.
-2. **Multi-part episodes stay in order.** Shows set to *In order* always play
-   their oldest unplayed episode. Shows set to *Random* draw any unplayed
-   episode instead — but an arc guard still applies: when a draw belongs to a
-   multi-part story ("Part 3", "(2/4)", a trailing "II"), the story's oldest
-   unplayed part plays first, so a series still arrives 1 → 2 → 3. New shows
-   are classified automatically on add (declared serials and heavily numbered
-   feeds start *In order*); flip any show from its card in Stations.
+   episode, and won't repeat a show while another has unplayed episodes.
+   Switch a whole category's rotation off — from the *In rotation* row on
+   *On air*, or the category header on *Stations* — without pausing or
+   removing its stations. Force-play (*Play next*, *Play now*) ignores
+   rotation settings, and an episode already queued when you switch a
+   category off still plays out.
+2. **Multi-part episodes stay in order.** Shows set to *In order* play their
+   oldest unplayed episode. Shows set to *Random* draw any unplayed episode,
+   but an arc guard still applies: when a draw belongs to a multi-part story
+   ("Part 3", "(2/4)", a trailing "II"), the story's oldest unplayed part
+   plays first, so a series arrives 1 → 2 → 3. New shows are classified on
+   add — declared serials and heavily numbered feeds start *In order* — and
+   any show can be flipped from its card in Stations.
 3. **News always plays first.** Feeds flagged "news" jump to the front of
-   Up Next, oldest first. News older than 24 h (configurable) is dropped —
-   you'll never hear Tuesday's headlines on Thursday.
+   Up Next, oldest first. News older than 24 h (configurable) is dropped, so
+   you never hear Tuesday's headlines on Thursday.
 
 ## What you need
 
-- A Sonos speaker on the same LAN broadcast domain as the server (discovery
-  is SSDP multicast — a VLAN or guest network between them will break it;
-  `SONOS_IP` is the escape hatch).
+- A Sonos speaker on the same LAN broadcast domain as the server. Discovery is
+  SSDP multicast, so a VLAN or guest network between them breaks it; `SONOS_IP`
+  is the escape hatch.
 - Docker, or Python 3.12+.
 
 ## Quickstart — Docker (recommended)
@@ -47,44 +47,47 @@ Open http://<server>:8080.
 
 ## First run
 
-The dashboard is two pages: **On air** (now-playing deck, transport, Up Next,
-wake alarms, recently played) and **Stations** (the station library —
-categories, episodes, back catalog).
+Two pages: **On air** (now-playing deck, transport, Up Next, wake alarms,
+recently played) and **Stations** (the library — categories, episodes, back
+catalog).
 
-On-air controls: one **Play/Pause**, −15/+30 seek, **Skip ▾** (choose *Later*
-— back in rotation — or *Done* — never again), volume, and a power switch to
-go off air. Up Next rows act too: *Play now* interrupts immediately, *Drop*
-sends that episode back into rotation for another day.
+![The Stations page — category shelves of artwork tiles with unplayed counts](docs/screenshots/stations.jpg)
 
-The dashboard is an installable PWA — on a phone, use *Add to Home Screen*
-and it opens standalone like a remote control.
+On-air controls: **Play/Pause**, −15/+30 seek, **Skip ▾** (*Later* returns the
+episode to rotation, *Done* retires it), volume, and a power switch. Up Next
+rows act too: *Play now* interrupts immediately, *Drop* returns that episode
+to rotation for another day.
 
-1. **Pick a speaker** — on the *On air* page, hit *Scan*, choose one (grouped
-   rooms follow the coordinator automatically; *Group all* groups every speaker).
-2. **Add stations** — on the *Stations* page, search by podcast name (default)
-   or toggle to *Paste URL*
-   for feeds a directory search won't find. Check *news* for news feeds. Pick how
-   much back catalog to include:
+The dashboard is an installable PWA — on a phone, *Add to Home Screen* opens it
+standalone like a remote control. Under 760px the transport docks to the bottom
+of the screen, thumb-height:
+
+<img src="docs/screenshots/on-air-narrow.jpg" alt="The On air page at phone width, transport docked to the bottom" width="420">
+
+1. **Pick a speaker** — on *On air*, hit *Scan* and choose one. Grouped rooms
+   follow the coordinator; *Group all* groups every speaker.
+2. **Add stations** — on *Stations*, search by podcast name, or toggle to
+   *Paste URL* for feeds a directory search won't find. Check *news* for news
+   feeds. Pick how much back catalog to include:
    - *New episodes only* — nothing until the next episode drops
    - *Latest episode* (default) — start from the newest
    - *Last N episodes* — the newest N
    - *Entire back catalog* — starts the show at episode 1
-   You can release the archive later with *Add back catalog*.
+
+   Release the archive later with *Add back catalog*.
 3. **Set wake times** — alarm-style rows (time + day chips), e.g. 08:00
    Mon–Fri and 10:00 Sat–Sun.
 4. Press **ON AIR**.
-5. **Manage episodes** — the *Stations* page is a record crate: category
-   shelves of artwork tiles (each shelf header carries the category's
-   rotation toggle; badges show unplayed counts; the *Amber/Color* switch
-   picks the artwork treatment). Tap a tile to open its station sheet with
-   the station's controls and episode browser. Release archived episodes one
-   at a time (*Release* button)
-   or in batches (*Select* for checkboxes, then *Release selected (N)*). On
-   any episode, *Play next* queues it after the current track and *Play now*
-   interrupts playback immediately — both turn the station on air if off, and
-   work on any episode regardless of status. Search across all stations with
-   *Find an episode* by title or show name; each station's panel has a local
-   search too.
+5. **Manage episodes** — *Stations* is a record crate: category shelves of
+   artwork tiles, each shelf header carrying that category's rotation toggle,
+   badges showing unplayed counts, and an *Amber/Color* switch for the artwork
+   treatment. Tap a tile for its station sheet — controls plus episode browser.
+   Release archived episodes singly (*Release*) or in batches (*Select*, then
+   *Release selected (N)*). *Play next* queues an episode after the current
+   track and *Play now* interrupts; both work on any episode regardless of
+   status, and turn the station on air if it is off. *Find an episode*
+   searches every station by episode or show title; each station panel has a
+   local search too.
 
 ## Configuration
 
@@ -111,41 +114,44 @@ and it opens standalone like a remote control.
 
 There is no authentication. The app binds `0.0.0.0` and every control is an
 unauthenticated HTTP endpoint, so anyone who can reach the port owns your
-speakers. That is the intended trade for a LAN appliance — **do not
-port-forward it or expose it to the internet.** If you need access from
-outside, put it behind a VPN (Tailscale, WireGuard) rather than opening the
-port.
+speakers. That is the intended trade for a LAN appliance: **do not port-forward
+it or expose it to the internet.** For access from outside, put it behind a VPN
+(Tailscale, WireGuard) rather than opening the port.
 
-It also runs Flask's development server. Fine for a handful of LAN clients
-and one speaker; not what you'd put in front of real traffic.
+It also runs Flask's development server — fine for a few LAN clients and one
+speaker, not for real traffic.
 
 ## DOWNLOAD_MODE
 
-By default episodes stream straight from the podcast CDN. Some CDNs
+Episodes stream straight from the podcast CDN by default. Some CDNs
 (token-guarded URLs, long redirect chains) won't play on Sonos. Set
-`DOWNLOAD_MODE=1` and the app downloads each episode and serves it from
-`/media/` with HTTP Range support (that's what makes Sonos seeking work on
-local files), deleting it once played. `BASE_URL` is auto-detected from the
+`DOWNLOAD_MODE=1` and the app downloads each episode, serves it from `/media/`
+with HTTP Range support — which is what makes Sonos seeking work on local
+files — and deletes it once played. `BASE_URL` is auto-detected from the
 server's LAN address as the speaker sees it; set it explicitly if detection
 guesses wrong.
 
 ## Wake schedule (and why TZ matters)
 
-Alarms fire on **local time inside the container** — and containers default
-to UTC. Pass `TZ` in compose or your 8:00 alarm fires at 8:00 UTC.
-`WARM_MINUTES` before the alarm the app resolves the URLs it is about to
-need, so the wait at 8:00 is a couple of seconds rather than half a minute
-of redirect chains; nothing is downloaded or queued by that pass. Firing
-refreshes feeds first, so headlines published 20 minutes earlier are
-included; if the station was paused mid-episode the night before, morning
-flow is: fresh news → the interrupted episode right where you left off →
-normal rotation. If you were **already listening** when the alarm came due,
-it gathers the speakers and leaves playback exactly where it is — the
-headlines queue up as the next track instead of restarting what you're in
-the middle of. A `GRACE_MINUTES` window means a reboot at 8:03 still
-catches the 8:00 start, but a server down all morning stays quiet at 3 pm.
+Alarms fire on **local time inside the container**, and containers default to
+UTC. Pass `TZ` in compose or your 08:00 alarm rings at 08:00 UTC.
 
-The transport API is plain HTTP, so external automation works too:
+`WARM_MINUTES` before an alarm, the app resolves the URLs it is about to need,
+cutting the wait at 08:00 from roughly 30 seconds of redirect chains to 2–3
+seconds. That pass downloads and queues nothing.
+
+Firing refreshes feeds first, so headlines published 20 minutes earlier are
+included. If the station was paused mid-episode the night before, the morning
+runs fresh news → the interrupted episode at its saved position → normal
+rotation. If you were **already listening** when the alarm came due, it gathers
+the speakers and leaves playback where it is, queueing the headlines as the
+next track instead of restarting what you are in the middle of. `GRACE_MINUTES`
+means a reboot at 08:03 still catches the 08:00 start, while a server down all
+morning stays quiet at 3 pm.
+
+## Transport API
+
+Plain HTTP, so external automation works:
 
     curl -X POST http://server:8080/player/play
 
@@ -155,8 +161,8 @@ Actions: `play` `pause` `restart` `back_15` `fwd_30` `skip_later`
 ## Troubleshooting
 
 - **Discovery finds nothing** — the container must share the LAN
-  (`network_mode: host`), or set `SONOS_IP` and skip discovery.
-- **An episode won't play / instantly skips** — that CDN doesn't stream to
+  (`network_mode: host`), or set `SONOS_IP` to skip discovery.
+- **An episode won't play, or instantly skips** — that CDN doesn't stream to
   Sonos; try `DOWNLOAD_MODE=1`.
 - **Alarms fire at odd hours** — `TZ` isn't set in the container.
 - **Someone started Spotify** — the DJ notices its queue is gone and stands
@@ -168,17 +174,17 @@ Actions: `play` `pause` `restart` `back_15` `fwd_30` `skip_later`
     .venv/bin/pip install -r requirements-dev.txt
     .venv/bin/python -m pytest
 
-345 tests, no network and no speaker required — Sonos is faked at the
+345 tests, no network and no speaker required: Sonos is faked at the
 `sonos_ctl` seam (`tests/fake_player.py`) and feeds come from fixtures.
 
-Layout: `main.py` starts two threads (the DJ tick loop and the feed
-refresher) plus Flask. `dj.py` holds the programming rules, `db.py` all
-SQLite access, `feeds.py` RSS ingest, `audio.py` URL resolution,
-`sonos_ctl.py` the speaker adapter, `web.py` routes. Design notes for each
-feature live in `docs/superpowers/`.
+`main.py` starts two threads — the DJ tick loop and the feed refresher — plus
+Flask. `dj.py` holds the programming rules, `db.py` all SQLite access,
+`feeds.py` RSS ingest, `audio.py` URL resolution, `sonos_ctl.py` the speaker
+adapter, `web.py` the routes. Design notes for each feature live in
+`docs/design/`.
 
-`make deploy DEPLOY_HOST=you@server` ships the committed tree to a home
-server over SSH and rebuilds the container there.
+`make deploy DEPLOY_HOST=you@server` ships the committed tree to a home server
+over SSH and rebuilds the container there.
 
 ## License
 

@@ -1,6 +1,6 @@
 # Defer — Implementation Plan
 
-**Design:** `docs/superpowers/specs/2026-07-30-defer-current-episode-design.md`
+**Design:** `docs/design/specs/2026-07-30-defer-current-episode-design.md`
 
 **Goal:** Give the playing episode a way back into Up Next that keeps its place, so the news can go on now and the podcast resumes where it stopped.
 
