@@ -1,7 +1,5 @@
 # Podcast Name Search Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Let the dashboard add a station by searching a podcast's name (via Apple's iTunes Search API) instead of only pasting an RSS URL directly.
 
 **Architecture:** A new `feeds.search_podcasts()` function proxies to Apple's iTunes Search API server-side (avoids browser CORS issues and keeps all external HTTP calls server-side, matching every other integration in this app). A new `GET /api/podcasts/search` route exposes it with graceful degradation on failure. The dashboard's existing "Add station" form gains a Search/Paste-URL toggle; picking a search result silently fills the existing (now-hidden) URL field, so the actual add-feed submit path is completely unchanged.
@@ -47,7 +45,6 @@ class _FakeItunesResponse:
     def json(self) -> dict:
         return self._payload
 
-
 def test_search_podcasts_normalizes_and_drops_feedless_entries(monkeypatch) -> None:
     import feeds as feeds_mod
 
@@ -65,7 +62,6 @@ def test_search_podcasts_normalizes_and_drops_feedless_entries(monkeypatch) -> N
         "title": "Mothman Museum Hour", "author": "Jane Doe",
         "artwork_url": "https://example/art.jpg", "feed_url": "https://example/feed.xml",
     }]
-
 
 def test_search_podcasts_handles_missing_fields(monkeypatch) -> None:
     import feeds as feeds_mod
@@ -141,7 +137,6 @@ def test_podcast_search_blank_query_short_circuits(no_sonos_client, monkeypatch)
     assert data == {"results": []}
     assert called == []
 
-
 def test_podcast_search_returns_results(no_sonos_client, monkeypatch) -> None:
     c, _ = no_sonos_client
     fake_results = [{"title": "Mothman Museum Hour", "author": "Jane Doe",
@@ -149,7 +144,6 @@ def test_podcast_search_returns_results(no_sonos_client, monkeypatch) -> None:
     monkeypatch.setattr(feeds_mod, "search_podcasts", lambda term, ua: fake_results)
     data = c.get("/api/podcasts/search?q=mothman").get_json()
     assert data == {"results": fake_results}
-
 
 def test_podcast_search_degrades_gracefully_on_error(no_sonos_client, monkeypatch) -> None:
     c, _ = no_sonos_client

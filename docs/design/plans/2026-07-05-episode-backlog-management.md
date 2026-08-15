@@ -1,7 +1,5 @@
 # Episode Backlog Management Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Let the dashboard browse a station's full episode list (paginated, searchable), release individual or multi-selected archived episodes instead of only all-at-once, force-play a specific episode next or immediately regardless of its current status, and search episodes globally across every station.
 
 **Architecture:** New paginated read endpoints and mutation endpoints in `web.py`, backed by new `db.py` query/mutation methods — fetched on demand, never folded into the existing 5-second `/api/status` poll. One new `DJ.play_episode()` method composes existing `start()`/`_enqueue()`/`_skip()` machinery rather than adding new queue-reconciliation logic. The dashboard template gets a new global-search section and a per-station expandable episode panel; station-list rendering switches from full `innerHTML` replace to a keyed DOM patch so an open panel's live search input survives the poll.
@@ -53,7 +51,6 @@ def test_episodes_for_feed_page_paginates_and_filters(db: Database) -> None:
     assert db.count_episodes_for_feed(fid, q="Ep 3") == 1
     assert db.episodes_for_feed_page(fid, 1, 5, q="Ep 3")[0]["guid"] == f"guid-{fid}-3"
 
-
 def test_search_episodes_matches_title_or_feed_title(db: Database) -> None:
     a = db.add_feed("https://a/rss", "Mothman Museum Hour", None, False)
     b = db.add_feed("https://b/rss", "Other Show", None, False)
@@ -65,7 +62,6 @@ def test_search_episodes_matches_title_or_feed_title(db: Database) -> None:
     titles = {r["feed_title"] for r in results}
     assert titles == {"Mothman Museum Hour", "Other Show"}
 
-
 def test_search_episodes_paginates(db: Database) -> None:
     fid = db.add_feed("https://a/rss", "Cryptid Hour", None, False)
     for i in range(1, 4):
@@ -73,7 +69,6 @@ def test_search_episodes_paginates(db: Database) -> None:
     assert db.count_search_episodes("Ep") == 3
     assert len(db.search_episodes("Ep", 1, 2)) == 2
     assert len(db.search_episodes("Ep", 2, 2)) == 1
-
 
 def test_release_episode_only_affects_archived(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
@@ -85,7 +80,6 @@ def test_release_episode_only_affects_archived(db: Database) -> None:
     assert db.release_episode(archived_id) is True
     assert db.get_episode(archived_id)["status"] == "new"
 
-
 def test_release_episodes_bulk_only_releases_archived(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     ids = [_ep(db, fid, i) for i in range(1, 4)]
@@ -96,7 +90,6 @@ def test_release_episodes_bulk_only_releases_archived(db: Database) -> None:
     assert db.get_episode(ids[0])["status"] == "new"
     assert db.get_episode(ids[1])["status"] == "new"
     assert db.get_episode(ids[2])["status"] == "new"  # unchanged, was never archived
-
 
 def test_release_episodes_bulk_empty_list(db: Database) -> None:
     assert db.release_episodes([]) == 0
@@ -225,7 +218,6 @@ def test_play_episode_next_queues_right_after_current(db, cfg, player, dj) -> No
     assert player.index == cur_idx  # current track undisturbed
     assert db.get_episode(archived_id)["status"] == "queued"
 
-
 def test_play_episode_now_interrupts_and_recycles_current(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 5)
     other = make_feed(db, "showb", 1)
@@ -239,7 +231,6 @@ def test_play_episode_now_interrupts_and_recycles_current(db, cfg, player, dj) -
     assert after["status"] == "new" and after["resume_seconds"] is None  # same as skip_later
     assert db.get_episode(archived_id)["status"] == "queued"
 
-
 def test_play_episode_can_replay_already_played_episode(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 2)
     dj.start()
@@ -250,7 +241,6 @@ def test_play_episode_can_replay_already_played_episode(db, cfg, player, dj) -> 
     assert player.queue[player.index]["uri"] == first["audio_url"]
     assert db.get_episode(first["id"])["status"] == "queued"
 
-
 def test_play_episode_turns_on_air_when_stopped(db, cfg, player, dj) -> None:
     fid = make_feed(db, "showa", 1)
     target = db.oldest_new_for_feed(fid)
@@ -259,7 +249,6 @@ def test_play_episode_turns_on_air_when_stopped(db, cfg, player, dj) -> None:
     assert db.kv_get("dj_state") == "playing"
     assert player.state == "PLAYING"
     assert player.queue[player.index]["uri"] == "https://cdn/showa/1.mp3"
-
 
 def test_play_episode_off_air_with_no_other_content(db, cfg, player, dj) -> None:
     """Regression: if start() finds nothing to auto-queue (no news, no
@@ -273,7 +262,6 @@ def test_play_episode_off_air_with_no_other_content(db, cfg, player, dj) -> None
     assert db.kv_get("dj_state") == "playing"
     assert player.state == "PLAYING"
     assert player.queue[player.index]["uri"] == "https://cdn/showa/1.mp3"
-
 
 def test_play_episode_now_on_already_current_restarts_in_place(db, cfg, player, dj) -> None:
     """Regression: forcing "now" on the episode that's already current must
@@ -289,7 +277,6 @@ def test_play_episode_now_on_already_current_restarts_in_place(db, cfg, player, 
     assert db.get_episode(current["id"])["status"] == "queued"
     assert len(player.queue) == 1  # no duplicate inserted
 
-
 def test_play_episode_updates_last_feed_id_for_rotation(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 5)
     other = make_feed(db, "showb", 1)
@@ -299,10 +286,8 @@ def test_play_episode_updates_last_feed_id_for_rotation(db, cfg, player, dj) -> 
     dj.play_episode(archived_id, "next")
     assert db.kv_get("last_feed_id") == str(other)
 
-
 def test_play_episode_unknown_id_errors(db, cfg, player, dj) -> None:
     assert dj.play_episode(999, "next") == "no such episode"
-
 
 def test_play_episode_no_speaker_errors(db, cfg) -> None:
     fid = make_feed(db, "showa", 1)
@@ -418,7 +403,6 @@ def _add_episode(db, fid, n, status="new"):
                       f"2026-01-{n:02d}T00:00:00Z", status)
     return next(e["id"] for e in db.episodes_for_feed(fid) if e["guid"] == f"g{fid}-{n}")
 
-
 def test_feed_episodes_paginates_and_searches(client) -> None:
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X Show", None, False)
@@ -431,11 +415,9 @@ def test_feed_episodes_paginates_and_searches(client) -> None:
     filtered = c.get(f"/api/feeds/{fid}/episodes?q=Ep 2").get_json()
     assert filtered["total"] == 1 and filtered["episodes"][0]["title"] == "Ep 2"
 
-
 def test_feed_episodes_unknown_feed_404s(no_sonos_client) -> None:
     c, _ = no_sonos_client
     assert c.get("/api/feeds/999/episodes").status_code == 404
-
 
 def test_episode_search_across_feeds(client) -> None:
     c, db, _ = client
@@ -449,7 +431,6 @@ def test_episode_search_across_feeds(client) -> None:
     empty = c.get("/api/episodes/search?q=").get_json()
     assert empty["episodes"] == [] and empty["total"] == 0
 
-
 def test_release_episode_route(client) -> None:
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X", None, False)
@@ -457,7 +438,6 @@ def test_release_episode_route(client) -> None:
     assert c.post(f"/episodes/{eid}/release").get_json()["ok"] is True
     assert db.get_episode(eid)["status"] == "new"
     assert c.post("/episodes/999/release").status_code == 404
-
 
 def test_release_episodes_bulk_route(client) -> None:
     c, db, _ = client
@@ -469,7 +449,6 @@ def test_release_episodes_bulk_route(client) -> None:
     assert db.get_episode(a)["status"] == "new"
     assert db.get_episode(b)["status"] == "new"
 
-
 def test_play_next_and_play_now_routes(client) -> None:
     c, db, player = client
     fid = db.add_feed("https://x/rss", "X", None, False)
@@ -478,7 +457,6 @@ def test_play_next_and_play_now_routes(client) -> None:
     assert resp.get_json()["ok"] is True
     assert db.get_episode(eid)["status"] == "queued"
     assert c.post("/episodes/999/play_now").status_code == 404
-
 
 def test_play_now_degrades_gracefully_on_exception(client, monkeypatch) -> None:
     c, db, player = client
@@ -515,11 +493,9 @@ TIME_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
 logger = logging.getLogger(__name__)
 EPISODES_PAGE_SIZE = 25
 
-
 def _episode_json(e, feed_title: str) -> dict:
     return {"id": e["id"], "title": e["title"], "published_at": e["published_at"],
             "status": e["status"], "show": feed_title}
-
 
 def _page_arg() -> int:
     try:

@@ -1,7 +1,7 @@
 # Sonos Talk Radio — design
 
 **Date:** 2026-07-05
-**Requirements:** `sonos-talk-radio-claude-code-prompt.md` (repo root) is the authoritative requirements document — product rules, data model, DJ algorithm, routes, config, deliverables, and acceptance criteria. This design records the decisions layered on top of it; where the two documents overlap, the prompt wins.
+**Requirements:** `docs/original-build-prompt.md` is the authoritative requirements document — product rules, data model, DJ algorithm, routes, config, deliverables, and acceptance criteria. This design records the decisions layered on top of it; where the two documents overlap, the prompt wins.
 
 ## Goal
 

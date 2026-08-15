@@ -1,7 +1,5 @@
 # Episode Backlog LED Re-skin Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Rebuild the episode-search and per-station-panel UI (global search, expandable per-station episode panel with local search/pagination/bulk-release, force-play next/now) against the new "LED departure-board" `templates/index.html`, with no behavior changes from the already-approved design.
 
 **Architecture:** Single-file change to `templates/index.html` only — no backend changes (the Task 1-3 backend from the original plan already merged cleanly and is unaffected). Same technique as before: shared `episodeRow()`/`paginationHTML()` renderers reused by both the global search section and the per-station panel; station-list rendering uses a keyed DOM patch (`renderStations()`) so an open panel's live search input survives the 5-second status poll.
@@ -10,7 +8,7 @@
 
 ## Global Constraints
 
-- No behavior changes from `docs/superpowers/specs/2026-07-05-episode-backlog-management-design.md` — this is a pure visual/markup re-skin, per `docs/superpowers/specs/2026-07-06-episode-backlog-led-reskin-design.md`.
+- No behavior changes from `docs/design/specs/2026-07-05-episode-backlog-management-design.md` — this is a pure visual/markup re-skin, per `docs/design/specs/2026-07-06-episode-backlog-led-reskin-design.md`.
 - No backend changes — `db.py`/`dj.py`/`web.py` are untouched by this plan.
 - No frontend test harness exists in this repo — verify by hand-tracing JS and using Flask's test client for markup/route checks, not new automated tests.
 - Reuse existing new-template CSS classes wherever an equivalent already exists (`.svc-row`, `.tab small`, `.glow`, `.m`, `.pri`, `.spacer`) — only add new CSS where the new design has no equivalent.

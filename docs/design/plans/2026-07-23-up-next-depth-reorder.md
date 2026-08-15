@@ -1,6 +1,6 @@
 # A Deeper, Hand-Orderable Up Next — Implementation Plan
 
-**Design:** `docs/superpowers/specs/2026-07-23-up-next-depth-reorder-design.md`
+**Design:** `docs/design/specs/2026-07-23-up-next-depth-reorder-design.md`
 
 **Goal:** Take Up Next from three read-only rows to ten that can be reordered by hand and filled from the stations page.
 

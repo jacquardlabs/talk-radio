@@ -66,7 +66,6 @@ docks to the bottom of the screen, thumb-height:
 
 <img src="docs/screenshots/on-air-narrow.jpg" alt="The On air page at phone width, transport docked to the bottom" width="420">
 
-
 1. **Pick a speaker** — on the *On air* page, hit *Scan*, choose one (grouped
    rooms follow the coordinator automatically; *Group all* groups every speaker).
 2. **Add stations** — on the *Stations* page, search by podcast name (default)
@@ -183,7 +182,7 @@ Layout: `main.py` starts two threads (the DJ tick loop and the feed
 refresher) plus Flask. `dj.py` holds the programming rules, `db.py` all
 SQLite access, `feeds.py` RSS ingest, `audio.py` URL resolution,
 `sonos_ctl.py` the speaker adapter, `web.py` routes. Design notes for each
-feature live in `docs/superpowers/`.
+feature live in `docs/design/`.
 
 `make deploy DEPLOY_HOST=you@server` ships the committed tree to a home
 server over SSH and rebuilds the container there.
