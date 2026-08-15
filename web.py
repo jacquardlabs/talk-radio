@@ -88,6 +88,16 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
         db.kv_set("speaker_ip", ip)
         return result()
 
+    @app.post("/api/speaker/group")
+    def api_speaker_group():
+        """Add or remove one room from the group. Which room *is* the station
+        stays with /api/speaker — this only changes who else hears it."""
+        body = request.get_json(silent=True) or {}
+        ip = (body.get("ip") or "").strip()
+        if not ip:
+            return result("missing ip")
+        return call_player(lambda: dj.set_group_member(ip, bool(body.get("member"))))
+
     @app.post("/player/<action>")
     def player_action(action: str):
         actions = {

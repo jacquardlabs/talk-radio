@@ -17,6 +17,14 @@ class FakeSonosPlayer:
         self.seeks: list[int] = []
         self.grouped = False
         self.volume = 50
+        # The group hearing this station. Unsorted and with the coordinator
+        # deliberately not first, so a test that reads group_members() proves
+        # the sort rather than inheriting insertion order.
+        self.members = [
+            {"name": "Office", "ip": self.ip, "is_coordinator": True},
+        ]
+        self.joined: list[str] = []
+        self.unjoined: list[str] = []
         # Report this URI as the current track instead of the queue slot's own.
         # Sonos really does hand back a URI that is in no slot — mid-transition,
         # or after a removal renumbered the queue under it — and that is when
@@ -92,6 +100,27 @@ class FakeSonosPlayer:
 
     def group_all(self) -> None:
         self.grouped = True
+
+    def coordinator_ip(self) -> str | None:
+        for m in self.members:
+            if m["is_coordinator"]:
+                return m["ip"]
+        return None
+
+    def group_members(self) -> list[dict]:
+        return sorted(self.members, key=lambda m: m["name"])
+
+    def join(self, ip: str) -> None:
+        self.joined.append(ip)
+        if not any(m["ip"] == ip for m in self.members):
+            self.members.append({"name": f"Room {ip}", "ip": ip,
+                                 "is_coordinator": False})
+
+    def unjoin(self, ip: str) -> None:
+        # Real unjoin is a no-op on a speaker that is not grouped, which is
+        # what makes the endpoint idempotent under an optimistic UI.
+        self.unjoined.append(ip)
+        self.members = [m for m in self.members if m["ip"] != ip]
 
     # ── test helpers ──────────────────────────────────────────────────
     def advance_to(self, index0: int) -> None:

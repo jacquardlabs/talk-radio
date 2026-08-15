@@ -3,7 +3,7 @@
 {% block content %}
 <div class="output">
   <span class="lbl">OUTPUT</span>
-  <select id="speakers" aria-label="Speaker"></select>
+  <div class="spk-list" id="speakers" role="group" aria-label="Speakers"></div>
   <button type="button" class="tab small" id="btn-scan">Scan</button>
   <button type="button" class="tab small" data-player="group_all">Group all</button>
 </div>
@@ -288,10 +288,56 @@ function renderPage(s) {
     `${e.given_up ? " &middot; given up" : " &middot; will retry"}</span></div>`
   ).join("") || '<div class="empty">ALL CLEAR</div>';
 
-  const sel = $("speakers");
-  if (s.speaker && !sel.options.length) {
-    sel.innerHTML = `<option value="${esc(s.speaker.ip)}">${esc(s.speaker.name)}</option>`;
+  renderSpeakers(s);
+}
+
+// ── speakers ───────────────────────────────────────────────────────
+// Two different questions share one list. The checkbox answers "is this room
+// hearing the station" — membership, which the speaker owns and we only
+// mirror. The name answers "which room IS the station" — the saved
+// speaker_ip, which grouping never touches. Keeping them separate is what
+// makes refusing to uncheck the coordinator coherent rather than arbitrary.
+let scannedSpeakers = [];   // last Scan result; SSDP is far too slow to poll
+let lastSpeakerSig = "";
+
+function renderSpeakers(s) {
+  const list = $("speakers");
+  const members = (s.speaker && s.speaker.members) || [];
+  const rooms = new Map();
+  // A scan is optional context; membership is live truth, so it wins.
+  for (const sp of scannedSpeakers) {
+    rooms.set(sp.ip, { name: sp.name, member: false, coordinator: false });
   }
+  for (const m of members) {
+    rooms.set(m.ip, { name: m.name, member: true, coordinator: !!m.is_coordinator });
+  }
+  // Before any scan, and for a speaker whose group we could not read, the
+  // station's own room is still worth showing.
+  if (!rooms.size && s.speaker) {
+    rooms.set(s.speaker.ip, { name: s.speaker.name, member: true, coordinator: true });
+  }
+  const rows = [...rooms.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+
+  // Signature-guarded like the station shelves: this repaints every 5s, and
+  // rewriting the list under a pointer would eat the click that caused it.
+  const sig = JSON.stringify(rows);
+  if (sig === lastSpeakerSig) return;
+  lastSpeakerSig = sig;
+
+  const station = s.speaker ? s.speaker.ip : null;
+  list.innerHTML = rows.map(([ip, r]) => {
+    const isStation = ip === station;
+    return `<span class="spk${r.coordinator ? " co" : ""}">` +
+      `<input type="checkbox" data-spk="${esc(ip)}"${r.member ? " checked" : ""}` +
+      `${r.coordinator ? " disabled" : ""} ` +
+      `aria-label="${r.coordinator
+        ? `${esc(r.name)} is holding the queue and cannot leave the group`
+        : `Play in ${esc(r.name)}`}">` +
+      `<button type="button" class="spk-name${isStation ? " on" : ""}" ` +
+      `data-spk-select="${esc(ip)}" ` +
+      `title="${isStation ? "This room is the station" : `Make ${esc(r.name)} the station`}">` +
+      `${esc(r.name)}</button></span>`;
+  }).join("") || '<span class="spk-empty">No speaker — press Scan</span>';
 }
 
 // ── reordering up next ─────────────────────────────────────────────
@@ -461,16 +507,38 @@ $("btn-scan").addEventListener("click", async (ev) => {
   btn.textContent = "Scanning…";
   try {
     const data = await (await fetch("/api/speakers")).json();
-    const sel = $("speakers");
-    sel.innerHTML = data.speakers.map((sp) =>
-      `<option value="${esc(sp.ip)}">${esc(sp.name)}</option>`).join("");
-    if (!data.speakers.length) flash("No speakers found — same network? host networking?");
+    scannedSpeakers = data.speakers || [];
+    lastSpeakerSig = "";          // force the next render to take the new list
+    if (!scannedSpeakers.length) flash("No speakers found — same network? host networking?");
+    else await poll();
   } finally {
     btn.classList.remove("pressed");
     btn.textContent = "Scan";
   }
 });
-$("speakers").addEventListener("change", (ev) => post("/api/speaker", { ip: ev.target.value }));
+
+// Membership. Applied optimistically and reverted on refusal — the server is
+// the authority on whether a room may leave, and the next poll would correct
+// us anyway, but not for five seconds.
+$("speakers").addEventListener("change", async (ev) => {
+  const box = ev.target.closest("[data-spk]");
+  if (!box) return;
+  const wanted = box.checked;
+  // Cleared before the call, not after: post() polls and repaints on its way
+  // out, and a stale signature would make that repaint a no-op.
+  lastSpeakerSig = "";
+  const ok = await post("/api/speaker/group", { ip: box.dataset.spk, member: wanted });
+  if (!ok) box.checked = !wanted;   // post() has already flashed the reason
+});
+
+// Which room is the station. Grouping never writes speaker_ip, so this is the
+// only control that does.
+$("speakers").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-spk-select]");
+  if (!btn) return;
+  lastSpeakerSig = "";
+  post("/api/speaker", { ip: btn.dataset.spkSelect });
+});
 
 function wireDisclosure(lineId, panelId) {
   $(lineId).addEventListener("click", () => {
