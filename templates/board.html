@@ -14,6 +14,12 @@
     <div class="np-eyebrow"><span id="np-label">Off air</span><span id="np-departs"></span></div>
     <h1 class="np-title glow" id="np-title">Press Play to go on air</h1>
     <div class="np-meta" id="np-meta"></div>
+    <div class="np-desc-row" id="np-desc-row" hidden>
+      <button type="button" class="disc" id="np-disc" aria-expanded="false"
+              aria-controls="np-desc" aria-label="Show episode description">&#9662;</button>
+      <span class="np-desc-cue">Description</span>
+    </div>
+    <div class="npdesc" id="np-desc" hidden></div>
   </div>
 </div>
 <div class="track" id="track" title="Tap to seek">
@@ -145,6 +151,43 @@ const PIN_SVG =
   '<path d="M9 2h6a1 1 0 0 1 0 2h-.5v5.2l2.9 3.1a1 1 0 0 1-.73 1.7H13v6.5a1 1 0 0 1-2 0V14H7.33' +
   'a1 1 0 0 1-.73-1.7l2.9-3.1V4H9a1 1 0 0 1 0-2z"/></svg>';
 
+// The deck writes into fixed elements instead of re-rendering markup, so its
+// disclosure is wired by hand. It still keys on episode_id through the shared
+// expandedEpisodes set, and its panel takes the same desc-<id> element id, so
+// the one click handler in base.html drives it with no special case.
+let deckDescId = null;
+function setDeckDescription(np) {
+  const row = $("np-desc-row");
+  const panel = document.querySelector(".npdesc");
+  if (!row || !panel) return;
+  const text = np && np.description;
+  if (!text) {
+    row.hidden = true;
+    panel.hidden = true;
+    panel.textContent = "";
+    deckDescId = null;
+    return;
+  }
+  const id = String(np.episode_id);
+  if (id !== deckDescId) {
+    // New track: rewrite the text and re-point the ids. Nothing collapses
+    // here — expandedEpisodes is keyed per episode, so a track change simply
+    // asks about a different key and answers "closed" on its own.
+    deckDescId = id;
+    panel.textContent = text;
+    panel.id = `desc-${id}`;
+  }
+  const open = expandedEpisodes.has(id);
+  const btn = $("np-disc");
+  btn.dataset.disc = id;
+  btn.setAttribute("aria-controls", `desc-${id}`);
+  btn.setAttribute("aria-expanded", String(open));
+  btn.setAttribute("aria-label",
+                   `${open ? "Hide" : "Show"} episode description`);
+  row.hidden = false;
+  panel.hidden = !open;
+}
+
 function renderPage(s) {
   const np = s.now_playing;
   const playing = isPlaying(s);
@@ -161,6 +204,7 @@ function renderPage(s) {
     const npDate = pubDate(np.published_at);
     $("np-label").textContent = `Now playing — ${np.show}` + (npDate ? ` · ${npDate}` : "");
     $("np-title").textContent = np.title;
+    setDeckDescription(np);
     // re-anchor to the speaker's authoritative position each poll, bounding
     // interpolation drift to at most one poll interval
     npAnchor = { pos: np.position, dur: np.duration, at: performance.now(), playing };
@@ -169,6 +213,7 @@ function renderPage(s) {
     npAnchor = null;
     art.hidden = true;
     lastArtUrl = "";
+    setDeckDescription(null);
     $("np-label").textContent = "Off air";
     $("np-departs").textContent = "";
     $("np-title").textContent = s.dj_state === "playing" ? "Stand by — tuning" : "Press Play to go on air";
@@ -206,6 +251,7 @@ function renderPage(s) {
         `${img}<div class="qmain">` +
         `<div class="qtitle">${e.is_news ? '<span class="news">NEWS</span>' : ""}${esc(e.title)}</div>` +
         `<div class="qmeta">${esc(e.show)}${when ? " &middot; " + when : ""}${mins ? " &middot; " + mins : ""}${playing ? relStart(mine) : ""}</div></div>` +
+        discToggle(e.episode_id, e.description, e.title) +
         `<div class="qact">` +
         `<button type="button" class="tab small pin${e.pinned ? " on" : ""}" ` +
         `data-episode="${e.episode_id}/pin" aria-pressed="${e.pinned ? "true" : "false"}" ` +
@@ -214,7 +260,7 @@ function renderPage(s) {
         PIN_SVG + `</button>` +
         `<button type="button" class="tab small" data-episode="${e.episode_id}/play_now" title="Interrupt and play now">Play now</button>` +
         `<button type="button" class="tab small" data-episode="${e.episode_id}/drop" title="Back into rotation another day">Drop</button>` +
-        `</div></div>`;
+        `</div>` + discPanel(e.episode_id, e.description) + `</div>`;
     }).join("") || '<div class="empty">QUEUE EMPTY</div>';
     // a keyboard reorder re-renders through this path, so put focus back on
     // the handle the user is still holding down the arrow key on

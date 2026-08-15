@@ -28,6 +28,11 @@ CREATE TABLE IF NOT EXISTS feeds (
     category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
     playback_mode TEXT NOT NULL DEFAULT 'in_order'
         CHECK (playback_mode IN ('in_order','random')),
+    -- The show's own blurb, plain text, same NULL convention as episodes.
+    -- Kept ahead of the validators so no column here is both last and
+    -- comment-preceded: SQLite's DROP COLUMN rewrites this DDL, and a
+    -- trailing comment would swallow the closing paren.
+    description TEXT,
     -- What the server last said this feed's body was, so the next refresh
     -- can ask for it only if it changed. Opaque strings: they are echoed
     -- back verbatim as If-None-Match / If-Modified-Since and never parsed.
@@ -62,6 +67,11 @@ CREATE TABLE IF NOT EXISTS episodes (
     -- Survives "Refresh all". Set on anything queued by hand, clear on
     -- anything the rotation picked, and togglable either way from the row.
     pinned INTEGER NOT NULL DEFAULT 0,
+    -- Show notes, reduced to plain text at ingest (feeds.html_to_text). NULL
+    -- means "never seen one" and is what makes the backfill in
+    -- insert_episodes idempotent; an empty description must never be stored
+    -- as '' or that row becomes permanently ineligible for backfill.
+    description TEXT,
     UNIQUE (feed_id, guid)
 );
 CREATE INDEX IF NOT EXISTS idx_episodes_feed_status ON episodes (feed_id, status);
@@ -92,6 +102,7 @@ class EpisodeSeed(NamedTuple):
     audio_url: str
     published_at: str
     duration_seconds: int | None = None
+    description: str | None = None
 
 
 class Database:
@@ -164,17 +175,48 @@ class Database:
             for name in ("etag", "last_modified"):
                 if name not in feed_cols:
                     c.execute(f"ALTER TABLE feeds ADD COLUMN {name} TEXT")
+            # Descriptions. Adding the column is not enough to populate it:
+            # conditional refresh means an unchanged feed answers 304 and its
+            # body is never parsed, so a library that has all its episodes
+            # already would never see a description at all. Clearing the
+            # validators forces exactly one full re-fetch, after which
+            # conditional behaviour resumes on its own.
+            #
+            # This runs only on the transition, inside the column guard —
+            # clearing them on every init would re-download every feed on
+            # every restart.
+            if "description" not in feed_cols:
+                c.execute("ALTER TABLE feeds ADD COLUMN description TEXT")
+                c.execute("UPDATE feeds SET etag=NULL, last_modified=NULL")
+            if "description" not in cols:
+                c.execute("ALTER TABLE episodes ADD COLUMN description TEXT")
 
     # ── feeds ─────────────────────────────────────────────────────────
     def add_feed(self, url: str, title: str, image_url: str | None, is_news: bool,
-                 playback_mode: str = "in_order") -> int:
+                 playback_mode: str = "in_order",
+                 description: str | None = None) -> int:
         with self._conn() as c:
             cur = c.execute(
-                "INSERT INTO feeds (url, title, image_url, is_news, added_at, playback_mode)"
-                " VALUES (?,?,?,?,?,?)",
-                (url, title, image_url, int(is_news), utcnow_iso(), playback_mode),
+                "INSERT INTO feeds (url, title, image_url, is_news, added_at,"
+                " playback_mode, description) VALUES (?,?,?,?,?,?,?)",
+                (url, title, image_url, int(is_news), utcnow_iso(), playback_mode,
+                 description),
             )
             return int(cur.lastrowid)
+
+    def backfill_feed_description(self, feed_id: int,
+                                  description: str | None) -> None:
+        """Fill a missing show blurb, never overwrite one. Same IS NULL guard
+        as the episode backfill, and for the same reason: a show that rewrites
+        its notes should not silently rewrite what is stored here, and every
+        refresh re-offers the same text."""
+        if description is None:
+            return
+        with self._conn() as c:
+            c.execute(
+                "UPDATE feeds SET description=? WHERE id=? AND description IS NULL",
+                (description, feed_id),
+            )
 
     def get_feed(self, feed_id: int) -> sqlite3.Row | None:
         with self._conn() as c:
@@ -271,20 +313,25 @@ class Database:
         committed and closed: 20.6s for a single 2851-episode feed on the
         deployed host, 0.04s batched.
 
-        Rows that already exist are left alone apart from a duration
-        backfill, which rides the same transaction. Episodes ingested before
-        durations were parsed have none, and the feed is the only place one
-        can come from."""
+        Rows that already exist are left alone apart from duration and
+        description backfills, which ride the same transaction. Episodes
+        ingested before either was parsed have none, and the feed is the only
+        place one can come from.
+
+        Both backfills are guarded on IS NULL, so they fill gaps and never
+        overwrite: a show that later rewrites its notes does not silently
+        rewrite history here, and a second full refresh is a no-op."""
         if not episodes:
             return 0
         with self._conn() as c:
             before = c.total_changes
             c.executemany(
                 "INSERT OR IGNORE INTO episodes"
-                " (feed_id, guid, title, audio_url, published_at, duration_seconds)"
-                " VALUES (?,?,?,?,?,?)",
+                " (feed_id, guid, title, audio_url, published_at,"
+                "  duration_seconds, description)"
+                " VALUES (?,?,?,?,?,?,?)",
                 [(feed_id, e.guid, e.title, e.audio_url, e.published_at,
-                  e.duration_seconds) for e in episodes],
+                  e.duration_seconds, e.description) for e in episodes],
             )
             inserted = c.total_changes - before
             c.executemany(
@@ -292,6 +339,12 @@ class Database:
                 " WHERE feed_id=? AND guid=? AND duration_seconds IS NULL",
                 [(e.duration_seconds, feed_id, e.guid) for e in episodes
                  if e.duration_seconds is not None],
+            )
+            c.executemany(
+                "UPDATE episodes SET description=?"
+                " WHERE feed_id=? AND guid=? AND description IS NULL",
+                [(e.description, feed_id, e.guid) for e in episodes
+                 if e.description is not None],
             )
             return inserted
 
