@@ -4,6 +4,8 @@ A self-hosted podcast DJ for your Sonos system. Add your science/history/
 philosophy shows plus a couple of news feeds, press **On air**, and it
 programs the speakers like a personal talk-radio station — forever.
 
+![The On air page — now-playing deck, transport, and Up Next](docs/screenshots/on-air.jpg)
+
 ## The three DJ rules
 
 1. **Random show rotation.** The DJ picks a random *show*, not a random
@@ -51,13 +53,19 @@ The dashboard is two pages: **On air** (now-playing deck, transport, Up Next,
 wake alarms, recently played) and **Stations** (the station library —
 categories, episodes, back catalog).
 
+![The Stations page — category shelves of artwork tiles with unplayed counts](docs/screenshots/stations.jpg)
+
 On-air controls: one **Play/Pause**, −15/+30 seek, **Skip ▾** (choose *Later*
 — back in rotation — or *Done* — never again), volume, and a power switch to
 go off air. Up Next rows act too: *Play now* interrupts immediately, *Drop*
 sends that episode back into rotation for another day.
 
 The dashboard is an installable PWA — on a phone, use *Add to Home Screen*
-and it opens standalone like a remote control.
+and it opens standalone like a remote control. Under 760px the transport
+docks to the bottom of the screen, thumb-height:
+
+<img src="docs/screenshots/on-air-narrow.jpg" alt="The On air page at phone width, transport docked to the bottom" width="420">
+
 
 1. **Pick a speaker** — on the *On air* page, hit *Scan*, choose one (grouped
    rooms follow the coordinator automatically; *Group all* groups every speaker).
