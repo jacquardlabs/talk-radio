@@ -1,0 +1,20 @@
+# Docker does not read .gitignore. Without this, `COPY . .` bakes the host
+# venv (wrong platform) and data/radio.db (your listening history) into the image.
+.venv/
+data/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+.git/
+.gitignore
+.claude/
+.superpowers/
+.viva/
+
+docs/
+tests/
+pytest.ini
+requirements-dev.txt
+Makefile
+README.md

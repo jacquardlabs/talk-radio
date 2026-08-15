@@ -1,4 +1,4 @@
-flask
-soco
-feedparser
-requests
+flask>=3.0,<4.0
+soco>=0.31,<0.33
+feedparser>=6.0,<7.0
+requests>=2.31,<3.0
