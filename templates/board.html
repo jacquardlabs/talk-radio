@@ -286,7 +286,8 @@ function renderPage(s) {
       const n = (unplayedByCat[c.id] || 0).toLocaleString();
       return `<button type="button" class="rots ${c.rotation_enabled ? "on" : "off"}" data-category="${c.id}/toggle" ` +
         `title="${esc(c.name)} — ${c.rotation_enabled ? "in rotation; click to switch off" : "off; click to switch on"}">` +
-        `<span class="n">${esc(c.name)}</span><span class="u">${c.rotation_enabled ? n : "&mdash;"}</span></button>`;
+        `<span class="n">${esc(c.name)}</span><span class="u">${c.rotation_enabled ? n : "&mdash;"}</span>` +
+        `<span class="st">${rotationLabel(c.rotation_enabled)}</span></button>`;
     }).join("");
   }
 

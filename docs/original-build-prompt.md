@@ -1,5 +1,13 @@
 # Build "Sonos Talk Radio" — a self-hosted podcast DJ for my Sonos system
 
+> **Historical brief, kept for the record.** This is the spec the app was
+> built from, not a statement of how it behaves today. Shipped behavior has
+> moved past it in places — *Queue series* appends a whole multi-part story
+> back-to-back, and a show can be set to draw at random instead of
+> oldest-first — so the rules below marked "non-negotiable" are the original
+> ones, not the current ones. Where this document and the running app
+> disagree, the app wins; the README describes what ships.
+
 Build a small self-hosted app that runs on my home Linux server, manages podcast RSS feeds, and continuously programs my Sonos speakers like a personal talk-radio station. I add my science/history/philosophy podcasts plus a couple of news podcasts, press "On air," and it DJs forever.
 
 ## Product rules (non-negotiable)

@@ -11,6 +11,9 @@ from typing import NamedTuple
 import feedparser
 import requests
 
+# for the outbound fetch guard only — a feed URL is submitted by whoever can
+# reach POST /feeds, so it goes through the same check the audio path uses
+import audio
 from config import Config
 from db import Database, EpisodeSeed, utcnow_iso
 
@@ -226,7 +229,7 @@ def fetch_feed(url: str, user_agent: str, etag: str | None = None,
         headers["If-None-Match"] = etag
     if last_modified:
         headers["If-Modified-Since"] = last_modified
-    resp = requests.get(url, headers=headers, timeout=30)
+    resp = audio.safe_request("GET", url, headers, timeout=30)
     resp.raise_for_status()
     if resp.status_code == 304:
         if not (etag or last_modified):

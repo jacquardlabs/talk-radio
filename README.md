@@ -53,10 +53,15 @@ catalog).
 
 ![The Stations page — category shelves of artwork tiles with unplayed counts](docs/screenshots/stations.jpg)
 
-On-air controls: **Play/Pause**, −15/+30 seek, **Skip ▾** (*Later* returns the
-episode to rotation, *Done* retires it), volume, and a power switch. Up Next
-rows act too: *Play now* interrupts immediately, *Drop* returns that episode
-to rotation for another day.
+On-air controls: **Play/Pause**, −15/+30 seek, **Skip ▾** (*Defer* parks the
+episode in Up Next and resumes it where it stopped, *Later* returns it to
+rotation, *Done* retires it), volume, and a power switch. **Refresh all**
+re-rolls the DJ's picks: pinned rows and the track on air stay, everything
+else goes back in the pool. Up Next rows act too: drag the grip to reorder —
+arrow keys move a focused grip, so it works without a pointer — the pin spares
+a row from that re-roll, *Play now* interrupts immediately, and *Drop* returns
+that episode to rotation for another day. A caret on the deck and on each Up
+Next row opens that episode's notes when the feed publishes them.
 
 The dashboard is an installable PWA — on a phone, *Add to Home Screen* opens it
 standalone like a remote control. Under 760px the transport docks to the bottom
@@ -64,8 +69,10 @@ of the screen, thumb-height:
 
 <img src="docs/screenshots/on-air-narrow.jpg" alt="The On air page at phone width, transport docked to the bottom" width="420">
 
-1. **Pick a speaker** — on *On air*, hit *Scan* and choose one. Grouped rooms
-   follow the coordinator; *Group all* groups every speaker.
+1. **Pick a speaker** — on *On air*, hit *Scan*. Tap a room's name to make it
+   the one the DJ plays through. Each room's checkbox adds it to the group or
+   drops it out; the room holding the queue is fixed on — switch rooms rather
+   than unticking it. *Group all* adds every speaker.
 2. **Add stations** — on *Stations*, search by podcast name, or toggle to
    *Paste URL* for feeds a directory search won't find. Check *news* for news
    feeds. Pick how much back catalog to include:
@@ -82,12 +89,17 @@ of the screen, thumb-height:
    artwork tiles, each shelf header carrying that category's rotation toggle,
    badges showing unplayed counts, and an *Amber/Color* switch for the artwork
    treatment. Tap a tile for its station sheet — controls plus episode browser.
-   Release archived episodes singly (*Release*) or in batches (*Select*, then
-   *Release selected (N)*). *Play next* queues an episode after the current
-   track and *Play now* interrupts; both work on any episode regardless of
-   status, and turn the station on air if it is off. *Find an episode*
-   searches every station by episode or show title; each station panel has a
-   local search too.
+   The sheet leads with the show's description, and a caret on an episode row
+   opens that episode's notes; both come from the feed, so a show that
+   publishes none shows none. Release archived episodes singly (*Release*) or
+   in batches (*Select*, then *Release selected (N)*). *Play next* queues an
+   episode after the current track, *Play now* interrupts, and *Add to Up
+   Next* queues it at the end of the line; all three work on any episode
+   regardless of status, and turn the station on air if it is off. An episode
+   whose title carries a part marker also offers *Queue series* — every
+   unheard part of that story, appended in order. *Find an episode* searches
+   every station by episode or show title; each station panel has a local
+   search too.
 
 ## Configuration
 
@@ -119,9 +131,11 @@ it or expose it to the internet.** For access from outside, put it behind a VPN
 (Tailscale, WireGuard) rather than opening the port.
 
 It also runs Flask's development server — fine for a few LAN clients and one
-speaker, not for real traffic.
+speaker, not for real traffic. Both `DOWNLOAD_MODE` and the automatic proxy
+below make that server the audio path, so whole episodes move through it while
+you listen.
 
-## DOWNLOAD_MODE
+## Audio delivery
 
 Episodes stream straight from the podcast CDN by default. Some CDNs
 (token-guarded URLs, long redirect chains) won't play on Sonos. Set
@@ -130,6 +144,15 @@ with HTTP Range support — which is what makes Sonos seeking work on local
 files — and deletes it once played. `BASE_URL` is auto-detected from the
 server's LAN address as the speaker sees it; set it explicitly if detection
 guesses wrong.
+
+A third path engages on its own, without download mode and without a setting.
+Sonos keeps only the first 1024 bytes of a queue item's URI, and some hosts
+sign their URLs past that (the BBC's run over 2000 characters), so the speaker
+would fetch a truncated link and get a 403. Any resolved URL over the limit is
+handed to Sonos as `/stream/<id>.mp3` instead, and the app fetches the CDN and
+pumps the body through, Range headers both ways so seeking still works. It
+needs `BASE_URL` to be right for the same reason download mode does, and it
+puts whole episodes through the development server — see Security.
 
 ## Wake schedule (and why TZ matters)
 
@@ -155,7 +178,7 @@ Plain HTTP, so external automation works:
 
     curl -X POST http://server:8080/player/play
 
-Actions: `play` `pause` `restart` `back_15` `fwd_30` `skip_later`
+Actions: `play` `pause` `restart` `back_15` `fwd_30` `defer` `skip_later`
 `skip_done` `stop` `group_all`.
 
 ## Troubleshooting
@@ -174,7 +197,7 @@ Actions: `play` `pause` `restart` `back_15` `fwd_30` `skip_later`
     .venv/bin/pip install -r requirements-dev.txt
     .venv/bin/python -m pytest
 
-345 tests, no network and no speaker required: Sonos is faked at the
+389 tests, no network and no speaker required: Sonos is faked at the
 `sonos_ctl` seam (`tests/fake_player.py`) and feeds come from fixtures.
 
 `main.py` starts two threads — the DJ tick loop and the feed refresher — plus

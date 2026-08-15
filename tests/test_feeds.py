@@ -96,7 +96,7 @@ def test_fetch_asks_the_server_to_skip_a_body_it_already_has(monkeypatch) -> Non
     import feeds as feeds_mod
     sent: dict = {}
 
-    def fake_get(url, headers=None, timeout=None):
+    def fake_get(url, headers=None, timeout=None, **kw):
         sent.update(headers or {})
         return FakeResponse(304, headers={"ETag": 'W/"v2"'})
 

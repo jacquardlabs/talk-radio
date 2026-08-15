@@ -15,9 +15,10 @@
 :root {
   --bg: #0b0906; --bezel: #14100a; --bezel2: #1c1610; --line: #2a2213;
   --amber: #ffb038; --amber-dim: #7a5a24; --green: #86e06b; --red: #ff6146;
-  /* Prose amber. --amber-dim is 3.14:1 on --bg, which carries uppercase
-     chrome labels but fails AA as body text; this is 7.03:1 and still reads
-     as secondary against full amber. */
+  /* Secondary amber. --amber-dim is 3.14:1 on --bg — enough for a border,
+     an icon or large text, but 9-11px uppercase chrome is not large text, so
+     small labels take --amber-prose (7.03:1) alongside prose. Still reads as
+     secondary against full amber. */
   --amber-prose: #c88f2e;
   --row-odd: #100c07;
   color-scheme: dark;
@@ -80,7 +81,7 @@ a.navlink.live { background: var(--amber); color: var(--bg); text-shadow: none; 
 .spk-name:hover { color: var(--amber); }
 .spk-name:focus-visible { outline: 1px solid var(--amber); outline-offset: 3px; }
 .spk-name.on { color: var(--amber); text-shadow: 0 0 6px rgba(255,176,56,.5); }
-.spk-empty { font-size: 10px; letter-spacing: .18em; color: var(--amber-dim); text-transform: uppercase; }
+.spk-empty { font-size: 10px; letter-spacing: .18em; color: var(--amber-prose); text-transform: uppercase; }
 select, input[type="url"], input[type="number"], input[type="time"], input[type="search"], input[type="text"] {
   background: var(--bezel); color: var(--amber); border: 1px solid var(--line);
   min-height: 44px; padding: 0 12px; font: inherit; font-size: 12.5px;
@@ -200,7 +201,7 @@ button.tab.power { min-width: 52px; color: var(--red); border-color: #3c231d; fo
 .np-desc-row[hidden] { display: none; }
 .np-desc-cue {
   font-size: 9px; letter-spacing: .28em; text-transform: uppercase;
-  color: var(--amber-dim); font-weight: 700;
+  color: var(--amber-prose); font-weight: 700;
 }
 .npdesc {
   margin-top: 6px; max-width: 62ch;
@@ -258,6 +259,11 @@ button.tab.power { min-width: 52px; color: var(--red); border-color: #3c231d; fo
 }
 .rots .n { font-size: 9px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }
 .rots .u { font-size: 15px; font-weight: 700; letter-spacing: .06em; }
+/* the state in words, because this chip is read at arm's length on a wall
+   tablet: a dim color says nothing there, and a title tooltip is unreachable
+   without a pointer. --amber-prose, not --amber-dim — 9px uppercase is not
+   large text, so the label needs AA's 4.5:1. */
+.rots .st { font-size: 9px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--amber-prose); }
 .rots.on { border-color: #4a3413; }
 .rots.on .u { color: var(--amber); text-shadow: 0 0 7px rgba(255,176,56,.7); }
 .rots.off .n, .rots.off .u { color: var(--amber-dim); }
@@ -369,7 +375,7 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
   margin-top: 30px; padding-bottom: 9px; border-bottom: 1px solid var(--line);
   font-size: 12px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase;
 }
-.grp-head .cnt { font-size: 9.5px; letter-spacing: .18em; color: var(--amber-dim); }
+.grp-head .cnt { font-size: 9.5px; letter-spacing: .18em; color: var(--amber-prose); }
 .grp-head .spacer { flex: 1 1 auto; }
 .crate-toolbar { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
 .crate-toolbar input { flex: 1 1 240px; }
@@ -503,6 +509,15 @@ document.addEventListener("click", (ev) => {
   const panel = document.getElementById(`desc-${id}`);
   if (panel) panel.hidden = !open;
 });
+// ── category rotation ──────────────────────────────────────────────
+// One fact, two shapes: On air draws a chip with its unplayed count, Stations
+// a button in the shelf head. What they share is the words — whether a
+// category feeds the DJ has to be readable on a phone or a wall tablet, where
+// a dimmed color states nothing and a title tooltip has no way to open.
+function rotationLabel(enabled) {
+  return enabled ? "Rotation on" : "Rotation off";
+}
+
 function flash(msg, ok = false) {
   const el = $("flash");
   el.textContent = msg;
