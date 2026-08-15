@@ -1,0 +1,14 @@
+{
+  "name": "Sonos Talk Radio",
+  "short_name": "Talk Radio",
+  "description": "Personal talk-radio DJ for the Sonos system",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0906",
+  "theme_color": "#0b0906",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

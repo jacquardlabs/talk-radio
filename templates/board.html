@@ -1,0 +1,512 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="output">
+  <span class="lbl">OUTPUT</span>
+  <select id="speakers" aria-label="Speaker"></select>
+  <button type="button" class="tab small" id="btn-scan">Scan</button>
+  <button type="button" class="tab small" data-player="group_all">Group all</button>
+</div>
+
+<div class="deck">
+  <img class="deck-art" id="np-art" alt="" hidden>
+  <div class="deck-info">
+    <div class="np-eyebrow"><span id="np-label">Off air</span><span id="np-departs"></span></div>
+    <h1 class="np-title glow" id="np-title">Press Play to go on air</h1>
+    <div class="np-meta" id="np-meta"></div>
+  </div>
+</div>
+<div class="track" id="track" title="Tap to seek">
+  <div class="fill" id="track-fill"></div>
+  <div class="mark" id="track-mark"></div>
+</div>
+<div class="times"><span id="t-pos">0:00</span><span id="t-dur">0:00</span></div>
+
+<div class="transport">
+  <button type="button" class="tab" data-player="back_15" title="Back 15 seconds">&minus;15</button>
+  <button type="button" class="tab tplay paused" id="btn-playpause">&#9654;&ensp;Play</button>
+  <button type="button" class="tab" data-player="fwd_30" title="Forward 30 seconds">+30</button>
+  <div class="skipwrap">
+    <button type="button" class="tab" id="btn-skip" aria-haspopup="true" aria-expanded="false">Skip &#9662;</button>
+    <div class="flap" id="skip-flap" hidden>
+      <button type="button" data-player="defer">Defer <i>back to up next</i></button>
+      <button type="button" data-player="skip_later">Later <i>back in rotation</i></button>
+      <button type="button" class="danger" data-player="skip_done">Done <i>never play again</i></button>
+    </div>
+  </div>
+  <div class="vol" id="vol" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0" title="Volume">
+    <span class="lbl">VOL</span>
+    <span class="meter"><span class="fill" id="vol-fill"></span></span>
+    <span class="val glow" id="vol-val">--</span>
+  </div>
+  <button type="button" class="tab power" data-player="stop" title="Off air — stop and revert the queue">&#9211;</button>
+</div>
+
+<div class="eyebrow"><span>Up next</span>
+  <span><button type="button" class="tab small" id="btn-refresh"
+    title="Re-roll everything the DJ picked; pinned rows stay">Refresh all</button></span></div>
+<div id="departures"></div>
+
+<div id="rotation-block" style="display:none">
+  <div class="eyebrow"><span>In rotation</span><span>Unplayed per category</span></div>
+  <div class="rotrow" id="cat-toggles"></div>
+</div>
+
+<div class="basement">
+  <button type="button" id="wake-line" aria-expanded="false" aria-controls="wake-editor"></button>
+  <button type="button" id="earlier-line" aria-expanded="false" aria-controls="recent-editor" hidden></button>
+  <button type="button" id="trouble-line" aria-expanded="false" aria-controls="trouble-editor" hidden></button>
+</div>
+<div class="bpanel" id="wake-editor" hidden>
+  <div class="svc" id="schedules"></div>
+  <form class="inline" id="add-schedule">
+    <input type="time" id="sched-time" required value="08:00">
+    <span class="chips" id="sched-days"></span>
+    <button type="submit" class="tab">Add alarm</button>
+  </form>
+</div>
+<div class="bpanel" id="recent-editor" hidden>
+  <div class="svc" id="recent"></div>
+</div>
+<div class="bpanel" id="trouble-editor" hidden>
+  <div class="svc" id="trouble"></div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+"use strict";
+let lastCats = "";
+let lastArtUrl = "";
+// server truth we extrapolate from between polls: the position the speaker
+// last reported, plus when we heard it, so a 1-second ticker can advance the
+// readout locally instead of stepping in 5-second jumps.
+let npAnchor = null;  // { pos, dur, at, playing }
+
+function daysLabel(days) {
+  const key = days.join(",");
+  if (key === "0,1,2,3,4") return "Mon–Fri";
+  if (key === "5,6") return "Sat–Sun";
+  if (key === "0,1,2,3,4,5,6") return "daily";
+  return days.map((i) => DAYS[i]).join(" ");
+}
+
+function relStart(sec) {
+  if (sec == null) return "";
+  const m = Math.round(sec / 60);
+  if (m < 1) return " &middot; up next";
+  return m < 60 ? ` &middot; in ~${m} min` : ` &middot; in ~${(m / 60) | 0} h ${String(m % 60).padStart(2, "0")}`;
+}
+
+// paints every position-driven readout (departs, min-left, progress bar,
+// times) from an arbitrary position, so the 5-second poll and the 1-second
+// interpolation ticker share one source of truth and can't drift apart.
+function paintNowPlaying(np, pos, playing, paused) {
+  const dur = np.duration;
+  const remain = dur ? dur - pos : 0;
+  if (playing) {
+    $("np-departs").textContent = dur ? `Departs ${hm(new Date(Date.now() + remain * 1000))}` : "";
+    $("np-meta").innerHTML = `<b class="glow">${Math.max(1, Math.round(remain / 60))} min left</b>` +
+      ` &nbsp;&middot;&nbsp; ${fmt(pos)} / ${fmt(dur)}`;
+  } else {
+    $("np-departs").textContent = paused ? "Held" : "";
+    $("np-meta").innerHTML = `<b>Held at ${fmt(pos)}</b> &nbsp;&middot;&nbsp; of ${fmt(dur)}`;
+  }
+  const pct = dur ? Math.min(100, 100 * pos / dur) : 0;
+  $("track-fill").style.width = `${pct}%`;
+  $("track-mark").style.left = `calc(${pct}% - 1px)`;
+  $("t-pos").textContent = fmt(pos);
+  $("t-dur").textContent = fmt(dur);
+}
+
+// the interpolated position: server anchor plus the seconds elapsed since we
+// heard it, but only while PLAYING; clamped to duration so it never overruns.
+function livePos() {
+  if (!npAnchor) return 0;
+  if (!npAnchor.playing) return npAnchor.pos;
+  const p = npAnchor.pos + (performance.now() - npAnchor.at) / 1000;
+  return npAnchor.dur ? Math.min(p, npAnchor.dur) : p;
+}
+
+// Sonos reports TRANSITIONING while it spins a track up — the window every
+// skip and play-now lands in, since we poll the moment the action returns.
+// That's playback starting, not a hold: the deck reads live, and the primary
+// control stays Pause rather than offering Play against audio already on its
+// way (dj.play() guards that same state server-side).
+function isPlaying(s) {
+  return s.transport === "PLAYING" || s.transport === "TRANSITIONING";
+}
+
+// ── render ─────────────────────────────────────────────────────────
+// A thumbtack, drawn: the only monochrome pushpin in Unicode (U+1F588) has
+// no glyph in this font stack, and the emoji one can't be tinted amber.
+const PIN_SVG =
+  '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+  '<path d="M9 2h6a1 1 0 0 1 0 2h-.5v5.2l2.9 3.1a1 1 0 0 1-.73 1.7H13v6.5a1 1 0 0 1-2 0V14H7.33' +
+  'a1 1 0 0 1-.73-1.7l2.9-3.1V4H9a1 1 0 0 1 0-2z"/></svg>';
+
+function renderPage(s) {
+  const np = s.now_playing;
+  const playing = isPlaying(s);
+  const paused = s.transport === "PAUSED_PLAYBACK";
+
+  // the deck: static display, no crawl
+  const art = $("np-art");
+  if (np) {
+    if (np.image_url && lastArtUrl !== np.image_url) {
+      lastArtUrl = np.image_url;
+      art.src = np.image_url;
+    }
+    art.hidden = !np.image_url;
+    const npDate = pubDate(np.published_at);
+    $("np-label").textContent = `Now playing — ${np.show}` + (npDate ? ` · ${npDate}` : "");
+    $("np-title").textContent = np.title;
+    // re-anchor to the speaker's authoritative position each poll, bounding
+    // interpolation drift to at most one poll interval
+    npAnchor = { pos: np.position, dur: np.duration, at: performance.now(), playing };
+    paintNowPlaying(np, np.position, playing, paused);
+  } else {
+    npAnchor = null;
+    art.hidden = true;
+    lastArtUrl = "";
+    $("np-label").textContent = "Off air";
+    $("np-departs").textContent = "";
+    $("np-title").textContent = s.dj_state === "playing" ? "Stand by — tuning" : "Press Play to go on air";
+    $("np-meta").textContent = "";
+    $("track-fill").style.width = "0%";
+    $("track-mark").style.left = "calc(0% - 1px)";
+    $("t-pos").textContent = "0:00";
+    $("t-dur").textContent = "0:00";
+  }
+
+  // one primary control: Play when anything but playing, Pause while playing
+  const pp = $("btn-playpause");
+  pp.classList.toggle("paused", !playing);
+  pp.innerHTML = playing ? "&#10074;&#10074;&ensp;Pause" : "&#9654;&ensp;Play";
+
+  // volume (skip while the user is dragging)
+  if (!volDrag) setVol(s.volume);
+
+  // up next: artwork rows with honest relative starts.
+  // Skipped entirely mid-drag — this poll rewrites the container wholesale
+  // and would tear the row out from under the pointer, the same reason the
+  // volume slider skips its own repaint while volDrag is set.
+  if (!dragState) {
+    let t = np && np.duration ? np.duration - np.position : null;
+    $("departures").innerHTML = s.up_next.map((e) => {
+      const mine = t;
+      t = (t != null && e.duration) ? t + e.duration : null;
+      const mins = e.duration ? `${Math.round(e.duration / 60)} min` : "";
+      const when = pubDate(e.published_at);
+      const img = e.image_url ? `<img src="${esc(e.image_url)}" alt="" loading="lazy">` : '<span class="noart"></span>';
+      return `<div class="qrow" data-episode-id="${e.episode_id}">` +
+        `<button type="button" class="grip" data-grip="${e.episode_id}" ` +
+        `title="Drag to reorder, or use the arrow keys" ` +
+        `aria-label="Reorder ${esc(e.title)}">&#8801;</button>` +
+        `${img}<div class="qmain">` +
+        `<div class="qtitle">${e.is_news ? '<span class="news">NEWS</span>' : ""}${esc(e.title)}</div>` +
+        `<div class="qmeta">${esc(e.show)}${when ? " &middot; " + when : ""}${mins ? " &middot; " + mins : ""}${playing ? relStart(mine) : ""}</div></div>` +
+        `<div class="qact">` +
+        `<button type="button" class="tab small pin${e.pinned ? " on" : ""}" ` +
+        `data-episode="${e.episode_id}/pin" aria-pressed="${e.pinned ? "true" : "false"}" ` +
+        `aria-label="Pin ${esc(e.title)}" ` +
+        `title="${e.pinned ? "Pinned — Refresh all leaves this alone" : "Pin so Refresh all keeps it"}">` +
+        PIN_SVG + `</button>` +
+        `<button type="button" class="tab small" data-episode="${e.episode_id}/play_now" title="Interrupt and play now">Play now</button>` +
+        `<button type="button" class="tab small" data-episode="${e.episode_id}/drop" title="Back into rotation another day">Drop</button>` +
+        `</div></div>`;
+    }).join("") || '<div class="empty">QUEUE EMPTY</div>';
+    // a keyboard reorder re-renders through this path, so put focus back on
+    // the handle the user is still holding down the arrow key on
+    if (focusGripId != null) {
+      const grip = $("departures").querySelector(`[data-grip="${focusGripId}"]`);
+      if (grip) grip.focus();
+      focusGripId = null;
+    }
+  }
+
+  // rotation switches with the unplayed pool per category
+  const cats = s.categories || [];
+  $("rotation-block").style.display = cats.length ? "" : "none";
+  const unplayedByCat = {};
+  for (const f of s.stations) {
+    const k = f.category_id == null ? "un" : f.category_id;
+    unplayedByCat[k] = (unplayedByCat[k] || 0) + f.counts.new + f.counts.queued;
+  }
+  const catSig = JSON.stringify([cats, unplayedByCat]);
+  if (catSig !== lastCats) {   // don't stomp button press state on every poll
+    lastCats = catSig;
+    $("cat-toggles").innerHTML = cats.map((c) => {
+      const n = (unplayedByCat[c.id] || 0).toLocaleString();
+      return `<button type="button" class="rots ${c.rotation_enabled ? "on" : "off"}" data-category="${c.id}/toggle" ` +
+        `title="${esc(c.name)} — ${c.rotation_enabled ? "in rotation; click to switch off" : "off; click to switch on"}">` +
+        `<span class="n">${esc(c.name)}</span><span class="u">${c.rotation_enabled ? n : "&mdash;"}</span></button>`;
+    }).join("");
+  }
+
+  // basement: one quiet line each for wake + earlier, editors behind a tap
+  const alarms = s.schedules.filter((a) => a.enabled);
+  const wakeSummary = !s.schedules.length ? "Wake — no alarms"
+    : !alarms.length ? "Wake — alarms off"
+    : "Wake " + alarms.map((a) => `${a.time} ${daysLabel(a.days)}`).join(" · ");
+  $("wake-line").textContent = wakeSummary +
+    (s.next_start ? ` · next start ${s.next_start}` : "") +
+    ($("wake-editor").hidden ? " ▾" : " ▴");
+  $("schedules").innerHTML = s.schedules.map((a) =>
+    `<div class="svc-row"><span class="sched-time glow">${esc(a.time)}</span>` +
+    `<span class="chips">` + DAYS.map((d, i) =>
+      `<span class="chip mini${a.days.includes(i) ? " on" : ""}">${d[0]}</span>`).join("") +
+    `</span><span class="spacer"></span>` +
+    `<button type="button" class="tab small" data-sched="${a.id}/toggle">${a.enabled ? "On" : "Off"}</button>` +
+    `<button type="button" class="tab small red" data-sched="${a.id}/delete">Delete</button></div>`
+  ).join("") || '<div class="empty">NO ALARMS</div>';
+
+  const recent = s.recently_played;
+  $("earlier-line").hidden = !recent.length;
+  if (recent.length) {
+    $("earlier-line").textContent = "Earlier: " + recent.slice(0, 2).map((e) =>
+      e.show + (e.played_at ? " " + hm(new Date(e.played_at)) : "")).join(" · ") +
+      ($("recent-editor").hidden ? " ▾" : " ▴");
+  }
+  $("recent").innerHTML = recent.map((e) =>
+    `<div class="svc-row"><span class="glow">${esc(e.title)}</span>` +
+    `<span class="m">${esc(e.show)}${e.played_at ? " &middot; " + hm(new Date(e.played_at)) : ""}</span></div>`
+  ).join("") || '<div class="empty">NOTHING YET</div>';
+
+  // Episodes the speaker took and then made no sound on. Without this the
+  // only symptom is the episode you asked for not being the one you hear.
+  const trouble = s.recent_failures || [];
+  $("trouble-line").hidden = !trouble.length;
+  if (trouble.length) {
+    $("trouble-line").textContent =
+      `Wouldn't play: ${trouble.length}` +
+      ($("trouble-editor").hidden ? " ▾" : " ▴");
+  }
+  $("trouble").innerHTML = trouble.map((e) =>
+    `<div class="svc-row"><span class="pri">${esc(e.title)}</span>` +
+    `<span class="m">${esc(e.show)} &middot; ${e.attempts}&times;` +
+    `${e.given_up ? " &middot; given up" : " &middot; will retry"}</span></div>`
+  ).join("") || '<div class="empty">ALL CLEAR</div>';
+
+  const sel = $("speakers");
+  if (s.speaker && !sel.options.length) {
+    sel.innerHTML = `<option value="${esc(s.speaker.ip)}">${esc(s.speaker.name)}</option>`;
+  }
+}
+
+// ── reordering up next ─────────────────────────────────────────────
+// Pointer events, not HTML5 drag-and-drop: DnD never fires on touch, and
+// this board is used as a phone PWA. Positions are sent as indexes within
+// Up Next; the server maps them onto the Sonos queue, which still carries
+// finished tracks the listener can't see.
+let dragState = null;    // { id, row } while a drag is live
+let focusGripId = null;  // grip to refocus after a keyboard-driven re-render
+
+function qrows() {
+  return Array.from($("departures").querySelectorAll(".qrow"));
+}
+
+function sendOrder(row) {
+  const to = qrows().indexOf(row);
+  if (to < 0) return;
+  post("/queue/reorder", { episode_id: Number(row.dataset.episodeId), to_position: to });
+}
+
+$("departures").addEventListener("pointerdown", (ev) => {
+  const grip = ev.target.closest(".grip");
+  if (!grip) return;
+  const row = grip.closest(".qrow");
+  if (!row) return;
+  // Capture on the container, not the grip: reordering moves the dragged
+  // row through insertBefore, which detaches and re-inserts it, and an
+  // element that leaves the document loses pointer capture. The container
+  // never moves — and never re-renders while dragState is set.
+  $("departures").setPointerCapture(ev.pointerId);
+  dragState = { id: Number(row.dataset.episodeId), row, pointerId: ev.pointerId };
+  row.classList.add("dragging");
+});
+
+$("departures").addEventListener("pointermove", (ev) => {
+  if (!dragState) return;
+  const row = dragState.row;
+  for (const other of qrows()) {
+    if (other === row) continue;
+    const box = other.getBoundingClientRect();
+    const mid = box.top + box.height / 2;
+    const rowIsAfter = other.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING;
+    if (ev.clientY < mid && rowIsAfter) {
+      other.parentNode.insertBefore(row, other);
+      break;
+    }
+    if (ev.clientY > mid && !rowIsAfter) {
+      other.parentNode.insertBefore(row, other.nextSibling);
+      break;
+    }
+  }
+});
+
+function endDrag() {
+  if (!dragState) return;
+  const { row, pointerId } = dragState;
+  dragState = null;             // clear first, so the poll can render again
+  row.classList.remove("dragging");
+  if ($("departures").hasPointerCapture(pointerId)) {
+    $("departures").releasePointerCapture(pointerId);
+  }
+  sendOrder(row);
+}
+$("departures").addEventListener("pointerup", endDrag);
+$("departures").addEventListener("pointercancel", endDrag);
+
+// arrow keys on a focused grip: the cheap path to keyboard and assistive
+// support, rather than emulating drag semantics for it
+$("departures").addEventListener("keydown", (ev) => {
+  if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown") return;
+  const grip = ev.target.closest(".grip");
+  if (!grip) return;
+  ev.preventDefault();
+  const row = grip.closest(".qrow");
+  const rows = qrows();
+  const from = rows.indexOf(row);
+  const to = Math.max(0, Math.min(rows.length - 1, from + (ev.key === "ArrowUp" ? -1 : 1)));
+  if (to === from) return;
+  if (to < from) row.parentNode.insertBefore(row, rows[to]);
+  else row.parentNode.insertBefore(row, rows[to].nextSibling);
+  focusGripId = row.dataset.episodeId;
+  grip.focus();
+  sendOrder(row);
+});
+
+// ── volume ─────────────────────────────────────────────────────────
+let volDrag = false;
+let volPct = null;
+function setVol(v) {
+  const known = v != null;
+  $("vol-fill").style.width = known ? `${v}%` : "0";
+  $("vol-val").textContent = known ? v : "--";
+  $("vol").setAttribute("aria-valuenow", known ? v : 0);
+}
+function volFromEvent(ev) {
+  const meter = $("vol").querySelector(".meter");
+  const r = meter.getBoundingClientRect();
+  volPct = Math.round(100 * Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)));
+  setVol(volPct);
+}
+$("vol").addEventListener("pointerdown", (ev) => {
+  volDrag = true;
+  $("vol").setPointerCapture(ev.pointerId);
+  volFromEvent(ev);
+});
+$("vol").addEventListener("pointermove", (ev) => { if (volDrag) volFromEvent(ev); });
+$("vol").addEventListener("pointerup", () => {
+  volDrag = false;
+  if (volPct != null) post("/player/volume", { volume: volPct });
+});
+$("vol").addEventListener("keydown", (ev) => {
+  if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+  ev.preventDefault();
+  const cur = status && status.volume != null ? status.volume : 50;
+  const next = Math.max(0, Math.min(100, cur + (ev.key === "ArrowRight" ? 5 : -5)));
+  setVol(next);
+  post("/player/volume", { volume: next });
+});
+
+// ── wire up ────────────────────────────────────────────────────────
+function closeFlap() {
+  $("skip-flap").hidden = true;
+  $("btn-skip").setAttribute("aria-expanded", "false");
+}
+$("btn-skip").addEventListener("click", (ev) => {
+  ev.stopPropagation();
+  const flap = $("skip-flap");
+  flap.hidden = !flap.hidden;
+  $("btn-skip").setAttribute("aria-expanded", String(!flap.hidden));
+});
+$("btn-playpause").addEventListener("click", (ev) => {
+  const playing = status && isPlaying(status);
+  post(`/player/${playing ? "pause" : "play"}`, {}, ev.currentTarget);
+});
+
+// Re-rolls the DJ's picks. Armed rather than instant: it discards a queue,
+// and the pinned rows it spares are not obvious until you've used it once.
+$("btn-refresh").addEventListener("click", (ev) => {
+  if (armed(ev.currentTarget)) post("/queue/refresh", {}, ev.currentTarget);
+});
+
+document.addEventListener("click", (ev) => {
+  if (!ev.target.closest(".skipwrap")) closeFlap();
+  const btn = ev.target.closest("button");
+  if (!btn) return;
+  if (btn.closest(".flap")) closeFlap();
+  if (btn.dataset.player) return void post(`/player/${btn.dataset.player}`, {}, btn);
+  if (btn.dataset.sched) return void post(`/schedules/${btn.dataset.sched}`, {}, btn);
+  if (btn.dataset.category) return void post(`/categories/${btn.dataset.category}`, {}, btn);
+  if (btn.dataset.episode) {
+    const [id, action] = btn.dataset.episode.split("/");
+    return void post(`/episodes/${id}/${action}`, {}, btn);
+  }
+});
+
+$("track").addEventListener("click", (ev) => {
+  const np = status && status.now_playing;
+  if (!np || !np.duration) return;
+  const rect = $("track").getBoundingClientRect();
+  const frac = (ev.clientX - rect.left) / rect.width;
+  post("/player/seek", { seconds: Math.round(frac * np.duration) });
+});
+
+$("btn-scan").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget;
+  btn.classList.add("pressed");
+  btn.textContent = "Scanning…";
+  try {
+    const data = await (await fetch("/api/speakers")).json();
+    const sel = $("speakers");
+    sel.innerHTML = data.speakers.map((sp) =>
+      `<option value="${esc(sp.ip)}">${esc(sp.name)}</option>`).join("");
+    if (!data.speakers.length) flash("No speakers found — same network? host networking?");
+  } finally {
+    btn.classList.remove("pressed");
+    btn.textContent = "Scan";
+  }
+});
+$("speakers").addEventListener("change", (ev) => post("/api/speaker", { ip: ev.target.value }));
+
+function wireDisclosure(lineId, panelId) {
+  $(lineId).addEventListener("click", () => {
+    const panel = $(panelId);
+    panel.hidden = !panel.hidden;
+    $(lineId).setAttribute("aria-expanded", String(!panel.hidden));
+    if (status) renderPage(status);   // refresh the ▾/▴ arrow
+  });
+}
+wireDisclosure("wake-line", "wake-editor");
+wireDisclosure("earlier-line", "recent-editor");
+wireDisclosure("trouble-line", "trouble-editor");
+
+const dayChips = DAYS.map((d, i) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "chip" + (i < 5 ? " on" : "");
+  b.textContent = d[0];
+  b.title = d;
+  b.addEventListener("click", () => b.classList.toggle("on"));
+  $("sched-days").appendChild(b);
+  return b;
+});
+$("add-schedule").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const days = dayChips.flatMap((b, i) => (b.classList.contains("on") ? [i] : []));
+  post("/schedules", { time: $("sched-time").value, days });
+});
+
+// between the 5-second polls, advance the now-playing readout locally so the
+// clock and progress bar tick every second instead of stepping in 5s jumps.
+// Only runs while PLAYING; each poll re-anchors to the speaker's real position.
+setInterval(() => {
+  if (npAnchor && npAnchor.playing && status && status.now_playing) {
+    paintNowPlaying(status.now_playing, livePos(), true, false);
+  }
+}, 1000);
+</script>
+{% endblock %}

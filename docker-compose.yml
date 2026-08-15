@@ -1,0 +1,18 @@
+services:
+  talk-radio:
+    build: .
+    # Host networking is required: Sonos discovery uses multicast/SSDP,
+    # which doesn't cross Docker's default bridge network.
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      # Containers default to UTC. Wake alarms fire in THIS timezone —
+      # set it or your 8:00 alarm rings at 8:00 UTC.
+      - TZ=${TZ:-America/Chicago}
+      - DATA_DIR=/data
+      # With host networking the app binds this port directly on the host.
+      - PORT=${PORT:-8080}
+      # - SONOS_IP=192.168.1.50      # skip discovery entirely
+      # - DOWNLOAD_MODE=1            # for CDNs Sonos won't stream from
+    volumes:
+      - ./data:/data
