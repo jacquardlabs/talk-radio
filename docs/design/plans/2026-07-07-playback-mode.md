@@ -1,7 +1,5 @@
 # Per-Show Playback Mode Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Make the within-show pick per-show configurable — `in_order` (today's oldest-unplayed-first) or `random` (any unplayed episode, arc-guarded so a multi-part story never starts mid-arc).
 
 **Architecture:** A `playback_mode` column on `feeds` branches `pick_next()`'s within-show step. Arc detection is a pure title function `arc_key()` living in `feeds.py` (title normalization is boundary work, and `dj.py` already imports `feeds` — the reverse import would be circular). New feeds auto-classify at ingest; a `playback` action on the existing feed dispatcher and one state-labeled button in the station sheet complete the surface.
@@ -49,16 +47,13 @@ def test_playback_mode_default_and_toggle(db: Database) -> None:
     db.toggle_feed_playback(fid)
     assert db.get_feed(fid)["playback_mode"] == "in_order"
 
-
 def test_add_feed_with_playback_mode(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False, playback_mode="random")
     assert db.get_feed(fid)["playback_mode"] == "random"
 
-
 def test_playback_mode_check_constraint(db: Database) -> None:
     with pytest.raises(sqlite3.IntegrityError):
         db.add_feed("https://ex.com/rss", "Show", None, False, playback_mode="chaos")
-
 
 def test_new_episodes_for_feed_ordering_and_filter(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
@@ -185,7 +180,6 @@ import pytest
 
 from feeds import arc_key
 
-
 @pytest.mark.parametrize("a, b", [
     # Hardcore History style: trailing roman numerals
     ("Show 66 - Supernova in the East V", "Show 67 - Supernova in the East VI"),
@@ -206,7 +200,6 @@ def test_same_arc(a: str, b: str) -> None:
     assert arc_key(a) is not None
     assert arc_key(a) == arc_key(b)
 
-
 @pytest.mark.parametrize("title", [
     "10.91- The End",              # leading number only — show numbering, not an arc
     "HoP 442 - Scholastic Metaphysics",  # embedded numbering, no marker
@@ -218,16 +211,13 @@ def test_same_arc(a: str, b: str) -> None:
 def test_standalone(title: str) -> None:
     assert arc_key(title) is None
 
-
 def test_distinct_arcs_do_not_collide() -> None:
     assert arc_key("The Fall of Rome (Part 1)") != arc_key("The Fall of Carthage (Part 1)")
-
 
 def test_benign_roman_grouping_is_by_design() -> None:
     # "…World War II" keys with "…World War III" — a false group that merely
     # constrains those episodes to chronological order. Documented tradeoff.
     assert arc_key("The History of World War II") == arc_key("The History of World War III")
-
 
 def test_lowercase_word_endings_are_not_romans() -> None:
     assert arc_key("Songs to remix") is None
@@ -261,7 +251,6 @@ _PART_MARKER_RES = (
 # Uppercase-only, so word endings ("remix", "xi") never match.
 _TRAILING_ROMAN_RE = re.compile(
     r"\s+(?:XIII|XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I)\s*$")
-
 
 def arc_key(title: str) -> str | None:
     """Grouping key for multi-part arcs, or None when the title carries no
@@ -309,12 +298,10 @@ def test_random_mode_can_pick_nonchronologically(db: Database, monkeypatch) -> N
     monkeypatch.setattr(dj_mod.random, "choice", lambda seq: seq[-1])
     assert pick_next(db)["guid"] == "g-epi-6"  # newest, not oldest
 
-
 def test_in_order_mode_ignores_randomness(db: Database, monkeypatch) -> None:
     fid = _feed_with_eps(db, "serial", 5)  # default in_order
     monkeypatch.setattr(dj_mod.random, "choice", lambda seq: seq[-1])
     assert pick_next(db)["guid"] == "g-serial-1"  # still oldest
-
 
 def _saga_feed(db: Database) -> int:
     fid = db.add_feed("https://saga/rss", "saga", None, False)
@@ -325,13 +312,11 @@ def _saga_feed(db: Database) -> int:
                           f"2026-01-{i:02d}T00:00:00Z")
     return fid
 
-
 def test_arc_guard_redirects_midarc_draw(db: Database, monkeypatch) -> None:
     fid = _saga_feed(db)
     db.toggle_feed_playback(fid)
     monkeypatch.setattr(dj_mod.random, "choice", lambda seq: seq[-1])  # draw Part 3
     assert pick_next(db)["title"] == "The Long War (Part 1)"
-
 
 def test_arc_guard_resumes_partial_arc(db: Database, monkeypatch) -> None:
     fid = _saga_feed(db)
@@ -342,7 +327,6 @@ def test_arc_guard_resumes_partial_arc(db: Database, monkeypatch) -> None:
     db.mark_played(part1["id"], "2026-02-01T00:00:00Z")
     monkeypatch.setattr(dj_mod.random, "choice", lambda seq: seq[-1])  # draw Part 3
     assert pick_next(db)["title"] == "The Long War (Part 2)"  # not a replay of 1
-
 
 def test_random_mode_seeded_draws_vary(db: Database) -> None:
     fid = _feed_with_eps(db, "epi", 30)
@@ -382,7 +366,6 @@ def pick_next(db: Database) -> sqlite3.Row | None:
     if feed["playback_mode"] == "random":
         return _random_pick(db, feed["id"])
     return db.oldest_new_for_feed(feed["id"])
-
 
 def _random_pick(db: Database, feed_id: int) -> sqlite3.Row | None:
     """Draw a random unplayed episode; if its title carries an arc marker,
@@ -443,7 +426,6 @@ def test_feed_playback_toggle_route(client) -> None:
     assert station["playback_mode"] == "random"
     assert c.post(f"/feeds/{fid}/playback").get_json()["ok"] is True
     assert db.get_feed(fid)["playback_mode"] == "in_order"
-
 
 def test_status_playback_mode_defaults_in_order(client) -> None:
     c, db, _ = client
@@ -507,25 +489,20 @@ class _ParsedStub:
         self.feed = {"itunes_type": itunes_type} if itunes_type else {}
         self.entries = [{"title": t} for t in titles]
 
-
 def test_detect_declared_serial_is_in_order() -> None:
     parsed = _ParsedStub(itunes_type="serial", titles=("Anything", "At all"))
     assert detect_playback_mode(parsed) == "in_order"
-
 
 def test_detect_numbered_titles_is_in_order() -> None:
     parsed = _ParsedStub(titles=("1. Alpha", "2. Beta", "3. Gamma", "Bonus chat"))
     assert detect_playback_mode(parsed) == "in_order"  # 3/4 numbered >= 50%
 
-
 def test_detect_plain_titles_is_random() -> None:
     parsed = _ParsedStub(titles=("The Mothman", "Owls", "A chat with Sam", "Cheese"))
     assert detect_playback_mode(parsed) == "random"
 
-
 def test_detect_empty_feed_is_in_order() -> None:
     assert detect_playback_mode(_ParsedStub()) == "in_order"
-
 
 def test_add_feed_from_parsed_sets_detected_mode(db: Database) -> None:
     items = "".join(
@@ -549,7 +526,6 @@ In `feeds.py`, after `arc_key`:
 
 ```python
 SEQUENTIAL_TITLE_THRESHOLD = 0.5
-
 
 def detect_playback_mode(parsed) -> str:
     """in_order when the feed declares itunes:type=serial or when at least

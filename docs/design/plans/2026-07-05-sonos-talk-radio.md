@@ -1,14 +1,12 @@
 # Sonos Talk Radio Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** A self-hosted Flask + background-thread app that manages podcast RSS feeds and continuously programs Sonos speakers like a personal talk-radio station (random show rotation, multi-part episodes in order, news first).
 
 **Architecture:** Single Python 3.12 process: a Flask web thread plus one DJ loop thread, sharing a WAL-mode SQLite file with a connection per operation. `sonos_ctl.SonosPlayer` wraps the SoCo group coordinator behind a small interface; `dj.DJ` takes any player-shaped object, so all queue-reconciliation logic is tested against an in-memory `FakeSonosPlayer`.
 
 **Tech Stack:** Python 3.12, Flask, SoCo, feedparser, requests, SQLite (stdlib), pytest (dev only), uv for dev tooling.
 
-**Authoritative requirements:** `sonos-talk-radio-claude-code-prompt.md` (repo root) and `docs/superpowers/specs/2026-07-05-sonos-talk-radio-design.md`. Where this plan is ambiguous, the prompt wins.
+**Authoritative requirements:** `docs/original-build-prompt.md` and `docs/design/specs/2026-07-05-sonos-talk-radio-design.md`. Where this plan is ambiguous, the prompt wins.
 
 ## Global Constraints
 
@@ -80,7 +78,6 @@ Expected: venv at `.venv/`, all five packages install without error.
 ```python
 from config import Config
 
-
 def test_defaults() -> None:
     cfg = Config.from_env({})
     assert cfg.data_dir == "./data"
@@ -99,14 +96,12 @@ def test_defaults() -> None:
     assert cfg.user_agent == "SonosTalkRadio/1.0"
     assert cfg.grace_minutes == 10
 
-
 def test_overrides_and_derived_paths() -> None:
     cfg = Config.from_env({"DATA_DIR": "/x", "PORT": "9090", "DOWNLOAD_MODE": "1"})
     assert cfg.db_path == "/x/radio.db"
     assert cfg.media_dir == "/x/media"
     assert cfg.port == 9090
     assert cfg.download_mode is True
-
 
 def test_explicit_db_path_beats_derived() -> None:
     cfg = Config.from_env({"DATA_DIR": "/x", "DB_PATH": "/elsewhere/r.db"})
@@ -127,7 +122,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Mapping
-
 
 @dataclass(frozen=True)
 class Config:
@@ -208,18 +202,15 @@ import pytest
 from config import Config
 from db import Database
 
-
 @pytest.fixture
 def db(tmp_path) -> Database:
     d = Database(str(tmp_path / "test.db"))
     d.init()
     return d
 
-
 @pytest.fixture
 def cfg(tmp_path) -> Config:
     return Config.from_env({"DATA_DIR": str(tmp_path)})
-
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
@@ -240,7 +231,6 @@ def no_network(monkeypatch):
 ```python
 from db import Database, utcnow_iso
 
-
 def _ep(db: Database, feed_id: int, n: int, status: str = "new") -> int:
     db.insert_episode(feed_id, f"guid-{feed_id}-{n}", f"Ep {n}",
                       f"https://cdn.example.com/f{feed_id}/e{n}.mp3",
@@ -248,10 +238,8 @@ def _ep(db: Database, feed_id: int, n: int, status: str = "new") -> int:
     eps = db.episodes_for_feed(feed_id)
     return next(e["id"] for e in eps if e["guid"] == f"guid-{feed_id}-{n}")
 
-
 def test_init_is_idempotent(db: Database) -> None:
     db.init()  # second run must not raise
-
 
 def test_feed_crud(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, is_news=False)
@@ -263,19 +251,16 @@ def test_feed_crud(db: Database) -> None:
     assert db.get_feed(fid)["is_news"] == 1
     assert [f["id"] for f in db.list_feeds()] == [fid]
 
-
 def test_delete_feed_cascades_episodes(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     _ep(db, fid, 1)
     db.delete_feed(fid)
     assert db.episodes_with_status("new") == []
 
-
 def test_insert_episode_dedupes_on_guid(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     assert db.insert_episode(fid, "g1", "A", "https://a/1.mp3", "2026-01-01T00:00:00Z") is True
     assert db.insert_episode(fid, "g1", "A again", "https://a/1.mp3", "2026-01-01T00:00:00Z") is False
-
 
 def test_oldest_new_for_feed_orders_by_published(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
@@ -283,7 +268,6 @@ def test_oldest_new_for_feed_orders_by_published(db: Database) -> None:
     _ep(db, fid, 1)
     _ep(db, fid, 2)
     assert db.oldest_new_for_feed(fid)["guid"] == f"guid-{fid}-1"
-
 
 def test_status_lifecycle(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
@@ -298,7 +282,6 @@ def test_status_lifecycle(db: Database) -> None:
     assert ep["status"] == "played" and ep["resume_seconds"] is None
     assert ep["play_uri"] is None and ep["local_path"] is None and ep["played_at"]
 
-
 def test_revert_to_new_keeps_resume(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     eid = _ep(db, fid, 1)
@@ -308,7 +291,6 @@ def test_revert_to_new_keeps_resume(db: Database) -> None:
     ep = db.get_episode(eid)
     assert ep["status"] == "new" and ep["resume_seconds"] == 120 and ep["play_uri"] is None
 
-
 def test_revert_all_queued(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     a, b = _ep(db, fid, 1), _ep(db, fid, 2)
@@ -317,7 +299,6 @@ def test_revert_all_queued(db: Database) -> None:
     assert db.revert_all_queued() == 2
     assert db.episodes_with_status("queued") == []
 
-
 def test_archive_and_unarchive(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     eid = _ep(db, fid, 1)
@@ -325,7 +306,6 @@ def test_archive_and_unarchive(db: Database) -> None:
     assert db.get_episode(eid)["status"] == "archived"
     assert db.unarchive_feed(fid) == 1
     assert db.get_episode(eid)["status"] == "new"
-
 
 def test_rotation_feeds_excludes_news_disabled_and_empty(db: Database) -> None:
     plain = db.add_feed("https://a/rss", "A", None, False)
@@ -339,7 +319,6 @@ def test_rotation_feeds_excludes_news_disabled_and_empty(db: Database) -> None:
     assert [f["id"] for f in db.rotation_feeds_with_new()] == [plain]
     assert empty not in [f["id"] for f in db.rotation_feeds_with_new()]
 
-
 def test_fresh_news_ordering_and_prune(db: Database) -> None:
     news = db.add_feed("https://b/rss", "News", None, True)
     _ep(db, news, 2)
@@ -349,12 +328,10 @@ def test_fresh_news_ordering_and_prune(db: Database) -> None:
     assert db.prune_stale_news("2026-01-02T00:00:00Z") == 1
     assert db.get_episode(fresh[0]["id"])["status"] == "skipped"
 
-
 def test_prune_ignores_non_news(db: Database) -> None:
     plain = db.add_feed("https://a/rss", "A", None, False)
     _ep(db, plain, 1)
     assert db.prune_stale_news("2027-01-01T00:00:00Z") == 0
-
 
 def test_counts_by_feed(db: Database) -> None:
     fid = db.add_feed("https://a/rss", "A", None, False)
@@ -364,7 +341,6 @@ def test_counts_by_feed(db: Database) -> None:
     counts = db.counts_by_feed()
     assert counts[fid] == {"new": 1, "queued": 1}
 
-
 def test_recently_played_includes_feed_title(db: Database) -> None:
     fid = db.add_feed("https://a/rss", "My Show", None, False)
     eid = _ep(db, fid, 1)
@@ -373,7 +349,6 @@ def test_recently_played_includes_feed_title(db: Database) -> None:
     rows = db.recently_played()
     assert rows[0]["feed_title"] == "My Show"
 
-
 def test_kv(db: Database) -> None:
     assert db.kv_get("k") is None
     db.kv_set("k", "v1")
@@ -381,7 +356,6 @@ def test_kv(db: Database) -> None:
     assert db.kv_get("k") == "v2"
     db.kv_del("k")
     assert db.kv_get("k") is None
-
 
 def test_schedules(db: Database) -> None:
     sid = db.add_schedule("08:00", [0, 1, 2, 3, 4])
@@ -452,10 +426,8 @@ CREATE TABLE IF NOT EXISTS schedules (
 );
 """
 
-
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
 
 class Database:
     """One short-lived connection per operation; WAL lets the web and DJ
@@ -724,10 +696,8 @@ git commit -m "feat: SQLite schema and Database with centralized status transiti
 from datetime import datetime
 from email.utils import format_datetime
 
-
 def slug(title: str) -> str:
     return title.lower().replace(" ", "-")
-
 
 def rss(feed_title: str, items: list[tuple[str, datetime]]) -> str:
     parts = []
@@ -758,15 +728,12 @@ from rss_fixtures import rss
 
 NOW = datetime.now(timezone.utc)
 
-
 def _items(n: int) -> list[tuple[str, datetime]]:
     """n items, item 1 oldest."""
     return [(f"Part {i}", NOW - timedelta(days=n - i)) for i in range(1, n + 1)]
 
-
 def _statuses(db: Database, feed_id: int) -> dict[str, str]:
     return {e["guid"]: e["status"] for e in db.episodes_for_feed(feed_id)}
-
 
 def test_scope_all_keeps_everything_new(db: Database) -> None:
     parsed = feedparser.parse(rss("Show", _items(4)))
@@ -774,12 +741,10 @@ def test_scope_all_keeps_everything_new(db: Database) -> None:
     assert set(_statuses(db, fid).values()) == {"new"}
     assert db.oldest_new_for_feed(fid)["guid"] == "guid-part-1"
 
-
 def test_scope_new_only_archives_everything(db: Database) -> None:
     parsed = feedparser.parse(rss("Show", _items(3)))
     fid = add_feed_from_parsed(db, parsed, "https://x/rss", False, include="new_only")
     assert set(_statuses(db, fid).values()) == {"archived"}
-
 
 def test_scope_latest_keeps_newest_one(db: Database) -> None:
     parsed = feedparser.parse(rss("Show", _items(3)))
@@ -788,14 +753,12 @@ def test_scope_latest_keeps_newest_one(db: Database) -> None:
     assert st["guid-part-3"] == "new"
     assert st["guid-part-1"] == st["guid-part-2"] == "archived"
 
-
 def test_scope_last_n_keeps_newest_n(db: Database) -> None:
     parsed = feedparser.parse(rss("Show", _items(5)))
     fid = add_feed_from_parsed(db, parsed, "https://x/rss", False, include="last_n", last_n=2)
     st = _statuses(db, fid)
     assert st["guid-part-5"] == st["guid-part-4"] == "new"
     assert st["guid-part-3"] == st["guid-part-2"] == st["guid-part-1"] == "archived"
-
 
 def test_refresh_is_idempotent_and_new_drops_are_playable(db: Database) -> None:
     parsed = feedparser.parse(rss("Show", _items(2)))
@@ -804,7 +767,6 @@ def test_refresh_is_idempotent_and_new_drops_are_playable(db: Database) -> None:
     later = feedparser.parse(rss("Show", _items(3)))  # Part 3 just dropped
     assert ingest_entries(db, fid, later) == 1
     assert _statuses(db, fid)["guid-part-3"] == "new"  # playable despite new_only
-
 
 def test_refresh_all_prunes_stale_news(db: Database, cfg: Config, monkeypatch) -> None:
     stale = NOW - timedelta(hours=48)
@@ -815,7 +777,6 @@ def test_refresh_all_prunes_stale_news(db: Database, cfg: Config, monkeypatch) -
     refresh_all(db, cfg)
     st = _statuses(db, fid)
     assert st["guid-old-news"] == "skipped" and st["guid-fresh-news"] == "new"
-
 
 def test_refresh_all_survives_a_broken_feed(db: Database, cfg: Config, monkeypatch) -> None:
     good = feedparser.parse(rss("Good", _items(1)))
@@ -833,7 +794,6 @@ def test_refresh_all_survives_a_broken_feed(db: Database, cfg: Config, monkeypat
     monkeypatch.setattr(feeds_mod, "fetch_feed", fake_fetch)
     refresh_all(db, cfg)  # must not raise
     assert len(calls) == 2
-
 
 def test_news_cutoff_format(cfg: Config) -> None:
     cutoff = news_cutoff_iso(cfg)
@@ -865,10 +825,8 @@ logger = logging.getLogger(__name__)
 
 INCLUDE_MODES = ("new_only", "latest", "last_n", "all")
 
-
 class FeedError(Exception):
     pass
-
 
 def fetch_feed(url: str, user_agent: str) -> feedparser.FeedParserDict:
     resp = requests.get(url, headers={"User-Agent": user_agent}, timeout=30)
@@ -877,7 +835,6 @@ def fetch_feed(url: str, user_agent: str) -> feedparser.FeedParserDict:
     if not parsed.entries and parsed.bozo:
         raise FeedError(f"could not parse feed: {url}")
     return parsed
-
 
 def entry_audio_url(entry) -> str | None:
     for enc in entry.get("enclosures", []):
@@ -889,13 +846,11 @@ def entry_audio_url(entry) -> str | None:
             return link["href"]
     return None
 
-
 def entry_published_iso(entry) -> str:
     t = entry.get("published_parsed") or entry.get("updated_parsed")
     if t is None:
         return utcnow_iso()
     return datetime(*t[:6], tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
 
 def ingest_entries(db: Database, feed_id: int, parsed) -> int:
     inserted = 0
@@ -908,7 +863,6 @@ def ingest_entries(db: Database, feed_id: int, parsed) -> int:
                              entry_published_iso(entry)):
             inserted += 1
     return inserted
-
 
 def add_feed_from_parsed(db: Database, parsed, url: str, is_news: bool,
                          include: str = "latest", last_n: int | None = None) -> int:
@@ -925,17 +879,14 @@ def add_feed_from_parsed(db: Database, parsed, url: str, is_news: bool,
         db.archive_episode(episode["id"])
     return feed_id
 
-
 def add_feed(db: Database, cfg: Config, url: str, is_news: bool,
              include: str = "latest", last_n: int | None = None) -> int:
     return add_feed_from_parsed(db, fetch_feed(url, cfg.user_agent),
                                 url, is_news, include, last_n)
 
-
 def news_cutoff_iso(cfg: Config) -> str:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=cfg.news_max_age_hours)
     return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-
 
 def refresh_all(db: Database, cfg: Config) -> None:
     for feed in db.list_feeds():
@@ -980,22 +931,18 @@ git commit -m "feat: feed ingest with catalog scopes, idempotent refresh, news p
 ```python
 from audio import delete_local, guess_mime, media_url, normalize_uri, uris_match
 
-
 def test_guess_mime() -> None:
     assert guess_mime("https://x/a.mp3") == "audio/mpeg"
     assert guess_mime("https://x/a.m4a?tok=1") == "audio/mp4"
     assert guess_mime("https://x/a.ogg") == "audio/ogg"
     assert guess_mime("https://x/whatknows") == "audio/mpeg"
 
-
 def test_normalize_strips_query_and_lowercases_host() -> None:
     assert normalize_uri("HTTPS://CDN.X.com/a/B.mp3?token=zzz#f") == "https://cdn.x.com/a/B.mp3"
-
 
 def test_uris_match_exact_and_normalized() -> None:
     assert uris_match("https://x/a.mp3", "https://x/a.mp3")
     assert uris_match("https://x/a.mp3?tok=1", "https://x/a.mp3?tok=2")
-
 
 def test_uris_match_path_only_fallback() -> None:
     # Sonos rewrites the scheme/host for some streams; the path survives.
@@ -1004,10 +951,8 @@ def test_uris_match_path_only_fallback() -> None:
     assert not uris_match("https://x/a.mp3", "https://x/b.mp3")
     assert not uris_match("https://x/", "https://y/")
 
-
 def test_media_url() -> None:
     assert media_url("http://10.0.0.5:8080/", "ep7.mp3") == "http://10.0.0.5:8080/media/ep7.mp3"
-
 
 def test_delete_local_missing_file_is_silent(tmp_path) -> None:
     delete_local(str(tmp_path / "nope.mp3"))  # must not raise
@@ -1036,16 +981,13 @@ AUDIO_MIME = {
     ".opus": "audio/ogg", ".wav": "audio/wav", ".flac": "audio/flac",
 }
 
-
 def guess_mime(url: str) -> str:
     path = urlparse(url).path.lower()
     return next((mime for ext, mime in AUDIO_MIME.items() if path.endswith(ext)), "audio/mpeg")
 
-
 def normalize_uri(uri: str) -> str:
     p = urlparse(uri)
     return f"{p.scheme.lower()}://{p.netloc.lower()}{p.path}"
-
 
 def uris_match(a: str, b: str) -> bool:
     """Exact/normalized match, falling back to path-only — some hosts append
@@ -1054,7 +996,6 @@ def uris_match(a: str, b: str) -> bool:
         return True
     pa, pb = urlparse(a).path, urlparse(b).path
     return pa not in ("", "/") and pa == pb
-
 
 def resolve_audio_url(url: str, user_agent: str) -> str:
     """Follow the redirect chain to a final direct URL (HEAD, falling back
@@ -1072,7 +1013,6 @@ def resolve_audio_url(url: str, user_agent: str) -> str:
         resp.close()
         return final
 
-
 def download_episode(url: str, media_dir: str, episode_id: int, user_agent: str) -> str:
     os.makedirs(media_dir, exist_ok=True)
     ext = os.path.splitext(urlparse(url).path)[1] or ".mp3"
@@ -1085,17 +1025,14 @@ def download_episode(url: str, media_dir: str, episode_id: int, user_agent: str)
                 f.write(chunk)
     return filename
 
-
 def delete_local(path: str) -> None:
     try:
         os.remove(path)
     except OSError:
         pass
 
-
 def media_url(base_url: str, filename: str) -> str:
     return f"{base_url.rstrip('/')}/media/{filename}"
-
 
 def detect_base_url(speaker_ip: str, port: int) -> str:
     """The server's LAN IP as the speaker sees it: open a UDP socket toward
@@ -1143,7 +1080,6 @@ from config import Config
 from db import Database
 from sonos_ctl import find_speaker, hms_to_seconds, make_player_provider, seconds_to_hms
 
-
 def test_hms_to_seconds() -> None:
     assert hms_to_seconds("0:12:34") == 754
     assert hms_to_seconds("1:00:05") == 3605
@@ -1152,19 +1088,16 @@ def test_hms_to_seconds() -> None:
     assert hms_to_seconds(None) == 0
     assert hms_to_seconds("NOT_IMPLEMENTED") == 0
 
-
 def test_seconds_to_hms_roundtrip() -> None:
     assert seconds_to_hms(754) == "0:12:34"
     assert seconds_to_hms(3605) == "1:00:05"
     assert seconds_to_hms(-5) == "0:00:00"
     assert hms_to_seconds(seconds_to_hms(9999)) == 9999
 
-
 def test_find_speaker_none_when_discovery_empty(db: Database, monkeypatch) -> None:
     cfg = Config.from_env({})
     monkeypatch.setattr(sonos_ctl.soco, "discover", lambda timeout=5: None)
     assert find_speaker(db, cfg) is None
-
 
 def test_provider_caches_failed_discovery(db: Database, monkeypatch) -> None:
     cfg = Config.from_env({})
@@ -1207,7 +1140,6 @@ from db import Database
 
 logger = logging.getLogger(__name__)
 
-
 def hms_to_seconds(value: str | None) -> int:
     if not value or ":" not in value:
         return 0
@@ -1220,11 +1152,9 @@ def hms_to_seconds(value: str | None) -> int:
     h, m, s = parts[-3:]
     return h * 3600 + m * 60 + s
 
-
 def seconds_to_hms(seconds: int) -> str:
     seconds = max(0, int(seconds))
     return f"{seconds // 3600}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
-
 
 @dataclass
 class TrackInfo:
@@ -1233,7 +1163,6 @@ class TrackInfo:
     position: int     # seconds
     duration: int     # seconds
     title: str
-
 
 class SonosPlayer:
     """Wraps one SoCo device; every call goes through the group coordinator
@@ -1320,14 +1249,12 @@ class SonosPlayer:
     def group_all(self) -> None:
         self._device.partymode()
 
-
 def discover_speakers(timeout: int = 5) -> list[dict[str, str]]:
     zones = soco.discover(timeout=timeout) or set()
     return sorted(
         ({"name": z.player_name, "ip": z.ip_address} for z in zones),
         key=lambda s: s["name"],
     )
-
 
 def find_speaker(db: Database, cfg: Config) -> SonosPlayer | None:
     """Selection order: saved IP in kv -> SONOS_IP -> SONOS_SPEAKER name
@@ -1347,7 +1274,6 @@ def find_speaker(db: Database, cfg: Config) -> SonosPlayer | None:
                 return SonosPlayer(zone)
     first = next(iter(zones), None)
     return SonosPlayer(first) if first else None
-
 
 def make_player_provider(db: Database, cfg: Config,
                          retry_seconds: int = 30) -> Callable[[], SonosPlayer | None]:
@@ -1409,7 +1335,6 @@ git commit -m "feat: SonosPlayer wrapper with coordinator control and cached dis
 from __future__ import annotations
 
 from sonos_ctl import TrackInfo
-
 
 class FakeSonosPlayer:
     ip = "10.0.0.99"
@@ -1506,7 +1431,6 @@ class FakeSonosPlayer:
 from db import Database
 from dj import pick_next
 
-
 def _feed_with_eps(db: Database, name: str, n: int, is_news: bool = False) -> int:
     fid = db.add_feed(f"https://{name}/rss", name, None, is_news)
     for i in range(1, n + 1):
@@ -1514,17 +1438,14 @@ def _feed_with_eps(db: Database, name: str, n: int, is_news: bool = False) -> in
                           f"https://cdn/{name}/{i}.mp3", f"2026-01-{i:02d}T00:00:00Z")
     return fid
 
-
 def test_returns_none_with_no_rotation_feeds(db: Database) -> None:
     _feed_with_eps(db, "news-only", 2, is_news=True)
     assert pick_next(db) is None
-
 
 def test_returns_oldest_new_episode(db: Database) -> None:
     _feed_with_eps(db, "show", 3)
     ep = pick_next(db)
     assert ep["guid"] == "g-show-1"
-
 
 def test_avoids_last_feed_when_alternative_exists(db: Database) -> None:
     a = _feed_with_eps(db, "aaa", 2)
@@ -1534,18 +1455,15 @@ def test_avoids_last_feed_when_alternative_exists(db: Database) -> None:
         db.kv_set("last_feed_id", str(a))
         assert pick_next(db)["feed_id"] == b
 
-
 def test_repeats_when_no_alternative(db: Database) -> None:
     a = _feed_with_eps(db, "aaa", 2)
     db.kv_set("last_feed_id", str(a))
     assert pick_next(db)["feed_id"] == a
 
-
 def test_remembers_last_feed(db: Database) -> None:
     a = _feed_with_eps(db, "aaa", 1)
     pick_next(db)
     assert db.kv_get("last_feed_id") == str(a)
-
 
 def test_series_parts_come_in_order_across_picks(db: Database) -> None:
     a = _feed_with_eps(db, "series", 3)
@@ -1575,7 +1493,6 @@ import sqlite3
 from db import Database
 
 logger = logging.getLogger(__name__)
-
 
 def pick_next(db: Database) -> sqlite3.Row | None:
     """Random enabled non-news feed with unplayed episodes, avoiding
@@ -1630,20 +1547,16 @@ from fake_player import FakeSonosPlayer
 
 NOW = datetime.now(timezone.utc)
 
-
 def iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
 
 @pytest.fixture
 def player() -> FakeSonosPlayer:
     return FakeSonosPlayer()
 
-
 @pytest.fixture
 def dj(db: Database, cfg: Config, player: FakeSonosPlayer) -> DJ:
     return DJ(db, cfg, lambda: player)
-
 
 def make_feed(db: Database, name: str, n: int, is_news: bool = False,
               hours_old: int = 1) -> int:
@@ -1655,10 +1568,8 @@ def make_feed(db: Database, name: str, n: int, is_news: bool = False,
                           iso(NOW - timedelta(hours=hours_old + n - i)))
     return fid
 
-
 def uris_of(player: FakeSonosPlayer) -> list[str]:
     return player.queue_uris()
-
 
 class TestStart:
     def test_no_speaker_returns_error(self, db: Database, cfg: Config) -> None:
@@ -1703,7 +1614,6 @@ class TestStart:
         assert len(uris_of(player)) == cfg.queue_ahead + 1
         bad = [e for e in db.episodes_for_feed(1) if e["guid"] == "g-showa-1"][0]
         assert bad["status"] == "skipped"
-
 
 class TestTick:
     def test_noop_when_stopped(self, db, dj, player) -> None:
@@ -2004,16 +1914,13 @@ from fake_player import FakeSonosPlayer
 
 NOW = datetime.now(timezone.utc)
 
-
 @pytest.fixture
 def player() -> FakeSonosPlayer:
     return FakeSonosPlayer()
 
-
 @pytest.fixture
 def dj(db: Database, cfg: Config, player: FakeSonosPlayer) -> DJ:
     return DJ(db, cfg, lambda: player)
-
 
 def make_feed(db: Database, name: str, n: int) -> int:
     fid = db.add_feed(f"https://{name}/rss", name, None, False)
@@ -2023,17 +1930,14 @@ def make_feed(db: Database, name: str, n: int) -> int:
                           (NOW - timedelta(hours=n - i)).strftime("%Y-%m-%dT%H:%M:%SZ"))
     return fid
 
-
 def current_episode(db: Database, player: FakeSonosPlayer):
     uri = player.queue[player.index]["uri"]
     return next(e for e in db.episodes_with_status("queued") if e["play_uri"] == uri)
-
 
 def test_play_starts_when_stopped(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 5)
     assert dj.play() is None
     assert player.state == "PLAYING" and db.kv_get("dj_state") == "playing"
-
 
 def test_pause_then_play_resumes_without_restart(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 5)
@@ -2048,7 +1952,6 @@ def test_pause_then_play_resumes_without_restart(db, cfg, player, dj) -> None:
     assert player.state == "PLAYING"
     assert player.queue_uris() == queue_before  # resumed, not re-started
 
-
 def test_seek_abs_clamps_to_duration(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 2)
     dj.start()
@@ -2057,7 +1960,6 @@ def test_seek_abs_clamps_to_duration(db, cfg, player, dj) -> None:
     assert player.seeks[-1] == 99
     dj.seek_abs(-3)
     assert player.seeks[-1] == 0
-
 
 def test_seek_rel_back_and_forward(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 2)
@@ -2070,11 +1972,9 @@ def test_seek_rel_back_and_forward(db, cfg, player, dj) -> None:
     dj.seek_rel(30)
     assert player.seeks[-1] == 75
 
-
 def test_seek_without_speaker_errors(db, cfg) -> None:
     d = DJ(db, cfg, lambda: None)
     assert d.seek_abs(0) is not None
-
 
 def test_skip_later_returns_episode_to_rotation(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 5)
@@ -2088,7 +1988,6 @@ def test_skip_later_returns_episode_to_rotation(db, cfg, player, dj) -> None:
     assert skipped_uri not in player.queue_uris()  # removed from Sonos queue
     assert player.state == "PLAYING"
 
-
 def test_skip_done_marks_played(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 5)
     make_feed(db, "showb", 5)
@@ -2098,7 +1997,6 @@ def test_skip_done_marks_played(db, cfg, player, dj) -> None:
     assert db.get_episode(ep["id"])["status"] == "played"
     assert player.state == "PLAYING"
 
-
 def test_skip_on_last_queued_tops_up_first(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 1)
     dj.start()  # queue holds exactly 1 track
@@ -2106,7 +2004,6 @@ def test_skip_on_last_queued_tops_up_first(db, cfg, player, dj) -> None:
     assert dj.skip_done() is None
     assert player.state == "PLAYING"
     assert player.queue_length() >= 1
-
 
 def test_stop_off_air_reverts_and_saves_resume(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 5)
@@ -2120,7 +2017,6 @@ def test_stop_off_air_reverts_and_saves_resume(db, cfg, player, dj) -> None:
     after = db.get_episode(ep["id"])
     assert after["status"] == "new" and after["resume_seconds"] == 321
     assert db.kv_get("resume_episode_id") == str(ep["id"])
-
 
 def test_group_all(db, cfg, player, dj) -> None:
     assert dj.group_all() is None
@@ -2282,37 +2178,30 @@ from fake_player import FakeSonosPlayer
 # Mon 2026-07-06 08:03 local — a Monday
 MON_0803 = datetime(2026, 7, 6, 8, 3)
 
-
 def make_schedule(db: Database, time_str: str = "08:00",
                   days: list[int] = [0, 1, 2, 3, 4]):
     db.add_schedule(time_str, days)
     return db.list_schedules()[-1]
 
-
 def test_parse_days() -> None:
     assert parse_days("0,2,6") == {0, 2, 6}
-
 
 def test_due_within_grace(db: Database) -> None:
     s = make_schedule(db)
     assert schedule_due(s, MON_0803, grace_minutes=10) is True
 
-
 def test_not_due_before_time(db: Database) -> None:
     s = make_schedule(db)
     assert schedule_due(s, MON_0803.replace(hour=7), 10) is False
-
 
 def test_not_due_past_grace(db: Database) -> None:
     s = make_schedule(db)
     # server down all morning: 15:00 must not blast podcasts
     assert schedule_due(s, MON_0803.replace(hour=15, minute=0), 10) is False
 
-
 def test_not_due_wrong_day(db: Database) -> None:
     s = make_schedule(db, days=[5, 6])  # weekend alarm, Monday now
     assert schedule_due(s, MON_0803, 10) is False
-
 
 def test_not_due_when_disabled_or_already_fired(db: Database) -> None:
     s = make_schedule(db)
@@ -2322,7 +2211,6 @@ def test_not_due_when_disabled_or_already_fired(db: Database) -> None:
     db.toggle_schedule(s2["id"])
     assert schedule_due(db.list_schedules()[-1], MON_0803, 10) is False
 
-
 def test_next_start_same_day_and_week_wrap(db: Database) -> None:
     make_schedule(db, "09:00", [0])          # later today (Mon)
     assert next_start(db.list_schedules(), MON_0803).hour == 9
@@ -2331,10 +2219,8 @@ def test_next_start_same_day_and_week_wrap(db: Database) -> None:
     nxt = next_start(db.list_schedules(), MON_0803)
     assert nxt.weekday() == 0 and (nxt.date() - MON_0803.date()).days == 7
 
-
 def test_next_start_none_without_schedules(db: Database) -> None:
     assert next_start(db.list_schedules(), MON_0803) is None
-
 
 @pytest.fixture
 def wake_env(db: Database, cfg: Config, monkeypatch):
@@ -2348,7 +2234,6 @@ def wake_env(db: Database, cfg: Config, monkeypatch):
                           f"2026-01-0{i}T00:00:00Z")
     return db, dj, player
 
-
 def test_fire_starts_when_stopped(wake_env) -> None:
     db, dj, player = wake_env
     make_schedule(db)
@@ -2356,7 +2241,6 @@ def test_fire_starts_when_stopped(wake_env) -> None:
     assert player.state == "PLAYING"
     assert db.kv_get("dj_state") == "playing"
     assert db.list_schedules()[0]["last_fired_date"] == MON_0803.date().isoformat()
-
 
 def test_fire_only_once_per_day(wake_env) -> None:
     db, dj, player = wake_env
@@ -2367,7 +2251,6 @@ def test_fire_only_once_per_day(wake_env) -> None:
     dj.check_schedules(now=MON_0803 + timedelta(minutes=2))
     assert player.state == "STOPPED"  # did not refire
 
-
 def test_fire_leaves_active_playback_alone(wake_env) -> None:
     db, dj, player = wake_env
     dj.start()
@@ -2375,7 +2258,6 @@ def test_fire_leaves_active_playback_alone(wake_env) -> None:
     make_schedule(db)
     dj.check_schedules(now=MON_0803)
     assert player.queue_uris() == queue_before  # no jarring interruption
-
 
 def test_fire_restarts_when_paused_mid_episode(wake_env) -> None:
     db, dj, player = wake_env
@@ -2406,7 +2288,6 @@ Module-level functions:
 def parse_days(days: str) -> set[int]:
     return {int(d) for d in days.split(",") if d != ""}
 
-
 def schedule_due(schedule, now: datetime, grace_minutes: int) -> bool:
     """Fire when the time has passed today, it hasn't fired today, and we're
     within the grace window — a reboot at 8:03 still catches the 8:00 start,
@@ -2418,7 +2299,6 @@ def schedule_due(schedule, now: datetime, grace_minutes: int) -> bool:
     hh, mm = (int(p) for p in schedule["time"].split(":"))
     target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
     return target <= now <= target + timedelta(minutes=grace_minutes)
-
 
 def next_start(schedules, now: datetime) -> datetime | None:
     upcoming = []
@@ -2523,14 +2403,12 @@ from dj import DJ
 from fake_player import FakeSonosPlayer
 from web import create_app
 
-
 @pytest.fixture
 def no_sonos_client(db: Database, cfg: Config):
     dj = DJ(db, cfg, lambda: None)
     app = create_app(db, dj, cfg)
     app.config["TESTING"] = True
     return app.test_client(), db
-
 
 @pytest.fixture
 def client(db: Database, cfg: Config):
@@ -2540,13 +2418,11 @@ def client(db: Database, cfg: Config):
     app.config["TESTING"] = True
     return app.test_client(), db, player
 
-
 def test_dashboard_loads_without_sonos(no_sonos_client) -> None:
     c, _ = no_sonos_client
     resp = c.get("/")
     assert resp.status_code == 200
     assert b"Sonos Talk Radio" in resp.data
-
 
 def test_status_degrades_without_sonos(no_sonos_client) -> None:
     c, _ = no_sonos_client
@@ -2556,27 +2432,22 @@ def test_status_degrades_without_sonos(no_sonos_client) -> None:
     for key in ("up_next", "stations", "schedules", "recently_played"):
         assert isinstance(data[key], list)
 
-
 def test_player_action_without_speaker_reports_error(no_sonos_client) -> None:
     c, _ = no_sonos_client
     data = c.post("/player/play").get_json()
     assert data["ok"] is False and "speaker" in data["error"].lower()
 
-
 def test_unknown_player_action_is_404(no_sonos_client) -> None:
     c, _ = no_sonos_client
     assert c.post("/player/warp_speed").status_code == 404
-
 
 def test_seek_requires_seconds(no_sonos_client) -> None:
     c, _ = no_sonos_client
     assert c.post("/player/seek", json={}).get_json()["ok"] is False
 
-
 def test_add_feed_requires_url(no_sonos_client) -> None:
     c, _ = no_sonos_client
     assert c.post("/feeds", json={}).get_json()["ok"] is False
-
 
 def test_feed_actions(client, monkeypatch) -> None:
     c, db, _ = client
@@ -2592,7 +2463,6 @@ def test_feed_actions(client, monkeypatch) -> None:
     assert c.post(f"/feeds/{fid}/delete").get_json()["ok"] is True
     assert c.post(f"/feeds/{fid}/delete").status_code == 404
 
-
 def test_schedule_routes_and_next_start(client) -> None:
     c, db, _ = client
     assert c.post("/schedules", json={"time": "08:00", "days": [0, 1, 2, 3, 4]}
@@ -2605,18 +2475,15 @@ def test_schedule_routes_and_next_start(client) -> None:
     assert c.post(f"/schedules/{sid}/delete").get_json()["ok"] is True
     assert c.get("/api/status").get_json()["schedules"] == []
 
-
 def test_schedule_validation(client) -> None:
     c, _, _ = client
     assert c.post("/schedules", json={"time": "8pm", "days": [0]}).get_json()["ok"] is False
     assert c.post("/schedules", json={"time": "08:00", "days": []}).get_json()["ok"] is False
 
-
 def test_speaker_selection(client) -> None:
     c, db, _ = client
     assert c.post("/api/speaker", json={"ip": "10.0.0.7"}).get_json()["ok"] is True
     assert db.kv_get("speaker_ip") == "10.0.0.7"
-
 
 def test_status_now_playing_with_fake(client) -> None:
     c, db, player = client
@@ -2720,7 +2587,6 @@ from db import Database
 from dj import DJ
 
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
-
 
 def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
     app = Flask(__name__)
@@ -3262,7 +3128,6 @@ from config import Config
 from db import Database
 from main import dj_loop
 
-
 class ExplodingDJ:
     """Every call raises — the loop must swallow and keep going."""
     calls = 0
@@ -3273,7 +3138,6 @@ class ExplodingDJ:
 
     def tick(self) -> None:
         raise RuntimeError("boom")
-
 
 def test_loop_survives_exceptions_and_stops(db: Database, monkeypatch) -> None:
     cfg = Config.from_env({"TICK_SECONDS": "0", "REFRESH_MINUTES": "9999"})
@@ -3318,7 +3182,6 @@ from web import create_app
 
 logger = logging.getLogger(__name__)
 
-
 def dj_loop(db: Database, cfg: Config, dj_instance: DJ,
             stop_event: threading.Event) -> None:
     """Refresh feeds every REFRESH_MINUTES; reconcile + check wake
@@ -3335,7 +3198,6 @@ def dj_loop(db: Database, cfg: Config, dj_instance: DJ,
             logger.exception("dj loop iteration failed")
         stop_event.wait(cfg.tick_seconds)
 
-
 def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -3350,7 +3212,6 @@ def main() -> None:
                      daemon=True, name="dj-loop").start()
     app = create_app(db, dj_instance, cfg)
     app.run(host=cfg.host, port=cfg.port, use_reloader=False)
-
 
 if __name__ == "__main__":
     main()

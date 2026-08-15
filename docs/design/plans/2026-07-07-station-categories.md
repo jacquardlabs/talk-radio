@@ -1,7 +1,5 @@
 # Station Categories & Rotation Filtering Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Let each station carry one genre classification, and let a whole category be switched off from automatic rotation without disabling or deleting its stations.
 
 **Architecture:** A new `categories` table (id, name, rotation_enabled) with `feeds.category_id` pointing to it. `rotation_feeds_with_new()` gains a filter clause so rotation-disabled categories' stations never get picked, while uncategorized stations stay eligible by default. New CRUD routes for categories plus a per-feed category-assignment route; `dj.status()` exposes the categories list and each station's `category_id` so the dashboard can render both a Categories management section and a per-station dropdown.
@@ -51,12 +49,10 @@ def test_category_crud(db: Database) -> None:
     db.toggle_category_rotation(cid)
     assert db.get_category(cid)["rotation_enabled"] == 1
 
-
 def test_add_category_duplicate_name_raises(db: Database) -> None:
     db.add_category("History")
     with pytest.raises(sqlite3.IntegrityError):
         db.add_category("History")
-
 
 def test_list_categories_includes_station_count(db: Database) -> None:
     cid = db.add_category("History")
@@ -68,7 +64,6 @@ def test_list_categories_includes_station_count(db: Database) -> None:
     counts = {c["name"]: c["station_count"] for c in db.list_categories()}
     assert counts["History"] == 2 and counts["Comedy"] == 0
 
-
 def test_delete_category_unassigns_feeds_without_deleting_them(db: Database) -> None:
     cid = db.add_category("History")
     fid = db.add_feed("https://a/rss", "Show A", None, False)
@@ -77,12 +72,10 @@ def test_delete_category_unassigns_feeds_without_deleting_them(db: Database) -> 
     feed = db.get_feed(fid)
     assert feed is not None and feed["category_id"] is None
 
-
 def test_set_feed_category_invalid_id_raises(db: Database) -> None:
     fid = db.add_feed("https://a/rss", "Show A", None, False)
     with pytest.raises(sqlite3.IntegrityError):
         db.set_feed_category(fid, 999)
-
 
 def test_rotation_feeds_excludes_rotation_disabled_category(db: Database) -> None:
     on_cat = db.add_category("History")
@@ -334,18 +327,15 @@ def test_add_category_and_list_in_status(client) -> None:
     assert data["categories"][0]["rotation_enabled"] is True
     assert data["categories"][0]["station_count"] == 0
 
-
 def test_add_category_requires_name(no_sonos_client) -> None:
     c, _ = no_sonos_client
     assert c.post("/categories", json={}).get_json()["ok"] is False
-
 
 def test_add_category_duplicate_name_errors(client) -> None:
     c, db, _ = client
     c.post("/categories", json={"name": "History"})
     resp = c.post("/categories", json={"name": "History"})
     assert resp.get_json()["ok"] is False
-
 
 def test_category_toggle_rename_delete(client) -> None:
     c, db, _ = client
@@ -358,11 +348,9 @@ def test_category_toggle_rename_delete(client) -> None:
     assert c.post(f"/categories/{cid}/delete").get_json()["ok"] is True
     assert db.get_category(cid) is None
 
-
 def test_category_action_unknown_id_404s(no_sonos_client) -> None:
     c, _ = no_sonos_client
     assert c.post("/categories/999/toggle").status_code == 404
-
 
 def test_category_rename_requires_name(client) -> None:
     c, db, _ = client
@@ -370,7 +358,6 @@ def test_category_rename_requires_name(client) -> None:
     cid = db.list_categories()[0]["id"]
     resp = c.post(f"/categories/{cid}/rename", json={})
     assert resp.get_json()["ok"] is False
-
 
 def test_set_feed_category(client) -> None:
     c, db, _ = client
@@ -385,11 +372,9 @@ def test_set_feed_category(client) -> None:
     station = next(s for s in data["stations"] if s["id"] == fid)
     assert station["category_id"] is None
 
-
 def test_set_feed_category_unknown_feed_404s(no_sonos_client) -> None:
     c, _ = no_sonos_client
     assert c.post("/feeds/999/category", json={"category_id": None}).status_code == 404
-
 
 def test_set_feed_category_invalid_category_errors(client) -> None:
     c, db, _ = client
