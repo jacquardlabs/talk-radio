@@ -174,6 +174,10 @@ button.tab.tplay.paused { background: var(--bezel); color: var(--amber); border-
 .flap button:hover { background: var(--bezel2); }
 .flap .danger { color: var(--red); }
 .flap i { color: var(--amber-dim); font-style: normal; font-weight: 400; font-size: 9px; letter-spacing: .08em; }
+/* Drop reuses the flap inside a queue row; the actions sit at the right
+   edge, so the flap hangs from the right corner instead of overflowing. */
+.dropwrap { position: relative; }
+.dropwrap .flap { left: auto; right: 0; }
 button.tab.power { min-width: 52px; color: var(--red); border-color: #3c231d; font-size: 17px; margin-left: 4px; }
 
 /* up next: artwork rows with reveal-on-hover actions */

@@ -350,6 +350,17 @@ def test_drop_from_queue_recycles_and_removes(db, cfg, player, dj) -> None:
     assert player.queue_length() >= before_len - 1  # top-up refilled behind it
 
 
+def test_drop_from_queue_done_marks_played(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 5)
+    dj.start()
+    target = next_queued_episode(db, player)
+    assert dj.drop_from_queue(target["id"], "done") is None
+    after = db.get_episode(target["id"])
+    assert after["status"] == "played" and after["played_at"] is not None
+    assert all(t["uri"] != target["play_uri"] for t in player.queue)
+    assert target["id"] not in db.up_next_order()
+
+
 def test_drop_from_queue_refuses_current_track(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 5)
     dj.start()

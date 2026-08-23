@@ -860,10 +860,13 @@ class DJ:
                             dest if dest < player.queue_length() else None)
         self.db.set_pinned(episode["id"], True)
 
-    def drop_from_queue(self, episode_id: int) -> str | None:
-        """Remove an upcoming episode from Up Next and recycle it to the
-        new pool — the DJ will pick it again another day. The current track
-        isn't droppable (that's what Skip is for)."""
+    def drop_from_queue(self, episode_id: int,
+                        disposition: str = "later") -> str | None:
+        """Remove an upcoming episode from Up Next. "later" recycles it to
+        the new pool — the DJ will pick it again another day; "done" marks it
+        played so it never comes back. Same dispositions as Skip, minus
+        "defer": a queued episode is already waiting its turn. The current
+        track isn't droppable (that's what Skip is for)."""
         with self._lock:
             player = self.get_player()
             if player is None:
@@ -876,7 +879,10 @@ class DJ:
                     # refill BEFORE reverting: the target is still 'queued'
                     # here, so the top-up can't immediately re-pick it
                     self._top_up(player, cur_idx, ids_of(matches))
-                    self.db.revert_to_new(ep["id"])
+                    if disposition == "done":
+                        self._finish(ep)
+                    else:
+                        self.db.revert_to_new(ep["id"])
                     self.db.remove_from_up_next(ep["id"])
                     return None
             return "That episode isn't in Up Next"

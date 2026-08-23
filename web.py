@@ -391,7 +391,11 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
     def drop_episode(episode_id: int):
         if db.get_episode(episode_id) is None:
             return result("no such episode"), 404
-        return call_player(lambda: dj.drop_from_queue(episode_id))
+        body = request.get_json(silent=True) or {}
+        disposition = body.get("disposition", "later")
+        if disposition not in ("later", "done"):
+            return result("disposition must be later or done")
+        return call_player(lambda: dj.drop_from_queue(episode_id, disposition))
 
     @app.post("/schedules")
     def add_schedule():
