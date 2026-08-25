@@ -986,3 +986,153 @@ def test_play_last_updates_last_feed_id(db, cfg, player, dj) -> None:
     dj.start()
     dj.play_episode(target, "last")
     assert db.kv_get("last_feed_id") == str(other)
+
+
+# ── sleep timer ───────────────────────────────────────────────────────
+
+
+def test_sleep_timer_requires_being_on_air(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 3)
+    assert "Not on air" in dj.set_sleep_timer("fade", 30)
+    assert db.kv_get("sleep_mode") is None
+
+
+def test_sleep_fade_steps_volume_down_and_goes_off_air(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 3)
+    dj.start()
+    player.volume = 40
+    assert dj.set_sleep_timer("fade", 1) is None      # 60s, four 15s ticks
+    player.state = "PLAYING"
+    dj.tick()
+    assert player.volume == 30                        # 45/60 of 40
+    dj.tick()
+    assert player.volume == 20
+    dj.tick()
+    assert player.volume == 10
+    dj.tick()                                         # deadline: off air
+    assert db.kv_get("dj_state") == "stopped"
+    assert player.state == "STOPPED"
+    # the volume the fade borrowed is handed back, so the morning alarm is
+    # not what discovers it was left at 10
+    assert player.volume == 40
+    assert db.kv_get("sleep_mode") is None
+
+
+def test_sleep_fade_holds_while_paused(db, cfg, player, dj) -> None:
+    """A paused station is already quiet. Burning the countdown down through
+    a pause would put it off air the moment someone pressed Play."""
+    make_feed(db, "showa", 3)
+    dj.start()
+    player.volume = 40
+    dj.set_sleep_timer("fade", 1)
+    dj.pause()
+    for _ in range(6):
+        dj.tick()
+    assert db.kv_get("dj_state") == "playing"
+    assert db.kv_get("sleep_remaining") == "60"
+    assert player.volume == 40
+
+
+def test_sleep_episode_goes_off_air_at_the_end_of_the_track(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 3)
+    dj.start()
+    player.duration = 1800
+    player.position = 100
+    assert dj.set_sleep_timer("episode") is None
+    player.state = "PLAYING"
+    dj.tick()
+    assert db.kv_get("dj_state") == "playing"          # nowhere near the end
+    player.position = 1790                             # 10s left, inside a tick
+    dj.tick()
+    assert db.kv_get("dj_state") == "stopped"
+    assert db.kv_get("sleep_mode") is None
+
+
+def test_sleep_episode_refused_when_nothing_knows_the_length(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 3)
+    dj.start()
+    player.duration = 0                                # chunked CDN, no length
+    assert "no length" in dj.set_sleep_timer("episode")
+    assert db.kv_get("sleep_mode") is None
+
+
+def test_sleep_episode_uses_the_feed_duration_when_sonos_reports_none(
+        db, cfg, player, dj) -> None:
+    fid = db.add_feed("https://showa/rss", "showa", None, False)
+    db.insert_episode(fid, "g-1", "showa 1", "https://cdn/showa/1.mp3",
+                      NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), 600)
+    dj.start()
+    player.duration = 0
+    player.position = 60
+    assert dj.set_sleep_timer("episode") is None
+    player.state = "PLAYING"
+    dj.tick()
+    assert db.kv_get("dj_state") == "playing"
+    player.position = 595
+    dj.tick()
+    assert db.kv_get("dj_state") == "stopped"
+
+
+def test_going_on_air_clears_a_timer_from_the_last_session(db, cfg, player, dj) -> None:
+    """Regression guard for the wake alarm: a countdown left armed overnight
+    would take the morning off air minutes after it started."""
+    make_feed(db, "showa", 3)
+    dj.start()
+    player.volume = 40
+    dj.set_sleep_timer("fade", 30)
+    dj.tick()
+    dj.stop_off_air()
+    assert db.kv_get("sleep_mode") is None
+    dj.start()
+    assert db.kv_get("sleep_mode") is None
+    assert player.volume == 40
+
+
+def test_cancel_sleep_timer_restores_the_volume(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 3)
+    dj.start()
+    player.volume = 40
+    dj.set_sleep_timer("fade", 1)
+    dj.tick()
+    assert player.volume == 30
+    assert dj.cancel_sleep_timer() is None
+    assert player.volume == 40
+    assert db.kv_get("sleep_mode") is None
+
+
+def test_rearming_replaces_and_does_not_compound_the_fade(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 3)
+    dj.start()
+    player.volume = 40
+    dj.set_sleep_timer("fade", 1)
+    dj.tick()
+    assert player.volume == 30
+    dj.set_sleep_timer("fade", 2)
+    # the second fade ramps from the original 40, not from the faded 30
+    assert player.volume == 40
+    assert db.kv_get("sleep_volume") == "40"
+    assert db.kv_get("sleep_remaining") == "120"
+
+
+def test_sleep_timer_rejects_bad_input(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 3)
+    dj.start()
+    assert "minutes must be" in dj.set_sleep_timer("fade", 0)
+    assert "minutes must be" in dj.set_sleep_timer("fade", 999)
+    assert "minutes must be" in dj.set_sleep_timer("fade", None)
+    assert "unknown sleep mode" in dj.set_sleep_timer("nap")
+    assert db.kv_get("sleep_mode") is None
+
+
+def test_status_reports_the_armed_timer(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 3)
+    dj.start()
+    assert dj.status()["sleep"] is None
+    dj.set_sleep_timer("fade", 30)
+    assert dj.status()["sleep"] == {"mode": "fade", "remaining": 1800, "total": 1800}
+    dj.cancel_sleep_timer()
+    player.duration = 1800
+    player.position = 300
+    dj.set_sleep_timer("episode")
+    sleep = dj.status()["sleep"]
+    assert sleep["mode"] == "episode" and sleep["remaining"] == 1500

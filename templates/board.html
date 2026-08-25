@@ -32,12 +32,24 @@
   <button type="button" class="tab" data-player="back_15" title="Back 15 seconds">&minus;15</button>
   <button type="button" class="tab tplay paused" id="btn-playpause">&#9654;&ensp;Play</button>
   <button type="button" class="tab" data-player="fwd_30" title="Forward 30 seconds">+30</button>
-  <div class="skipwrap">
-    <button type="button" class="tab" id="btn-skip" aria-haspopup="true" aria-expanded="false">Skip &#9662;</button>
+  <div class="flapwrap">
+    <button type="button" class="tab" id="btn-skip" data-flap="skip-flap"
+            aria-haspopup="true" aria-expanded="false">Skip &#9662;</button>
     <div class="flap" id="skip-flap" hidden>
       <button type="button" data-player="defer">Defer <i>back to up next</i></button>
       <button type="button" data-player="skip_later">Later <i>back in rotation</i></button>
       <button type="button" class="danger" data-player="skip_done">Done <i>never play again</i></button>
+    </div>
+  </div>
+  <div class="flapwrap">
+    <button type="button" class="tab" id="btn-sleep" data-flap="sleep-flap"
+            aria-haspopup="true" aria-expanded="false">Sleep &#9662;</button>
+    <div class="flap" id="sleep-flap" hidden>
+      <button type="button" data-sleep="episode">End of episode <i>off air when this one finishes</i></button>
+      <button type="button" data-sleep="15">15 minutes <i>fade out, then off air</i></button>
+      <button type="button" data-sleep="30">30 minutes <i>fade out, then off air</i></button>
+      <button type="button" data-sleep="60">60 minutes <i>fade out, then off air</i></button>
+      <button type="button" id="sleep-cancel" data-player="sleep_cancel" hidden>Stay on air <i>cancel the timer</i></button>
     </div>
   </div>
   <div class="vol" id="vol" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0" title="Volume">
@@ -95,6 +107,14 @@ function daysLabel(days) {
   if (key === "5,6") return "Sat–Sun";
   if (key === "0,1,2,3,4,5,6") return "daily";
   return days.map((i) => DAYS[i]).join(" ");
+}
+
+// Both timer shapes answer the same question — how long until the station
+// goes quiet — so both read as minutes. An episode timer whose track has no
+// length can only name the end it is waiting for.
+function sleepLabel(sleep) {
+  if (sleep.remaining == null) return "Sleep at end";
+  return `Sleep ${Math.max(1, Math.round(sleep.remaining / 60))}m`;
 }
 
 function relStart(sec) {
@@ -220,6 +240,13 @@ function renderPage(s) {
   const pp = $("btn-playpause");
   pp.classList.toggle("paused", !playing);
   pp.innerHTML = playing ? "&#10074;&#10074;&ensp;Pause" : "&#9654;&ensp;Play";
+
+  // The sleep timer states itself on its own button — the countdown belongs
+  // where the control is, not in a readout somewhere else on the board.
+  const sleepBtn = $("btn-sleep");
+  sleepBtn.classList.toggle("timing", !!s.sleep);
+  sleepBtn.innerHTML = (s.sleep ? sleepLabel(s.sleep) : "Sleep") + " &#9662;";
+  $("sleep-cancel").hidden = !s.sleep;
 
   // volume (skip while the user is dragging)
   if (!volDrag) setVol(s.volume);
@@ -523,16 +550,15 @@ $("vol").addEventListener("keydown", (ev) => {
 });
 
 // ── wire up ────────────────────────────────────────────────────────
-function closeFlap() {
-  $("skip-flap").hidden = true;
-  $("btn-skip").setAttribute("aria-expanded", "false");
+// One toggle serves every flap in the transport: the button names the panel
+// it opens, so a new control is markup and nothing else.
+function closeFlaps(except) {
+  for (const btn of document.querySelectorAll("[data-flap]")) {
+    if (btn.dataset.flap === except) continue;
+    $(btn.dataset.flap).hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+  }
 }
-$("btn-skip").addEventListener("click", (ev) => {
-  ev.stopPropagation();
-  const flap = $("skip-flap");
-  flap.hidden = !flap.hidden;
-  $("btn-skip").setAttribute("aria-expanded", String(!flap.hidden));
-});
 $("btn-playpause").addEventListener("click", (ev) => {
   const playing = status && isPlaying(status);
   post(`/player/${playing ? "pause" : "play"}`, {}, ev.currentTarget);
@@ -545,14 +571,27 @@ $("btn-refresh").addEventListener("click", (ev) => {
 });
 
 document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") { closeFlap(); setDropOpen(null); }
+  if (ev.key === "Escape") { closeFlaps(null); setDropOpen(null); }
 });
 document.addEventListener("click", (ev) => {
-  if (!ev.target.closest(".skipwrap")) closeFlap();
+  // Every click closes the flaps — the one being opened is spared, and a
+  // click on a flap's own item closes it on the way to acting on it.
+  const toggle = ev.target.closest("[data-flap]");
+  closeFlaps(toggle ? toggle.dataset.flap : null);
+  if (toggle) {
+    const flap = $(toggle.dataset.flap);
+    flap.hidden = !flap.hidden;
+    toggle.setAttribute("aria-expanded", String(!flap.hidden));
+    return;
+  }
   if (!ev.target.closest(".dropwrap")) setDropOpen(null);
   const btn = ev.target.closest("button");
   if (!btn) return;
-  if (btn.closest(".flap")) closeFlap();
+  if (btn.dataset.sleep) {
+    const choice = btn.dataset.sleep;
+    return void post("/player/sleep", choice === "episode"
+      ? { mode: "episode" } : { mode: "fade", minutes: Number(choice) }, btn);
+  }
   if (btn.dataset.dropbtn) {
     return void setDropOpen(openDropId === btn.dataset.dropbtn ? null : btn.dataset.dropbtn);
   }

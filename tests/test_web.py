@@ -687,3 +687,26 @@ def test_refresh_route_rerolls_the_queue(client) -> None:
 
     # The track on air is never re-rolled; the unpinned rows behind it are.
     assert db.up_next_order()[0] == before[0]
+
+
+def test_sleep_routes_arm_and_cancel(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    _add_episode(db, fid, 1, duration=1800)
+    c.post("/player/play")
+    assert c.post("/player/sleep", json={"mode": "fade", "minutes": 30}
+                  ).get_json()["ok"] is True
+    assert db.kv_get("sleep_mode") == "fade"
+    assert c.get("/api/status").get_json()["sleep"]["remaining"] == 1800
+    assert c.post("/player/sleep_cancel").get_json()["ok"] is True
+    assert db.kv_get("sleep_mode") is None
+
+
+def test_sleep_route_rejects_bad_minutes(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    _add_episode(db, fid, 1, duration=1800)
+    c.post("/player/play")
+    data = c.post("/player/sleep", json={"mode": "fade", "minutes": "soon"}).get_json()
+    assert data["ok"] is False and "minutes" in data["error"]
+    assert db.kv_get("sleep_mode") is None

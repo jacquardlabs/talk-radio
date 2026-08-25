@@ -530,6 +530,10 @@ class DJ:
             player = self.get_player()
             if player is None:
                 return self._NO_SPEAKER
+            # A sleep timer belongs to the session that set it. Going on air
+            # is a new one, and inheriting last night's countdown would put
+            # this morning off air minutes after the alarm.
+            self._sleep_clear()
             # Restore, not rebuild. Up Next survives going off air, so going
             # back on picks up the same list — including the episode that was
             # playing, which sits at its head and gets its resume seek from
@@ -645,6 +649,12 @@ class DJ:
                     self.db.set_resume(episode["id"], cur.position)
                 self._resume_tracking_episode_id = str(episode["id"])
                 self.db.kv_set("resume_episode_id", str(episode["id"]))
+            # The sleep timer, after position tracking so it reads a fresh
+            # place in the track, and before everything below it: once it has
+            # gone off air there is no session left to insert news into or
+            # top up, and stop_off_air() has already banked the order.
+            if self._sleep_step(player, matches, cur_idx, cur, transport):
+                return
             # Bank the running order, current track first. This is what makes
             # Up Next durable: the Sonos queue is thrown away at the next
             # start(), so if the order is not written down here there is
@@ -724,6 +734,9 @@ class DJ:
         station, not a decision to throw away the queue. Banked here as well
         as on the tick so a Stop right after a reorder keeps it."""
         with self._lock:
+            # First, so the volume a fade borrowed is handed back even if the
+            # stop below fails. Also covers the timer firing this itself.
+            self._sleep_clear()
             player = self.get_player()
             if player is not None:
                 self._save_resume(player)
@@ -744,6 +757,146 @@ class DJ:
             self._set_paused(False)
 
     # ── seeking ───────────────────────────────────────────────────────
+    # ── sleep timer ───────────────────────────────────────────────────
+    # One station, two ways to end the night: stop when the current episode
+    # finishes, or fade out over a set number of minutes and stop then.
+    #
+    # State lives in kv rather than on self, for the reason the pause flag
+    # does: the process outlives most sessions but not all of them, and a
+    # restart at 23:05 must neither silently disarm a timer set at 23:00 nor
+    # leave a half-faded volume behind for the 08:00 alarm to play into.
+    _SLEEP_MAX_MINUTES = 240
+    _SLEEP_KEYS = ("sleep_mode", "sleep_remaining", "sleep_total", "sleep_volume")
+
+    def _episode_remaining(self, matches, cur_idx: int, cur) -> int | None:
+        """Seconds left in the current track, or None when nothing knows its
+        length. Takes the caller's queue snapshot rather than reading the
+        player again, so the identity and the position come from the same
+        moment. Sonos's own duration wins and the feed's itunes:duration is
+        the fallback — the same pair the deck shows, because streams that
+        report duration 0 are exactly the ones the DB can still answer for."""
+        if cur is None:
+            return None
+        duration = cur.duration
+        if not duration:
+            episode = matches[cur_idx] if cur_idx < len(matches) else None
+            duration = episode["duration_seconds"] if episode is not None else None
+        if not duration:
+            return None
+        return max(0, int(duration) - int(cur.position))
+
+    def set_sleep_timer(self, mode: str, minutes: int | None = None) -> str | None:
+        """Arm the timer. 'episode' stops when the current episode ends;
+        'fade' steps the volume down over `minutes` and stops at the bottom.
+
+        Re-arming replaces whatever was set, handing back a fade's volume
+        first so the two never compound."""
+        with self._lock:
+            if self.db.kv_get("dj_state") != "playing":
+                return "Not on air — press Play first"
+            player = self.get_player()
+            if player is None:
+                return self._NO_SPEAKER
+            if mode == "episode":
+                try:
+                    _q, matches, cur_idx, cur = self._match_queue(player)
+                except Exception:
+                    logger.exception("sleep: cannot read the current track")
+                    self._invalidate_player()
+                    return "Speaker unreachable"
+                if self._episode_remaining(matches, cur_idx, cur) is None:
+                    # Refused rather than guessed: without a length there is
+                    # no end to stop at, and a timer that never fires is
+                    # worse than one that was never set.
+                    return "This episode has no length — set a fade instead"
+                self._sleep_clear()
+                self.db.kv_set("sleep_mode", "episode")
+                return None
+            if mode == "fade":
+                if minutes is None or minutes < 1 or minutes > self._SLEEP_MAX_MINUTES:
+                    return f"minutes must be 1–{self._SLEEP_MAX_MINUTES}"
+                # Clear before reading the volume, never after: re-arming
+                # part-way through a fade would otherwise bank the faded-down
+                # level as the new full volume, and each re-arm would ratchet
+                # the station quieter for good.
+                self._sleep_clear()
+                try:
+                    volume = player.get_volume()
+                except Exception:
+                    logger.exception("sleep: cannot read the volume to fade from")
+                    self._invalidate_player()
+                    return "Speaker unreachable"
+                self.db.kv_set("sleep_mode", "fade")
+                self.db.kv_set("sleep_remaining", str(minutes * 60))
+                self.db.kv_set("sleep_total", str(minutes * 60))
+                self.db.kv_set("sleep_volume", str(int(volume)))
+                return None
+            return f"unknown sleep mode: {mode}"
+
+    def cancel_sleep_timer(self) -> str | None:
+        with self._lock:
+            self._sleep_clear()
+            return None
+
+    def _sleep_clear(self) -> None:
+        """Disarm, and hand back the volume a fade borrowed. Every path that
+        ends a session calls this, because the timer only means anything
+        inside the one that set it."""
+        volume = self.db.kv_get("sleep_volume")
+        for key in self._SLEEP_KEYS:
+            self.db.kv_del(key)
+        if volume is None:
+            return
+        player = self.get_player()
+        if player is None:
+            return
+        try:
+            player.set_volume(int(volume))
+        except Exception:
+            logger.exception("sleep: could not restore the volume")
+            self._invalidate_player()
+
+    def _sleep_step(self, player, matches, cur_idx: int, cur,
+                    transport: str) -> bool:
+        """One tick of the armed timer. Returns True once it has taken the
+        station off air, which is the caller's cue to stop reconciling a
+        session that no longer exists.
+
+        Nothing advances unless audio is actually playing: a station paused
+        at 23:40 is already quiet, and running the countdown down through
+        the pause would put it off air the moment someone pressed Play."""
+        mode = self.db.kv_get("sleep_mode")
+        if mode is None or transport not in self._LIVE_TRANSPORT:
+            return False
+        if mode == "episode":
+            remaining = self._episode_remaining(matches, cur_idx, cur)
+            # A skip can land on a track whose length nothing knows, which
+            # the arm-time check could not have refused. Hold armed rather
+            # than guess an ending: the next track that has a length gets it.
+            if remaining is None or remaining > self.cfg.tick_seconds:
+                return False
+            logger.info("sleep timer: episode ending — going off air")
+            self.stop_off_air()
+            return True
+        remaining = int(self.db.kv_get("sleep_remaining") or 0) - self.cfg.tick_seconds
+        if remaining <= 0:
+            logger.info("sleep timer: fade complete — going off air")
+            self.stop_off_air()     # hands the borrowed volume back
+            return True
+        self.db.kv_set("sleep_remaining", str(remaining))
+        total = int(self.db.kv_get("sleep_total") or 0)
+        start = int(self.db.kv_get("sleep_volume") or 0)
+        if total > 0:
+            # Recomputed from the starting volume each tick rather than
+            # stepped down from wherever the dial is now, so a manual nudge
+            # mid-fade doesn't permanently rescale the ramp.
+            try:
+                player.set_volume(max(0, round(start * remaining / total)))
+            except Exception:
+                logger.exception("sleep: could not step the volume down")
+                self._invalidate_player()
+        return False
+
     def seek_abs(self, seconds: int) -> str | None:
         with self._lock:
             player = self.get_player()
@@ -1358,7 +1511,18 @@ class DJ:
             ],
             "download_mode": self.cfg.download_mode,
             "volume": None,
+            # Armed sleep timer, if any. 'remaining' counts seconds: a fade
+            # knows its own, an episode timer takes it from the track and so
+            # only has one once the player has been read below.
+            "sleep": None,
         }
+        sleep_mode = self.db.kv_get("sleep_mode")
+        if sleep_mode == "fade":
+            data["sleep"] = {"mode": "fade",
+                             "remaining": int(self.db.kv_get("sleep_remaining") or 0),
+                             "total": int(self.db.kv_get("sleep_total") or 0)}
+        elif sleep_mode == "episode":
+            data["sleep"] = {"mode": "episode", "remaining": None, "total": None}
         upcoming = next_start(schedules, now)
         data["next_start"] = upcoming.strftime("%a %H:%M") if upcoming else None
 
@@ -1415,6 +1579,9 @@ class DJ:
                 if cur is not None and cur.duration:
                     now_playing["duration"] = cur.duration
                 data["now_playing"] = now_playing
+            if sleep_mode == "episode":
+                data["sleep"]["remaining"] = self._episode_remaining(
+                    matches, cur_idx, cur)
             # On air the speaker is the truth; off air it still holds the last
             # session's tracks, which would otherwise overwrite the saved list
             # set above with a stale window missing its head.
