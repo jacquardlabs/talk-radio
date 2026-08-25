@@ -160,13 +160,17 @@ button.tab.pin:active svg, button.tab.pin.pressed svg { filter: none; }
 button.tab.armed, .flap button.armed { background: var(--red); color: var(--bg); border-color: var(--red); text-shadow: none; }
 .flap button.armed i { color: var(--bg); }
 
+/* An armed sleep timer is lit, not filled: Play already wears the solid
+   amber, and two filled buttons side by side read as two primaries. */
+button.tab.timing { border-color: #4a3413; text-shadow: 0 0 7px rgba(255,176,56,.7); }
+
 /* transport: one primary Play, Skip folds into a flap, isolated power */
 .transport { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; margin-top: 16px; }
 button.tab.tplay { min-width: 140px; min-height: 52px; font-size: 13px; letter-spacing: .2em;
   background: var(--amber); color: var(--bg); border-color: var(--amber); text-shadow: none; }
 button.tab.tplay.paused { background: var(--bezel); color: var(--amber); border-color: var(--line); }
-.skipwrap { position: relative; }
-.skipwrap > button { height: 100%; }
+.flapwrap { position: relative; }
+.flapwrap > button { height: 100%; }
 .flap {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 6; min-width: 230px;
   background: var(--bezel); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.7);

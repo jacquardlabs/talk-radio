@@ -179,7 +179,15 @@ Plain HTTP, so external automation works:
     curl -X POST http://server:8080/player/play
 
 Actions: `play` `pause` `restart` `back_15` `fwd_30` `defer` `skip_later`
-`skip_done` `stop` `group_all`.
+`skip_done` `stop` `sleep_cancel` `group_all`.
+
+Arming the sleep timer takes a body — `{"mode": "episode"}` goes off air when
+the current episode ends, `{"mode": "fade", "minutes": 30}` fades the volume
+down over that long and stops at the bottom, restoring the volume it started
+from:
+
+    curl -X POST http://server:8080/player/sleep \
+      -H 'Content-Type: application/json' -d '{"mode":"fade","minutes":30}'
 
 ## Troubleshooting
 

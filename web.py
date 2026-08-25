@@ -149,6 +149,7 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             "skip_later": dj.skip_later,
             "skip_done": dj.skip_done,
             "stop": dj.stop_off_air,
+            "sleep_cancel": dj.cancel_sleep_timer,
             "group_all": dj.group_all,
         }
         fn = actions.get(action)
@@ -164,6 +165,21 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
         except (KeyError, TypeError, ValueError):
             return result("seconds (int) required")
         return call_player(lambda: dj.seek_abs(seconds))
+
+    @app.post("/player/sleep")
+    def player_sleep():
+        """Arm the sleep timer. {"mode": "episode"} stops when the current
+        episode ends; {"mode": "fade", "minutes": 30} fades out and stops.
+        Disarming is /player/sleep_cancel, above."""
+        body = request.get_json(silent=True) or {}
+        mode = (body.get("mode") or "").strip()
+        minutes = body.get("minutes")
+        if minutes is not None:
+            try:
+                minutes = int(minutes)
+            except (TypeError, ValueError):
+                return result("minutes (int) required")
+        return call_player(lambda: dj.set_sleep_timer(mode, minutes))
 
     @app.post("/player/volume")
     def player_volume():
