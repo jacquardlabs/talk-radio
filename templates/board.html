@@ -22,7 +22,7 @@
     <div class="npdesc" id="np-desc" hidden></div>
   </div>
 </div>
-<div class="track" id="track" title="Tap to seek">
+<div class="track" id="track" title="Drag to seek">
   <div class="fill" id="track-fill"></div>
   <div class="mark" id="track-mark"></div>
 </div>
@@ -108,6 +108,7 @@ function relStart(sec) {
 // times) from an arbitrary position, so the 5-second poll and the 1-second
 // interpolation ticker share one source of truth and can't drift apart.
 function paintNowPlaying(np, pos, playing, paused) {
+  if (seekDrag) return;   // the finger on the track owns these readouts
   const dur = np.duration;
   const remain = dur ? dur - pos : 0;
   if (playing) {
@@ -132,15 +133,6 @@ function livePos() {
   if (!npAnchor.playing) return npAnchor.pos;
   const p = npAnchor.pos + (performance.now() - npAnchor.at) / 1000;
   return npAnchor.dur ? Math.min(p, npAnchor.dur) : p;
-}
-
-// Sonos reports TRANSITIONING while it spins a track up — the window every
-// skip and play-now lands in, since we poll the moment the action returns.
-// That's playback starting, not a hold: the deck reads live, and the primary
-// control stays Pause rather than offering Play against audio already on its
-// way (dj.play() guards that same state server-side).
-function isPlaying(s) {
-  return s.transport === "PLAYING" || s.transport === "TRANSITIONING";
 }
 
 // ── render ─────────────────────────────────────────────────────────
@@ -552,6 +544,9 @@ $("btn-refresh").addEventListener("click", (ev) => {
   if (armed(ev.currentTarget)) post("/queue/refresh", {}, ev.currentTarget);
 });
 
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") { closeFlap(); setDropOpen(null); }
+});
 document.addEventListener("click", (ev) => {
   if (!ev.target.closest(".skipwrap")) closeFlap();
   if (!ev.target.closest(".dropwrap")) setDropOpen(null);
@@ -566,7 +561,13 @@ document.addEventListener("click", (ev) => {
     setDropOpen(null);
     return void post(`/episodes/${id}/drop`, { disposition }, btn);
   }
-  if (btn.dataset.player) return void post(`/player/${btn.dataset.player}`, {}, btn);
+  if (btn.dataset.player) {
+    // Going off air stops and reverts the queue — worth the same two-press
+    // arm as Refresh all, and it doubles as the label the tooltip can't
+    // deliver on touch.
+    if (btn.dataset.player === "stop" && !armed(btn)) return;
+    return void post(`/player/${btn.dataset.player}`, {}, btn);
+  }
   if (btn.dataset.sched) return void post(`/schedules/${btn.dataset.sched}`, {}, btn);
   if (btn.dataset.category) return void post(`/categories/${btn.dataset.category}`, {}, btn);
   if (btn.dataset.episode) {
@@ -575,13 +576,37 @@ document.addEventListener("click", (ev) => {
   }
 });
 
-$("track").addEventListener("click", (ev) => {
+// ── seeking ────────────────────────────────────────────────────────
+// Same pointer-capture drag as the volume: the mark follows the finger and
+// the seek posts once on release. A plain tap is just a zero-length drag.
+let seekDrag = false;
+let seekFrac = null;
+function seekFromEvent(ev) {
+  const rect = $("track").getBoundingClientRect();
+  seekFrac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+  const np = status.now_playing;
+  const pct = 100 * seekFrac;
+  $("track-fill").style.width = `${pct}%`;
+  $("track-mark").style.left = `calc(${pct}% - 1px)`;
+  $("t-pos").textContent = fmt(seekFrac * np.duration);
+}
+$("track").addEventListener("pointerdown", (ev) => {
   const np = status && status.now_playing;
   if (!np || !np.duration) return;
-  const rect = $("track").getBoundingClientRect();
-  const frac = (ev.clientX - rect.left) / rect.width;
-  post("/player/seek", { seconds: Math.round(frac * np.duration) });
+  seekDrag = true;
+  $("track").setPointerCapture(ev.pointerId);
+  seekFromEvent(ev);
 });
+$("track").addEventListener("pointermove", (ev) => { if (seekDrag) seekFromEvent(ev); });
+$("track").addEventListener("pointerup", () => {
+  if (!seekDrag) return;
+  seekDrag = false;
+  const np = status && status.now_playing;
+  if (np && np.duration && seekFrac != null) {
+    post("/player/seek", { seconds: Math.round(seekFrac * np.duration) });
+  }
+});
+$("track").addEventListener("pointercancel", () => { seekDrag = false; });
 
 $("btn-scan").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;

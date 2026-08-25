@@ -53,6 +53,11 @@
   <input type="text" id="category-name" placeholder="New category name" required>
   <button type="submit" class="tab">Add category</button>
 </form>
+
+<div class="mini-transport" id="mini-transport" hidden>
+  <button type="button" class="tab small" id="mini-playpause" aria-label="Play or pause">&#9654;</button>
+  <a href="/" id="mini-now" title="Open the board"><span class="m">Off air</span></a>
+</div>
 {% endblock %}
 
 {% block script %}
@@ -71,33 +76,60 @@ function episodeState(feedId) {
 }
 
 // ── shared episode rendering (station panel + global search) ────────
+// One spelled-out primary (Play next) and a flap for the rest, matching the
+// board's Drop ▾ pattern: four buttons per row wrapped ragged and buried the
+// occasional verbs under 60+ uppercase labels a page.
+// Which row's flap is open lives here for the same reason as openDropId:
+// these rows re-render under the reader.
+let openEpMenuId = null;
+
+function epMenu(e) {
+  const open = openEpMenuId === String(e.id);
+  return `<div class="dropwrap">` +
+    `<button type="button" class="tab small" data-epmenu="${e.id}" ` +
+    `aria-haspopup="true" aria-expanded="${open}" ` +
+    `aria-label="More actions for ${esc(e.title)}">More &#9662;</button>` +
+    `<div class="flap" data-epflap="${e.id}"${open ? "" : " hidden"}>` +
+    `<button type="button" data-episode="${e.id}/play_now">Play now <i>interrupt</i></button>` +
+    `<button type="button" data-episode="${e.id}/play_last">Add to Up Next <i>end of queue</i></button>` +
+    (e.arc
+      ? `<button type="button" data-episode="${e.id}/queue_arc">Queue series <i>every part, in order</i></button>` : "") +
+    (e.status === "archived"
+      ? `<button type="button" data-episode="${e.id}/release">Release <i>out of the vault</i></button>` : "") +
+    `</div></div>`;
+}
+
+function setEpMenuOpen(id) {
+  openEpMenuId = id;
+  for (const flap of document.querySelectorAll("[data-epflap]"))
+    flap.hidden = flap.dataset.epflap !== id;
+  for (const b of document.querySelectorAll("[data-epmenu]"))
+    b.setAttribute("aria-expanded", String(b.dataset.epmenu === id));
+}
+
 function episodeRow(e, opts) {
   opts = opts || {};
   const statusClass = { played: "ok", skipped: "pri", archived: "m" }[e.status] || "glow";
   const checkbox = opts.checkbox
     ? `<input type="checkbox" data-episode-check="${e.id}"${opts.selected ? " checked" : ""}>`
     : "";
+  const mins = e.duration ? ` &middot; ${Math.round(e.duration / 60)} min` : "";
   return `<div class="svc-row ep-row">` +
     checkbox +
     `<span class="st ${statusClass}">${esc(e.status)}</span>` +
     (opts.showBadge ? `<span class="m">${esc(e.show)}</span>` : "") +
     `<span class="glow">${esc(e.title)}</span>` +
-    `<span class="m">${esc((e.published_at || "").slice(0, 10))}</span>` +
+    // the caret hugs the title it discloses; at the row's end flex-wrap
+    // orphaned it onto its own line between rows
+    discToggle(e.id, e.description, e.title) +
+    `<span class="m">${esc((e.published_at || "").slice(0, 10))}${mins}</span>` +
     (e.failures
       ? `<span class="st pri" title="Sonos accepted this episode but no audio came out">` +
         `${e.failures}&times; no audio</span>` : "") +
     `<span class="ep-actions">` +
-
-    (e.arc
-      ? `<button type="button" class="tab small" data-episode="${e.id}/queue_arc" ` +
-        `title="Queue every part of this story, in order">Queue series</button>` : "") +
-    `<button type="button" class="tab small" data-episode="${e.id}/play_last" title="Queue at the end of Up Next">Add to Up Next</button>` +
     `<button type="button" class="tab small" data-episode="${e.id}/play_next" title="Play after current">Play next</button>` +
-    `<button type="button" class="tab small" data-episode="${e.id}/play_now" title="Interrupt and play now">Play now</button>` +
-    (e.status === "archived"
-      ? `<button type="button" class="tab small" data-episode="${e.id}/release">Release</button>` : "") +
+    epMenu(e) +
     `</span>` +
-    discToggle(e.id, e.description, e.title) +
     discPanel(e.id, e.description) +
     `</div>`;
 }
@@ -160,17 +192,38 @@ function sheetHeadHTML(f, categories) {
     `</div></div>`;
 }
 
+// Rename/Remove fold behind a ⋯ flap: rotation is the everyday control,
+// category admin is twice a year, and REMOVE at equal weight beside a daily
+// toggle is an invitation to the wrong tap.
+let openCatMenuId = null;
+
+function setCatMenuOpen(id) {
+  openCatMenuId = id;
+  for (const flap of document.querySelectorAll("[data-catflap]"))
+    flap.hidden = flap.dataset.catflap !== id;
+  for (const b of document.querySelectorAll("[data-catmenu]"))
+    b.setAttribute("aria-expanded", String(b.dataset.catmenu === id));
+}
+
 function groupHeadHTML(cat, rows) {
   const count = rows.length;
   const unplayed = rows.reduce((n, f) => n + f.counts.new + f.counts.queued, 0);
   const cnt = `<span class="cnt">${count} station${count === 1 ? "" : "s"} &middot; ${unplayed.toLocaleString()} unplayed</span>`;
   if (!cat) return `<span class="glow">Uncategorized</span>` + cnt;
+  const open = openCatMenuId === String(cat.id);
   return `<span class="glow">${esc(cat.name)}</span>` + cnt +
     `<span class="spacer"></span>` +
     `<button type="button" class="tab small${cat.rotation_enabled ? " live" : " red"}" data-category="${cat.id}/toggle">` +
     `${rotationLabel(cat.rotation_enabled)}</button>` +
-    `<button type="button" class="tab small" data-category-rename="${cat.id}">Rename</button>` +
-    `<button type="button" class="tab small red" data-category="${cat.id}/delete" data-confirm="1">Remove</button>`;
+    `<div class="dropwrap">` +
+    `<button type="button" class="tab small" data-catmenu="${cat.id}" ` +
+    `aria-haspopup="true" aria-expanded="${open}" ` +
+    `aria-label="Actions for ${esc(cat.name)}">Edit &#9662;</button>` +
+    `<div class="flap" data-catflap="${cat.id}"${open ? "" : " hidden"}>` +
+    `<button type="button" data-category-rename="${cat.id}">Rename</button>` +
+    `<button type="button" class="danger" data-category="${cat.id}/delete" data-confirm="1">` +
+    `Remove <i>stations stay, uncategorized</i></button>` +
+    `</div></div>`;
 }
 
 function buildGroups(s) {
@@ -289,7 +342,26 @@ function renderPage(s) {
   $("stn-summary").textContent =
     `${s.stations.length} STATIONS · ${cats} CATEGOR${cats === 1 ? "Y" : "IES"}`;
   renderStations(s);
+  renderMiniTransport(s);
 }
+
+// the phone remote: pausing from this page shouldn't mean navigating back
+// to the board first. CSS keeps it display:none above 760px.
+function renderMiniTransport(s) {
+  const playing = isPlaying(s);
+  $("mini-playpause").innerHTML = playing ? "&#10074;&#10074;" : "&#9654;";
+  $("mini-playpause").setAttribute("aria-label", playing ? "Pause" : "Play");
+  const np = s.now_playing;
+  $("mini-now").innerHTML = np
+    ? `<span class="m">On air</span>${esc(np.title)}`
+    : `<span class="m">Off air</span>Open the board`;
+  $("mini-transport").hidden = false;
+}
+
+$("mini-playpause").addEventListener("click", (ev) => {
+  const playing = status && isPlaying(status);
+  post(`/player/${playing ? "pause" : "play"}`, {}, ev.currentTarget);
+});
 
 function toggleManage(id) {
   expandedFeedId = expandedFeedId === id ? null : id;
@@ -361,16 +433,27 @@ function pickPodcast(p) {
 }
 
 // ── wire up ────────────────────────────────────────────────────────
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") { setEpMenuOpen(null); setCatMenuOpen(null); }
+});
 document.addEventListener("click", (ev) => {
+  if (!ev.target.closest(".dropwrap")) { setEpMenuOpen(null); setCatMenuOpen(null); }
   const btn = ev.target.closest("button");
   if (!btn) return;
   if (btn.dataset.confirm && !armed(btn)) return;
+  if (btn.dataset.epmenu) {
+    return void setEpMenuOpen(openEpMenuId === btn.dataset.epmenu ? null : btn.dataset.epmenu);
+  }
+  if (btn.dataset.catmenu) {
+    return void setCatMenuOpen(openCatMenuId === btn.dataset.catmenu ? null : btn.dataset.catmenu);
+  }
   if (btn.dataset.tile) return void toggleManage(Number(btn.dataset.tile));
   if ("closeSheet" in btn.dataset) return void toggleManage(expandedFeedId);
   if (btn.dataset.artmode) return void setArtMode(btn.dataset.artmode);
   if (btn.dataset.feed) return void post(`/feeds/${btn.dataset.feed}`, {}, btn);
   if (btn.dataset.episode) {
     const [id, action] = btn.dataset.episode.split("/");
+    setEpMenuOpen(null);
     return void postEpisodeAction(id, action, btn);
   }
   if (btn.dataset.page) {
@@ -405,8 +488,12 @@ document.addEventListener("click", (ev) => {
     $("podcast-search-block").style.display = "";
     return;
   }
-  if (btn.dataset.category) return void post(`/categories/${btn.dataset.category}`, {}, btn);
+  if (btn.dataset.category) {
+    if (btn.dataset.category.endsWith("/delete")) setCatMenuOpen(null);
+    return void post(`/categories/${btn.dataset.category}`, {}, btn);
+  }
   if (btn.dataset.categoryRename) {
+    setCatMenuOpen(null);
     const id = btn.dataset.categoryRename;
     const cat = (status.categories || []).find((x) => String(x.id) === id);
     const head = btn.closest(".grp-head");

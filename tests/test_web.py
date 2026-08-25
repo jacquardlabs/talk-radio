@@ -173,10 +173,16 @@ def test_status_now_playing_with_fake(client) -> None:
     assert data["stations"][0]["counts"]["queued"] >= 1
 
 
-def _add_episode(db, fid, n, status="new"):
+def _add_episode(db, fid, n, status="new", duration=None):
+    # insert_episode has no status parameter — passing status positionally
+    # used to land in duration_seconds and leave every row 'new', which made
+    # the release tests below pass without ever exercising a real release.
     db.insert_episode(fid, f"g{fid}-{n}", f"Ep {n}", f"https://cdn/{fid}/{n}.mp3",
-                      f"2026-01-{n:02d}T00:00:00Z", status)
-    return next(e["id"] for e in db.episodes_for_feed(fid) if e["guid"] == f"g{fid}-{n}")
+                      f"2026-01-{n:02d}T00:00:00Z", duration)
+    eid = next(e["id"] for e in db.episodes_for_feed(fid) if e["guid"] == f"g{fid}-{n}")
+    if status == "archived":
+        db.archive_episode(eid)
+    return eid
 
 
 def test_feed_episodes_paginates_and_searches(client) -> None:
@@ -184,10 +190,13 @@ def test_feed_episodes_paginates_and_searches(client) -> None:
     fid = db.add_feed("https://x/rss", "X Show", None, False)
     for i in range(1, 4):
         _add_episode(db, fid, i)
+    _add_episode(db, fid, 4, duration=1860)
     resp = c.get(f"/api/feeds/{fid}/episodes?page=1")
     data = resp.get_json()
-    assert data["total"] == 3 and len(data["episodes"]) == 3
+    assert data["total"] == 4 and len(data["episodes"]) == 4
     assert data["episodes"][0]["show"] == "X Show"
+    assert data["episodes"][0]["duration"] == 1860
+    assert data["episodes"][1]["duration"] is None
     filtered = c.get(f"/api/feeds/{fid}/episodes?q=Ep 2").get_json()
     assert filtered["total"] == 1 and filtered["episodes"][0]["title"] == "Ep 2"
 

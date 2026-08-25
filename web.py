@@ -48,6 +48,7 @@ def _episode_json(e, feed_title: str) -> dict:
             # actually groups on.
             "arc": feeds_mod.series_key(e["title"]),
             "failures": e["failure_count"],
+            "duration": e["duration_seconds"],
             "description": e["description"]}
 
 
