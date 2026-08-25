@@ -219,6 +219,15 @@ def test_release_episode_route(client) -> None:
     assert c.post("/episodes/999/release").status_code == 404
 
 
+def test_drop_route_validates_disposition(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    eid = _add_episode(db, fid, 1)
+    data = c.post(f"/episodes/{eid}/drop", json={"disposition": "someday"}).get_json()
+    assert data["ok"] is False and "disposition" in data["error"]
+    assert c.post("/episodes/999/drop").status_code == 404
+
+
 def test_release_episodes_bulk_route(client) -> None:
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X", None, False)

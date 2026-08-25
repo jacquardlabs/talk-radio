@@ -259,7 +259,7 @@ function renderPage(s) {
         `title="${e.pinned ? "Pinned — Refresh all leaves this alone" : "Pin so Refresh all keeps it"}">` +
         PIN_SVG + `</button>` +
         `<button type="button" class="tab small" data-episode="${e.episode_id}/play_now" title="Interrupt and play now">Play now</button>` +
-        `<button type="button" class="tab small" data-episode="${e.episode_id}/drop" title="Back into rotation another day">Drop</button>` +
+        dropControl(e.episode_id) +
         `</div>` + discPanel(e.episode_id, e.description) + `</div>`;
     }).join("") || '<div class="empty">QUEUE EMPTY</div>';
     // a keyboard reorder re-renders through this path, so put focus back on
@@ -385,6 +385,32 @@ function renderSpeakers(s) {
       `title="${isStation ? "This room is the station" : `Make ${esc(r.name)} the station`}">` +
       `${esc(r.name)}</button></span>`;
   }).join("") || '<span class="spk-empty">No speaker — press Scan</span>';
+}
+
+// ── dropping from up next ──────────────────────────────────────────
+// Which row's drop flap is open lives here, not in the DOM, for the same
+// reason as expandedEpisodes: the 5s poll rewrites the rows wholesale and
+// would fold the flap under a finger mid-choice.
+let openDropId = null;
+
+function dropControl(id) {
+  const open = openDropId === String(id);
+  return `<div class="dropwrap">` +
+    `<button type="button" class="tab small" data-dropbtn="${id}" ` +
+    `aria-haspopup="true" aria-expanded="${open}" ` +
+    `title="Remove from Up Next">Drop &#9662;</button>` +
+    `<div class="flap" data-dropflap="${id}"${open ? "" : " hidden"}>` +
+    `<button type="button" data-drop="${id}/later">Later <i>back in rotation</i></button>` +
+    `<button type="button" class="danger" data-drop="${id}/done">Done <i>never play again</i></button>` +
+    `</div></div>`;
+}
+
+function setDropOpen(id) {
+  openDropId = id;
+  for (const flap of document.querySelectorAll("[data-dropflap]"))
+    flap.hidden = flap.dataset.dropflap !== id;
+  for (const b of document.querySelectorAll("[data-dropbtn]"))
+    b.setAttribute("aria-expanded", String(b.dataset.dropbtn === id));
 }
 
 // ── reordering up next ─────────────────────────────────────────────
@@ -528,9 +554,18 @@ $("btn-refresh").addEventListener("click", (ev) => {
 
 document.addEventListener("click", (ev) => {
   if (!ev.target.closest(".skipwrap")) closeFlap();
+  if (!ev.target.closest(".dropwrap")) setDropOpen(null);
   const btn = ev.target.closest("button");
   if (!btn) return;
   if (btn.closest(".flap")) closeFlap();
+  if (btn.dataset.dropbtn) {
+    return void setDropOpen(openDropId === btn.dataset.dropbtn ? null : btn.dataset.dropbtn);
+  }
+  if (btn.dataset.drop) {
+    const [id, disposition] = btn.dataset.drop.split("/");
+    setDropOpen(null);
+    return void post(`/episodes/${id}/drop`, { disposition }, btn);
+  }
   if (btn.dataset.player) return void post(`/player/${btn.dataset.player}`, {}, btn);
   if (btn.dataset.sched) return void post(`/schedules/${btn.dataset.sched}`, {}, btn);
   if (btn.dataset.category) return void post(`/categories/${btn.dataset.category}`, {}, btn);
