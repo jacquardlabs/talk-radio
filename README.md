@@ -75,6 +75,8 @@ per device, so the wall tablet and the bedside phone can differ. Fonts are
 self-hosted — the appliance never calls out to a font CDN — and only the active
 theme's face downloads.
 
+![The On air deck and transport in all eight themes](docs/screenshots/themes.jpg)
+
 The dashboard is an installable PWA — on a phone, *Add to Home Screen* opens it
 standalone like a remote control. Under 760px the transport docks to the bottom
 of the screen, thumb-height:
