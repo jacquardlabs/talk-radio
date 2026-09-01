@@ -1,0 +1,529 @@
+/* Seven alternate looks for the board. Amber is not here — it is the
+   :root block in templates/base.html, so the default costs no second
+   request and cannot flash unstyled.
+
+   A theme is the token contract and, where it earns one, a signature
+   component. Three rules hold everywhere:
+
+   - color-scheme is a real declaration, not a var(). A light theme that
+     forgets it keeps the dark chrome on the alarm's time input.
+   - The seek track's outer box stays 44px tall whatever the band inside
+     it looks like. It is a drag-to-seek surface and the tap target is
+     not a style. Themes move the padding, never the height.
+   - A theme with no phosphor sets all eight glow tokens to none. Half a
+     glow reads as a rendering fault.
+   - Restyling .track uses background-color, never the `background`
+     shorthand — the shorthand resets background-clip, and content-box is
+     what keeps the band inside the 44px box instead of painting over the
+     times underneath. A theme that does paint the whole box (J-Card's
+     tape window) gives the times their gap back with margin-bottom.
+   - The token block is :root[data-theme=...], not [data-theme=...]. A bare
+     attribute selector ties with :root on specificity and wins only by
+     being later in the document — so moving this <link> would silently
+     un-theme every board. (0,2,0) beats the tie outright.
+
+   Contrast is enforced, not eyeballed: tools/check_contrast.py parses
+   this file and holds every palette to the same ratios amber owes. */
+
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 400 800;
+  font-display: swap; src: url("/static/fonts/archivo-normal-var.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-style: normal; font-weight: 400;
+  font-display: swap; src: url("/static/fonts/barlow-normal-400.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-style: normal; font-weight: 500;
+  font-display: swap; src: url("/static/fonts/barlow-normal-500.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-style: normal; font-weight: 600;
+  font-display: swap; src: url("/static/fonts/barlow-normal-600.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-style: normal; font-weight: 700;
+  font-display: swap; src: url("/static/fonts/barlow-normal-700.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Semi Condensed"; font-style: normal; font-weight: 500;
+  font-display: swap; src: url("/static/fonts/barlowsc-normal-500.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Semi Condensed"; font-style: normal; font-weight: 600;
+  font-display: swap; src: url("/static/fonts/barlowsc-normal-600.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Semi Condensed"; font-style: normal; font-weight: 700;
+  font-display: swap; src: url("/static/fonts/barlowsc-normal-700.woff2") format("woff2"); }
+@font-face { font-family: "Bodoni Moda"; font-style: italic; font-weight: 400;
+  font-display: swap; src: url("/static/fonts/bodoni-italic-400.woff2") format("woff2"); }
+@font-face { font-family: "Bodoni Moda"; font-style: normal; font-weight: 400 700;
+  font-display: swap; src: url("/static/fonts/bodoni-normal-var.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 300;
+  font-display: swap; src: url("/static/fonts/plexmono-normal-300.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400 700;
+  font-display: swap; src: url("/static/fonts/plexsans-normal-var.woff2") format("woff2"); }
+@font-face { font-family: "Jost"; font-style: normal; font-weight: 300 700;
+  font-display: swap; src: url("/static/fonts/jost-normal-var.woff2") format("woff2"); }
+@font-face { font-family: "Oswald"; font-style: normal; font-weight: 300 700;
+  font-display: swap; src: url("/static/fonts/oswald-normal-var.woff2") format("woff2"); }
+@font-face { font-family: "Public Sans"; font-style: normal; font-weight: 400 700;
+  font-display: swap; src: url("/static/fonts/publicsans-normal-var.woff2") format("woff2"); }
+@font-face { font-family: "VT323"; font-style: normal; font-weight: 400;
+  font-display: swap; src: url("/static/fonts/vt323-normal-400.woff2") format("woff2"); }
+
+/* ══ Solari ═══════════════════════════════════════════════════════════
+   A split-flap departures board. The app already speaks this language —
+   it says "Departs 09:13", it calls its menus flaps — so the now-playing
+   title is set in tiles with the seam across the middle. */
+:root[data-theme="solari"] {
+  --bg: #0e0e0e;
+  --bezel: #191919; --bezel2: #232323; --panel-deep: #131313;
+  --well: #1c1c1c; --dock: rgba(14,14,14,.97); --scrim: rgba(14,14,14,.92);
+  --line: #2f2f2f; --line-soft: #242424; --line-hard: #333;
+  --line-lit: #6a5717; --line-red: #4a2a22;
+  --ink: #f0ead9; --ink-dim: #8d8878; --ink-2: #b6b0a0;
+  --accent: #f2c318; --on-accent: #141414;
+  --red: #ff6a4b; --green: #6fd86a;
+  --glow: none; --glow-soft: none; --glow-mark: none; --glow-fill: none;
+  --glow-art: none; --glow-pin: none; --glow-red: none; --glow-green: none;
+  --led-mask: none;
+  --track-fill: rgba(242,195,24,.30);
+  --art-filter: grayscale(1) sepia(.55) saturate(2.1) hue-rotate(-6deg) brightness(.92);
+  --font-ui: "Oswald", "Arial Narrow", sans-serif;
+  --font-title: "Oswald", sans-serif;
+  --font-body: "Oswald", "Arial Narrow", sans-serif;
+  color-scheme: dark;
+}
+[data-theme="solari"] .clock, [data-theme="solari"] .np-eyebrow span:last-child { color: var(--accent); }
+[data-theme="solari"] header .t { letter-spacing: .26em; }
+[data-theme="solari"] .qtitle, [data-theme="solari"] .svc-row { text-transform: uppercase; letter-spacing: .04em; }
+[data-theme="solari"] .qrow { border-bottom: 1px solid var(--line-soft); }
+/* The tiles. A flex row of glyphs, so the clamp on .np-title cannot
+   apply — the height is capped explicitly instead, or a long episode
+   name grows the deck without limit. */
+[data-theme="solari"] .np-title {
+  display: block; font-size: 17px; line-height: 30px;
+  text-transform: uppercase; font-weight: 500;
+  max-height: 60px; overflow: hidden; word-spacing: 7px;
+}
+[data-theme="solari"] .np-title .word { display: inline-block; white-space: nowrap; }
+[data-theme="solari"] .np-title .flip + .flip { margin-left: 2px; }
+[data-theme="solari"] .np-title .flip {
+  display: inline-block; width: 15px; height: 26px; line-height: 26px;
+  text-align: center; border-radius: 2px; color: var(--ink);
+  background: linear-gradient(#262626 0 48%, #000 48% 53%, #1e1e1e 53%);
+}
+
+/* ══ Ceefax ═══════════════════════════════════════════════════════════
+   Teletext, page 100. Seven colours, one glyph set, no borders — the
+   blocks are the borders. The transport becomes the Fastext row, in the
+   order anyone who owned a TV before 2012 already knows. */
+:root[data-theme="ceefax"] {
+  --bg: #000;
+  --bezel: #000; --bezel2: #111; --panel-deep: #000;
+  --well: #0000bb; --dock: rgba(0,0,0,.97); --scrim: rgba(0,0,0,.92);
+  --line: #000; --line-soft: #000; --line-hard: #0000ee;
+  --line-lit: #ffff00; --line-red: #ff0000;
+  --ink: #ffffff; --ink-dim: #00aaaa; --ink-2: #00ffff;
+  --accent: #ffff00; --on-accent: #000;
+  --red: #ff2222; --green: #00ff00;
+  --glow: none; --glow-soft: none; --glow-mark: none; --glow-fill: none;
+  --glow-art: none; --glow-pin: none; --glow-red: none; --glow-green: none;
+  --led-mask: none; --meter-mask: none;
+  --track-fill: #00ffff;
+  --art-filter: grayscale(1) contrast(1.5) sepia(1) saturate(7) hue-rotate(150deg);
+  --font-ui: "VT323", ui-monospace, monospace;
+  --font-title: "VT323", ui-monospace, monospace;
+  --font-body: "VT323", ui-monospace, monospace;
+  color-scheme: dark;
+}
+/* VT323 sets small for its em, so the whole board comes up a size. */
+[data-theme="ceefax"] body { font-size: 19px; line-height: 1.25; }
+[data-theme="ceefax"] .eyebrow, [data-theme="ceefax"] .np-eyebrow,
+[data-theme="ceefax"] .np-meta, [data-theme="ceefax"] .qmeta,
+[data-theme="ceefax"] .navlink, [data-theme="ceefax"] button.tab,
+[data-theme="ceefax"] .lbl, [data-theme="ceefax"] .basement,
+[data-theme="ceefax"] .rots .n, [data-theme="ceefax"] .rots .st,
+[data-theme="ceefax"] .times, [data-theme="ceefax"] .grp-head,
+[data-theme="ceefax"] .qtitle, [data-theme="ceefax"] .svc-row,
+[data-theme="ceefax"] .empty, [data-theme="ceefax"] .sheet-counts {
+  font-size: 17px; letter-spacing: 0; font-weight: 400;
+}
+/* Teletext has no hairlines, so a chip that is off would have no edge at
+   all. The rotation switches keep a drawn one either way. */
+[data-theme="ceefax"] .rots { border-color: #00aaaa; }
+[data-theme="ceefax"] .rots.on { border-color: #ffff00; }
+[data-theme="ceefax"] header {
+  background: #0000ee; padding: 2px 18px; margin: -18px -18px 0;
+  border-bottom: 0;
+}
+[data-theme="ceefax"] header .t { color: #ffff00; letter-spacing: .06em; }
+[data-theme="ceefax"] .np-title { color: #ffff00; font-weight: 400; }
+[data-theme="ceefax"] .navlink, [data-theme="ceefax"] button.tab {
+  border: 0; min-height: 40px; background: #0000ee; color: #fff;
+}
+/* The flat rule above outranks base's .live, so every lit control has to
+   be restated here or nothing on the page reads as selected. */
+[data-theme="ceefax"] .navlink.live, [data-theme="ceefax"] button.tab.live,
+[data-theme="ceefax"] button.tab.tplay, [data-theme="ceefax"] .chip.on {
+  background: #ffff00; color: #000;
+}
+[data-theme="ceefax"] button.tab:active, [data-theme="ceefax"] button.tab.pressed {
+  background: #ffff00; color: #000;
+}
+/* Teletext never had a text field, so this is invented rather than
+   quoted: a cyan-ruled black box, which is at least visible. A field
+   with a black fill and a black border is not a field. */
+[data-theme="ceefax"] input[type="url"], [data-theme="ceefax"] input[type="text"],
+[data-theme="ceefax"] input[type="search"], [data-theme="ceefax"] input[type="time"],
+[data-theme="ceefax"] input[type="number"], [data-theme="ceefax"] select,
+[data-theme="ceefax"] .artmode, [data-theme="ceefax"] label.chk {
+  border: 2px solid #00ffff; background: #000; color: #fff;
+}
+[data-theme="ceefax"] input::placeholder { color: #00aaaa; }
+[data-theme="ceefax"] .spk { border: 0; background: #000; color: #00ffff; }
+[data-theme="ceefax"] .spk.co { background: #00ffff; color: #000; }
+[data-theme="ceefax"] .spk.co .spk-name, [data-theme="ceefax"] .spk.co .spk-name.on { color: #000; }
+[data-theme="ceefax"] .track { padding: 7px 0; background-color: #0000bb; margin-bottom: 0; }
+[data-theme="ceefax"] .track .fill { top: 7px; bottom: 7px; }
+[data-theme="ceefax"] .track .mark { top: 7px; bottom: 7px; background: #fff; width: 6px; }
+/* Fastext: red, green, yellow, cyan, in that order, across the four
+   transport keys that are always present. */
+[data-theme="ceefax"] .transport > *:nth-child(1) button,
+[data-theme="ceefax"] .transport > button:nth-child(1) { background: #dd0000; color: #fff; }
+[data-theme="ceefax"] .transport > *:nth-child(2) button,
+[data-theme="ceefax"] .transport > button:nth-child(2) { background: #00cc00; color: #000; border-color: #00cc00; }
+[data-theme="ceefax"] .transport > *:nth-child(3) button,
+[data-theme="ceefax"] .transport > button:nth-child(3) { background: #dddd00; color: #000; }
+[data-theme="ceefax"] .transport > *:nth-child(4) button,
+[data-theme="ceefax"] .transport > button:nth-child(4) { background: #00cccc; color: #000; }
+[data-theme="ceefax"] button.tab.power { background: #000; color: #ff2222; border: 2px solid #ff2222; }
+[data-theme="ceefax"] .vol { border: 0; background: #000; }
+[data-theme="ceefax"] .vol .meter { background: #0000bb; height: 18px; }
+[data-theme="ceefax"] .vol .meter .fill { background: #00ff00; }
+[data-theme="ceefax"] .qtitle .news { background: #dd0000; color: #fff; padding: 0 5px; }
+[data-theme="ceefax"] .flap { border: 2px solid #00ffff; }
+[data-theme="ceefax"] .qrow, [data-theme="ceefax"] .svc-row { border-bottom: 0; }
+
+/* ══ J-Card ═══════════════════════════════════════════════════════════
+   A cassette inlay. The first light theme, and the one that proves the
+   token layer: nothing here knows it used to be dark. Progress is the
+   tape window — two reels and a head — and the artwork sits on the
+   stripe stack every blank tape had printed on its spine. */
+:root[data-theme="jcard"] {
+  --bg: #f5f3ee;
+  --bezel: #ffffff; --bezel2: #efece5; --panel-deep: #ffffff;
+  --well: #e6e2d8; --dock: rgba(245,243,238,.97); --scrim: rgba(255,255,255,.93);
+  --line: #cbc6bb; --line-soft: #dcd7cd; --line-hard: #15161a;
+  --line-lit: #15161a; --line-red: #d81f2a;
+  --ink: #15161a; --ink-dim: #83858c; --ink-2: #5a5c64;
+  --accent: #15161a; --on-accent: #ffffff;
+  --red: #c81726; --green: #1f7a45;
+  --glow: none; --glow-soft: none; --glow-mark: none; --glow-fill: none;
+  --glow-art: none; --glow-pin: none; --glow-red: none; --glow-green: none;
+  --led-mask: none;
+  --radius: 2px;
+  --track-fill: #5a3a1e;
+  --shadow: 0 10px 30px rgba(21,22,26,.18);
+  --shadow-lift: 0 6px 18px rgba(21,22,26,.16);
+  --shadow-dock: 0 -10px 26px rgba(21,22,26,.12);
+  --art-filter: grayscale(1) sepia(.45) saturate(3.6) hue-rotate(-28deg) contrast(1.04);
+  --font-ui: "Archivo", Helvetica, Arial, sans-serif;
+  --font-title: "Archivo", Helvetica, sans-serif;
+  --font-body: "Archivo", Helvetica, Arial, sans-serif;
+  color-scheme: light;
+}
+[data-theme="jcard"] header { border-bottom: 2px solid var(--ink); }
+[data-theme="jcard"] header .t { font-weight: 800; letter-spacing: -.01em; text-transform: none; font-size: 19px; }
+[data-theme="jcard"] .navlink, [data-theme="jcard"] button.tab {
+  border: 1.5px solid var(--ink); font-weight: 600;
+}
+[data-theme="jcard"] button.tab.off, [data-theme="jcard"] .spk { border-color: var(--line); }
+[data-theme="jcard"] .np-title, [data-theme="jcard"] .qtitle { font-weight: 700; letter-spacing: -.015em; }
+/* The stripe stack, printed behind the artwork rather than around it. */
+[data-theme="jcard"] .deck-art {
+  box-shadow: 6px 6px 0 var(--red), 12px 12px 0 #1c2a6b;
+  border: 0; margin: 0 12px 12px 0;
+}
+/* The tape window. The outer box keeps its 44px; only the band moves. */
+[data-theme="jcard"] .track {
+  padding: 8px 0; background-color: #fff; background-clip: padding-box;
+  border: 2px solid var(--ink); border-radius: 14px;
+  margin-bottom: 4px;
+}
+[data-theme="jcard"] .track::before, [data-theme="jcard"] .track::after {
+  content: ""; position: absolute; top: 12px; width: 20px; height: 20px;
+  border-radius: 50%; border: 5px solid var(--ink); background: #fff;
+}
+[data-theme="jcard"] .track::before { left: 7px; }
+[data-theme="jcard"] .track::after { right: 7px; }
+[data-theme="jcard"] .track .fill { top: 19px; bottom: 19px; left: 31px; }
+[data-theme="jcard"] .track .mark { top: 10px; bottom: 10px; width: 2px; background: var(--ink); }
+[data-theme="jcard"] .vol .meter { background: #ddd8ce; }
+[data-theme="jcard"] .vol .meter .fill { background: var(--red); }
+
+/* ══ Rams ═════════════════════════════════════════════════════════════
+   Braun, 1962. Nothing glows; state is lamps and pointers. The volume
+   is a knob with a pointer and the progress bar is a hairline with a red
+   needle, because that is how the instrument said it. */
+:root[data-theme="rams"] {
+  --bg: #d6d4cd;
+  --bezel: #e6e4de; --bezel2: #eeece7; --panel-deep: #dfddd6;
+  --well: #c2c0b8; --dock: rgba(214,212,205,.97); --scrim: rgba(230,228,222,.93);
+  --line: #b3b0a7; --line-soft: #c4c1b8; --line-hard: #a5a299;
+  --line-lit: #1e1e1c; --line-red: #9e2b22;
+  --ink: #1e1e1c; --ink-dim: #77766f; --ink-2: #504f4a;
+  --accent: #1e1e1c; --on-accent: #e6e4de;
+  --red: #9e2b22; --green: #1a5f2c;
+  --glow: none; --glow-soft: none; --glow-mark: none; --glow-fill: none;
+  --glow-art: none; --glow-pin: none; --glow-red: none; --glow-green: none;
+  --led-mask: none; --meter-mask: none;
+  --radius: 2px;
+  --track-fill: #1e1e1c;
+  --shadow: 0 10px 30px rgba(30,30,28,.22);
+  --shadow-lift: 0 6px 18px rgba(30,30,28,.18);
+  --shadow-dock: 0 -10px 26px rgba(30,30,28,.14);
+  --art-filter: grayscale(1) contrast(1.05) brightness(1.02);
+  --font-ui: "IBM Plex Sans", system-ui, sans-serif;
+  --font-title: "IBM Plex Sans", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  color-scheme: light;
+}
+[data-theme="rams"] header .t { text-transform: none; letter-spacing: .04em; font-weight: 600; }
+[data-theme="rams"] .clock { font-family: "IBM Plex Mono", ui-monospace, monospace; font-weight: 300; }
+[data-theme="rams"] .navlink, [data-theme="rams"] button.tab {
+  box-shadow: inset 0 -1px 0 rgba(255,255,255,.65); font-weight: 500;
+}
+[data-theme="rams"] .navlink.live, [data-theme="rams"] button.tab.live,
+[data-theme="rams"] button.tab.tplay { box-shadow: none; }
+/* Live is a lamp beside the room, not a colour change on the label. */
+[data-theme="rams"] .spk.co::before {
+  content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green); margin-right: 2px; flex: none;
+}
+/* A hairline and a needle. The 44px box is untouched; the band is 2px. */
+[data-theme="rams"] .track { padding: 21px 0; background-color: var(--line); }
+[data-theme="rams"] .track .fill { top: 21px; bottom: 21px; }
+[data-theme="rams"] .track .mark { top: 15px; bottom: 15px; width: 2px; background: var(--red); }
+/* The knob. --vol is the volume as a number, set by the board, because a
+   pointer is a rotation and no width can be read as one. */
+[data-theme="rams"] .vol { border: 0; background: none; padding: 0 4px; }
+[data-theme="rams"] .vol .meter {
+  --meter-mask: none;
+  width: 148px; height: 36px; max-width: 34vw; background: none; border: 0;
+}
+/* The knob face, drawn at the left of that surface. */
+[data-theme="rams"] .vol .meter::before {
+  content: ""; position: absolute; left: 0; top: 0; width: 36px; height: 36px;
+  border-radius: 50%; border: 1px solid var(--line);
+  background: radial-gradient(circle at 38% 32%, #f5f4f0, #c5c3bc);
+  box-shadow: 0 1px 2px rgba(30,30,28,.3);
+}
+/* and the engraved scale it turns against, filling to the current value. */
+[data-theme="rams"] .vol .meter::after {
+  content: ""; position: absolute; left: 46px; right: 0; top: 15px; height: 7px;
+  background: linear-gradient(90deg, var(--ink) 0 calc(var(--vol, 0) * 1%),
+                              var(--line) calc(var(--vol, 0) * 1%) 100%);
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 1px, transparent 1px 7px);
+  mask: repeating-linear-gradient(90deg, #000 0 1px, transparent 1px 7px);
+}
+/* .fill is the pointer, not a bar: a rotation of --vol on the knob. */
+[data-theme="rams"] .vol .meter .fill {
+  position: absolute; inset: auto; left: 18px; top: 3px;
+  width: 2px; height: 12px; background: var(--ink); box-shadow: none;
+  transform-origin: 50% 15px;
+  transform: translateX(-50%) rotate(calc(-135deg + var(--vol, 0) * 2.7deg));
+}
+
+/* ══ Quiet Storm ══════════════════════════════════════════════════════
+   Late-night FM with one lamp on. The clock is the hero and the artwork
+   sits in a halo — the board you want at 23:30 with the sleep timer
+   armed. The only theme with a serif, and it keeps it out of the queue
+   rows: a Didone at 13px loses its thins at arm's length. */
+:root[data-theme="storm"] {
+  --bg: #0d1026;
+  --bezel: #181d40; --bezel2: #212752; --panel-deep: #111530;
+  --well: #090c1e; --dock: rgba(13,16,38,.97); --scrim: rgba(13,16,38,.92);
+  --line: #2b3164; --line-soft: #1f2549; --line-hard: #333a70;
+  --line-lit: #6d5a35; --line-red: #6b2f42;
+  --ink: #f1e5cf; --ink-dim: #767bA4; --ink-2: #aab0d6;
+  --accent: #f0c98e; --on-accent: #171130;
+  --red: #e2778f; --green: #8fd8b4;
+  --glow: 0 0 16px rgba(240,201,142,.30);
+  --glow-soft: 0 0 10px rgba(240,201,142,.22);
+  --glow-mark: 0 0 10px rgba(240,201,142,.85);
+  --glow-fill: 0 0 10px rgba(240,201,142,.5);
+  --glow-art: 0 0 46px 6px rgba(240,201,142,.20);
+  --glow-pin: drop-shadow(0 0 5px rgba(240,201,142,.8));
+  --glow-red: 0 0 8px rgba(226,119,143,.5);
+  --glow-green: 0 0 8px rgba(143,216,180,.5);
+  --led-mask: none;
+  --radius: 4px;
+  --track-fill: rgba(240,201,142,.28);
+  --art-filter: grayscale(1) sepia(.5) saturate(2.4) hue-rotate(-4deg) brightness(.95);
+  --font-ui: "Public Sans", system-ui, sans-serif;
+  --font-title: "Bodoni Moda", Didot, Georgia, serif;
+  --font-body: "Public Sans", system-ui, sans-serif;
+  color-scheme: dark;
+}
+[data-theme="storm"] header .t {
+  font-family: var(--font-title); font-style: italic; font-weight: 500;
+  text-transform: none; letter-spacing: .01em; font-size: 20px;
+}
+[data-theme="storm"] .clock {
+  font-family: var(--font-title); font-weight: 400; font-size: 32px; letter-spacing: .01em;
+  color: var(--accent);
+}
+[data-theme="storm"] .np-title { font-weight: 500; }
+/* The serif stops at the deck. Queue rows and sheets stay on Public
+   Sans, where 13px still has stems. */
+[data-theme="storm"] .qtitle, [data-theme="storm"] .sheet-title { font-family: var(--font-body); font-weight: 500; }
+[data-theme="storm"] .deck-art { border-radius: 6px; }
+[data-theme="storm"] .track { padding: 20px 0; border-radius: 3px; margin-bottom: -4px; }
+[data-theme="storm"] .track .fill { top: 20px; bottom: 20px; border-radius: 3px; }
+[data-theme="storm"] .track .mark {
+  top: 16px; bottom: 16px; width: 10px; border-radius: 50%; margin-left: -4px;
+}
+[data-theme="storm"] .vol .meter { --meter-mask: none; height: 3px; border-radius: 2px; }
+
+/* ══ Console ══════════════════════════════════════════════════════════
+   A mixing desk. Keys are lit rather than glowing, legends are
+   silkscreened, and the volume is a real VU — cream face, arc scale, red
+   zone, needle. Queue rows get a channel strip's fader cap. */
+:root[data-theme="console"] {
+  --bg: #1d2023;
+  --bezel: #292d33; --bezel2: #333940; --panel-deep: #212528;
+  --well: #101315; --dock: rgba(29,32,35,.97); --scrim: rgba(29,32,35,.92);
+  --line: #3d434a; --line-soft: #2d3237; --line-hard: #14171a;
+  --line-lit: #4fbf5f; --line-red: #5e2b26;
+  --ink: #e8e5dd; --ink-dim: #838a91; --ink-2: #aab1b8;
+  --accent: #4fbf5f; --on-accent: #0c1a0f;
+  --red: #f4635a; --green: #4fbf5f;
+  --glow: none; --glow-soft: none; --glow-mark: none;
+  --glow-fill: 0 0 10px rgba(79,191,95,.45);
+  --glow-art: none; --glow-pin: drop-shadow(0 0 4px rgba(79,191,95,.8));
+  --glow-red: none; --glow-green: none;
+  --led-mask: none;
+  --radius: 3px;
+  --track-fill: #4fbf5f;
+  --art-filter: grayscale(1) contrast(1.1) brightness(.95);
+  --font-ui: "Barlow Semi Condensed", "Barlow", sans-serif;
+  --font-title: "Barlow", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, sans-serif;
+  color-scheme: dark;
+}
+[data-theme="console"] header { box-shadow: 0 1px 0 #363c42; }
+[data-theme="console"] .navlink, [data-theme="console"] button.tab, [data-theme="console"] .spk {
+  background: linear-gradient(#343a40, #272b30); border-color: #14171a;
+  box-shadow: inset 0 1px 0 #4b5158; font-weight: 600; letter-spacing: .1em;
+}
+[data-theme="console"] .navlink.live, [data-theme="console"] button.tab.live,
+[data-theme="console"] button.tab.tplay {
+  background: var(--accent); border-color: #1d3f24;
+  box-shadow: inset 0 1px 0 #a2e6ab, var(--glow-fill);
+}
+[data-theme="console"] .spk.co { box-shadow: inset 0 1px 0 #4b5158, inset 0 -2px 0 var(--accent); }
+/* The fader rides the track; the cap has a centre line like the real one. */
+[data-theme="console"] .track { padding: 18px 0; border-radius: 2px; margin-bottom: -4px; }
+[data-theme="console"] .track .fill { top: 18px; bottom: 18px; border-radius: 2px; }
+[data-theme="console"] .track .mark {
+  top: 12px; bottom: 12px; width: 15px; margin-left: -7px; border-radius: 2px;
+  background: linear-gradient(#5c636b, #343a40); border: 1px solid #101315; box-shadow: none;
+}
+[data-theme="console"] .track .mark::after {
+  content: ""; position: absolute; left: 2px; right: 2px; top: 50%;
+  height: 1px; background: #fff; opacity: .55;
+}
+/* The VU. The needle is a rotation of --vol, the arc and the red zone
+   are painted once behind it. */
+[data-theme="console"] .vol { border: 0; background: none; padding: 0 4px; }
+[data-theme="console"] .vol .meter {
+  --meter-mask: none;
+  width: 104px; height: 46px; max-width: none; overflow: hidden;
+  background: #f0e4c3; border: 2px solid #101315; border-radius: 4px 4px 2px 2px;
+}
+[data-theme="console"] .vol .meter::before {
+  content: ""; position: absolute; left: 50%; bottom: -46px;
+  width: 92px; height: 92px; margin-left: -46px; border-radius: 50%;
+  background: conic-gradient(from -62deg, #26262a 0 104deg, #c0322a 104deg 124deg, transparent 124deg);
+  -webkit-mask: radial-gradient(circle, transparent 35px, #000 36px 39px, transparent 40px);
+  mask: radial-gradient(circle, transparent 35px, #000 36px 39px, transparent 40px);
+}
+[data-theme="console"] .vol .meter::after {
+  content: "VU"; position: absolute; left: 7px; bottom: 3px;
+  font: 600 9px var(--font-ui); letter-spacing: .12em; color: #4a4438;
+}
+[data-theme="console"] .vol .meter .fill {
+  position: absolute; inset: auto; left: 50%; bottom: -2px;
+  width: 2px; height: 40px; background: #14171a; box-shadow: none;
+  transform-origin: 50% 100%;
+  transform: rotate(calc(-52deg + var(--vol, 0) * 1.04deg));
+}
+[data-theme="console"] .vol .val { color: var(--ink); }
+/* Channel strips: the grip is the fader cap. */
+[data-theme="console"] .grip {
+  width: 8px; height: 26px; border-radius: 2px; font-size: 0; opacity: 1;
+  background: #3d7de0; box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
+}
+[data-theme="console"] .qrow:has(.news) .grip { background: var(--red); }
+[data-theme="console"] .qtitle .news { background: var(--red); color: #fff; padding: 1px 5px; border-radius: 2px; }
+
+/* ══ Longwave ═════════════════════════════════════════════════════════
+   A Zenith Trans-Oceanic: black bakelite, gold legends, green dial
+   glass. Progress is the tuning dial, with kHz ticks and a red needle,
+   and the room holding the queue carries a magic-eye indicator. */
+:root[data-theme="longwave"] {
+  --bg: #0a0b09;
+  --bezel: #14160f; --bezel2: #1d2016; --panel-deep: #0f110b;
+  --well: #14301f; --dock: rgba(10,11,9,.97); --scrim: rgba(10,11,9,.92);
+  --line: #4a4224; --line-soft: #332f1c; --line-hard: #4a4224;
+  --line-lit: #cba55a; --line-red: #4a2a22;
+  --ink: #efe3c4; --ink-dim: #8b8567; --ink-2: #bdb392;
+  --accent: #cba55a; --on-accent: #0a0b09;
+  --red: #e05a44; --green: #7ef0a0;
+  --glow: 0 0 10px rgba(203,165,90,.35);
+  --glow-soft: 0 0 8px rgba(203,165,90,.25);
+  --glow-mark: 0 0 7px rgba(224,90,68,.85);
+  --glow-fill: 0 0 9px rgba(126,240,160,.55);
+  --glow-art: 0 0 22px rgba(203,165,90,.10);
+  --glow-pin: drop-shadow(0 0 5px rgba(203,165,90,.85));
+  --glow-red: 0 0 7px rgba(224,90,68,.5);
+  --glow-green: 0 0 7px rgba(126,240,160,.5);
+  --led-mask: none;
+  --track-fill: rgba(203,165,90,.16);
+  --art-filter: grayscale(1) sepia(.7) saturate(2.2) hue-rotate(-6deg) brightness(.9);
+  --font-ui: "Jost", Futura, system-ui, sans-serif;
+  --font-title: "Jost", Futura, system-ui, sans-serif;
+  --font-body: "Jost", Futura, system-ui, sans-serif;
+  color-scheme: dark;
+}
+[data-theme="longwave"] header .t { color: var(--accent); letter-spacing: .3em; font-weight: 500; }
+[data-theme="longwave"] .clock { color: var(--accent); font-weight: 300; }
+[data-theme="longwave"] .np-eyebrow { color: var(--accent); }
+[data-theme="longwave"] .navlink, [data-theme="longwave"] button.tab {
+  background: transparent; color: var(--accent); font-weight: 500;
+}
+[data-theme="longwave"] .navlink.live, [data-theme="longwave"] button.tab.live,
+[data-theme="longwave"] button.tab.tplay { background: var(--accent); color: var(--on-accent); }
+/* The dial. Band names and kHz ticks are printed on the glass; the
+   needle is the seek mark. The 44px box holds; the band is 30. */
+[data-theme="longwave"] .track {
+  padding: 7px 0; margin-bottom: 0;
+  background-image: linear-gradient(#1c3d29, #10281a);
+  background-clip: content-box;
+}
+[data-theme="longwave"] .track::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 7px; bottom: 7px;
+  border: 1px solid #2f5a3e;
+  background:
+    repeating-linear-gradient(90deg, rgba(239,227,196,.55) 0 1px, transparent 1px 10%),
+    repeating-linear-gradient(90deg, rgba(239,227,196,.28) 0 1px, transparent 1px 2%);
+  background-size: 100% 13px, 100% 7px;
+  background-repeat: no-repeat; background-position: 0 100%, 0 100%;
+  pointer-events: none;
+}
+[data-theme="longwave"] .track::after {
+  content: "LW 153 171 189 207 225 243 261 279";
+  position: absolute; top: 11px; left: 10px; right: 10px;
+  font: 500 8px/1 var(--font-ui); letter-spacing: .1em; word-spacing: 5vw;
+  color: rgba(239,227,196,.72); white-space: nowrap; overflow: hidden;
+  pointer-events: none;
+}
+[data-theme="longwave"] .track .fill { top: 7px; bottom: 7px; }
+[data-theme="longwave"] .track .mark { top: 4px; bottom: 4px; width: 2px; background: var(--red); }
+/* The magic eye: the room that holds the queue gets the tuning
+   indicator, wedge and all. */
+[data-theme="longwave"] .spk.co::before {
+  content: ""; display: inline-block; width: 13px; height: 13px; border-radius: 50%;
+  flex: none; margin-right: 2px;
+  background: conic-gradient(from 200deg, #0b2a17 0 50deg, var(--green) 50deg 310deg, #0b2a17 310deg);
+  box-shadow: 0 0 8px rgba(126,240,160,.6), inset 0 0 3px #000;
+}
+[data-theme="longwave"] .vol .meter .fill { background: var(--green); }

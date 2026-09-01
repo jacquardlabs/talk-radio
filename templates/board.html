@@ -54,7 +54,7 @@
   </div>
   <div class="vol" id="vol" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0" title="Volume">
     <span class="lbl">VOL</span>
-    <span class="meter"><span class="fill" id="vol-fill"></span></span>
+    <span class="meter"><span class="fill"></span></span>
     <span class="val glow" id="vol-val">--</span>
   </div>
   <button type="button" class="tab power" data-player="stop" title="Off air — stop and revert the queue">&#9211;</button>
@@ -155,6 +155,44 @@ function livePos() {
   return npAnchor.dur ? Math.min(p, npAnchor.dur) : p;
 }
 
+// ── the deck title ─────────────────────────────────────────────────
+// Plain text, except under Solari, which sets it in split-flap tiles and
+// so needs one element per glyph. Guarded on the text having changed
+// because the deck repaints every five seconds.
+let lastDeckTitle = null;
+let lastDeckSplit = null;
+function setDeckTitle(text) {
+  const el = $("np-title");
+  const split = currentTheme() === "solari";
+  if (text === lastDeckTitle && split === lastDeckSplit) return;
+  lastDeckTitle = text;
+  lastDeckSplit = split;
+  if (!split) { el.textContent = text; return; }
+  el.textContent = "";
+  const words = text.split(" ");
+  words.forEach((word, i) => {
+    const w = document.createElement("span");
+    w.className = "word";
+    for (const ch of word) {
+      const f = document.createElement("span");
+      f.className = "flip";
+      f.textContent = ch;
+      w.appendChild(f);
+    }
+    el.appendChild(w);
+    // A real space between words, not a layout gap: the title still has
+    // to read as a sentence when it is copied, searched, or spoken.
+    if (i < words.length - 1) el.appendChild(document.createTextNode(" "));
+  });
+}
+// A theme change has to re-split (or un-split) the title that is already
+// on the deck, not wait for the next track.
+document.addEventListener("themechange", () => {
+  const t = lastDeckTitle;
+  lastDeckTitle = null;
+  if (t !== null) setDeckTitle(t);
+});
+
 // ── render ─────────────────────────────────────────────────────────
 // A thumbtack, drawn: the only monochrome pushpin in Unicode (U+1F588) has
 // no glyph in this font stack, and the emoji one can't be tinted amber.
@@ -215,7 +253,7 @@ function renderPage(s) {
     art.hidden = !np.image_url;
     const npDate = pubDate(np.published_at);
     $("np-label").textContent = `Now playing — ${np.show}` + (npDate ? ` · ${npDate}` : "");
-    $("np-title").textContent = np.title;
+    setDeckTitle(np.title);
     setDeckDescription(np);
     // re-anchor to the speaker's authoritative position each poll, bounding
     // interpolation drift to at most one poll interval
@@ -228,7 +266,7 @@ function renderPage(s) {
     setDeckDescription(null);
     $("np-label").textContent = "Off air";
     $("np-departs").textContent = "";
-    $("np-title").textContent = s.dj_state === "playing" ? "Stand by — tuning" : "Press Play to go on air";
+    setDeckTitle(s.dj_state === "playing" ? "Stand by — tuning" : "Press Play to go on air");
     $("np-meta").textContent = "";
     $("track-fill").style.width = "0%";
     $("track-mark").style.left = "calc(0% - 1px)";
@@ -520,7 +558,7 @@ let volDrag = false;
 let volPct = null;
 function setVol(v) {
   const known = v != null;
-  $("vol-fill").style.width = known ? `${v}%` : "0";
+  $("vol").style.setProperty("--vol", known ? v : 0);
   $("vol-val").textContent = known ? v : "--";
   $("vol").setAttribute("aria-valuenow", known ? v : 0);
 }
@@ -550,15 +588,9 @@ $("vol").addEventListener("keydown", (ev) => {
 });
 
 // ── wire up ────────────────────────────────────────────────────────
-// One toggle serves every flap in the transport: the button names the panel
-// it opens, so a new control is markup and nothing else.
-function closeFlaps(except) {
-  for (const btn of document.querySelectorAll("[data-flap]")) {
-    if (btn.dataset.flap === except) continue;
-    $(btn.dataset.flap).hidden = true;
-    btn.setAttribute("aria-expanded", "false");
-  }
-}
+// closeFlaps and the [data-flap] toggle live in base.html: the theme
+// picker in the header opens a flap too, and two handlers both toggling
+// would cancel out.
 $("btn-playpause").addEventListener("click", (ev) => {
   const playing = status && isPlaying(status);
   post(`/player/${playing ? "pause" : "play"}`, {}, ev.currentTarget);
@@ -571,19 +603,12 @@ $("btn-refresh").addEventListener("click", (ev) => {
 });
 
 document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") { closeFlaps(null); setDropOpen(null); }
+  if (ev.key === "Escape") setDropOpen(null);
 });
 document.addEventListener("click", (ev) => {
-  // Every click closes the flaps — the one being opened is spared, and a
-  // click on a flap's own item closes it on the way to acting on it.
-  const toggle = ev.target.closest("[data-flap]");
-  closeFlaps(toggle ? toggle.dataset.flap : null);
-  if (toggle) {
-    const flap = $(toggle.dataset.flap);
-    flap.hidden = !flap.hidden;
-    toggle.setAttribute("aria-expanded", String(!flap.hidden));
-    return;
-  }
+  // base.html has already opened or closed the flap by now; this handler
+  // owns the row menus and the actions the flaps contain.
+  if (ev.target.closest("[data-flap]")) return;
   if (!ev.target.closest(".dropwrap")) setDropOpen(null);
   const btn = ev.target.closest("button");
   if (!btn) return;

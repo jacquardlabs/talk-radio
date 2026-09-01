@@ -110,8 +110,11 @@ These are non-goals, not gaps. The README already records them as accepted trade
   does not need. [inferred]
 - **No multi-tenancy, no accounts, no cloud.** One household, one DB, one Up
   Next. [inferred]
-- **No frontend build step.** Three Jinja templates and four static assets; a
-  clone runs with `pip install -r requirements.txt` and nothing else.
+- **No frontend build step.** Three Jinja templates, one hand-written
+  stylesheet, and static assets served as they sit; a clone runs with
+  `pip install -r requirements.txt` and nothing else. The theme fonts are
+  committed woff2 files rather than a CDN link, so the appliance still looks
+  right on a LAN with no route to the internet.
   [inferred, from the absence of any manifest or bundler in the tree]
 
 ## Known problems
