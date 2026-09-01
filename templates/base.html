@@ -399,7 +399,7 @@ button.tab.power { min-width: 52px; color: var(--red); border-color: var(--line-
   mask-image: var(--meter-mask);
 }
 .vol .meter .fill {
-  position: absolute; inset: 0; width: 0;
+  position: absolute; inset: 0; width: calc(var(--vol, 0) * 1%);
   background: var(--amber); box-shadow: var(--glow-fill);
 }
 .vol .val { font-size: 13px; font-weight: 700; min-width: 2ch; text-align: right; }

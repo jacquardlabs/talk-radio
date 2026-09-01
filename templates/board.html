@@ -54,7 +54,7 @@
   </div>
   <div class="vol" id="vol" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0" title="Volume">
     <span class="lbl">VOL</span>
-    <span class="meter"><span class="fill" id="vol-fill"></span></span>
+    <span class="meter"><span class="fill"></span></span>
     <span class="val glow" id="vol-val">--</span>
   </div>
   <button type="button" class="tab power" data-player="stop" title="Off air — stop and revert the queue">&#9211;</button>
@@ -169,7 +169,8 @@ function setDeckTitle(text) {
   lastDeckSplit = split;
   if (!split) { el.textContent = text; return; }
   el.textContent = "";
-  for (const word of text.split(" ")) {
+  const words = text.split(" ");
+  words.forEach((word, i) => {
     const w = document.createElement("span");
     w.className = "word";
     for (const ch of word) {
@@ -179,7 +180,10 @@ function setDeckTitle(text) {
       w.appendChild(f);
     }
     el.appendChild(w);
-  }
+    // A real space between words, not a layout gap: the title still has
+    // to read as a sentence when it is copied, searched, or spoken.
+    if (i < words.length - 1) el.appendChild(document.createTextNode(" "));
+  });
 }
 // A theme change has to re-split (or un-split) the title that is already
 // on the deck, not wait for the next track.
@@ -554,7 +558,6 @@ let volDrag = false;
 let volPct = null;
 function setVol(v) {
   const known = v != null;
-  $("vol-fill").style.width = known ? `${v}%` : "0";
   $("vol").style.setProperty("--vol", known ? v : 0);
   $("vol-val").textContent = known ? v : "--";
   $("vol").setAttribute("aria-valuenow", known ? v : 0);

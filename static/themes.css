@@ -89,11 +89,12 @@
    apply — the height is capped explicitly instead, or a long episode
    name grows the deck without limit. */
 [data-theme="solari"] .np-title {
-  display: flex; flex-wrap: wrap; gap: 4px 10px;
-  font-size: 17px; line-height: 1; text-transform: uppercase; font-weight: 500;
-  max-height: 60px; overflow: hidden;
+  display: block; font-size: 17px; line-height: 30px;
+  text-transform: uppercase; font-weight: 500;
+  max-height: 60px; overflow: hidden; word-spacing: 7px;
 }
-[data-theme="solari"] .np-title .word { display: inline-flex; gap: 2px; }
+[data-theme="solari"] .np-title .word { display: inline-block; white-space: nowrap; }
+[data-theme="solari"] .np-title .flip + .flip { margin-left: 2px; }
 [data-theme="solari"] .np-title .flip {
   display: inline-block; width: 15px; height: 26px; line-height: 26px;
   text-align: center; border-radius: 2px; color: var(--ink);
@@ -117,7 +118,7 @@
   --glow-art: none; --glow-pin: none; --glow-red: none; --glow-green: none;
   --led-mask: none; --meter-mask: none;
   --track-fill: #00ffff;
-  --art-filter: none;
+  --art-filter: grayscale(1) contrast(1.5) sepia(1) saturate(7) hue-rotate(150deg);
   --font-ui: "VT323", ui-monospace, monospace;
   --font-title: "VT323", ui-monospace, monospace;
   --font-body: "VT323", ui-monospace, monospace;
@@ -295,13 +296,28 @@
    pointer is a rotation and no width can be read as one. */
 [data-theme="rams"] .vol { border: 0; background: none; padding: 0 4px; }
 [data-theme="rams"] .vol .meter {
-  width: 36px; height: 36px; max-width: none; border-radius: 50%;
-  border: 1px solid var(--line); background: radial-gradient(circle at 38% 32%, #f5f4f0, #c5c3bc);
+  --meter-mask: none;
+  width: 148px; height: 36px; max-width: 34vw; background: none; border: 0;
+}
+/* The knob face, drawn at the left of that surface. */
+[data-theme="rams"] .vol .meter::before {
+  content: ""; position: absolute; left: 0; top: 0; width: 36px; height: 36px;
+  border-radius: 50%; border: 1px solid var(--line);
+  background: radial-gradient(circle at 38% 32%, #f5f4f0, #c5c3bc);
   box-shadow: 0 1px 2px rgba(30,30,28,.3);
 }
+/* and the engraved scale it turns against, filling to the current value. */
+[data-theme="rams"] .vol .meter::after {
+  content: ""; position: absolute; left: 46px; right: 0; top: 15px; height: 7px;
+  background: linear-gradient(90deg, var(--ink) 0 calc(var(--vol, 0) * 1%),
+                              var(--line) calc(var(--vol, 0) * 1%) 100%);
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 1px, transparent 1px 7px);
+  mask: repeating-linear-gradient(90deg, #000 0 1px, transparent 1px 7px);
+}
+/* .fill is the pointer, not a bar: a rotation of --vol on the knob. */
 [data-theme="rams"] .vol .meter .fill {
-  position: absolute; inset: auto; left: 50%; top: 3px;
-  width: 2px; height: 12px; background: var(--ink);
+  position: absolute; inset: auto; left: 18px; top: 3px;
+  width: 2px; height: 12px; background: var(--ink); box-shadow: none;
   transform-origin: 50% 15px;
   transform: translateX(-50%) rotate(calc(-135deg + var(--vol, 0) * 2.7deg));
 }

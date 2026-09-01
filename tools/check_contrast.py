@@ -89,10 +89,21 @@ def palettes() -> dict[str, dict[str, str]]:
     themes_src = open(THEMES, encoding="utf-8").read()
     # Only the token block for each theme — the component rules that
     # follow it set colours for one element, not for the palette.
-    for tm in re.finditer(r'^\[data-theme="([a-z]+)"\] \{(.*?)^\}', themes_src, re.S | re.M):
+    # The selector is :root[data-theme=...]; matching the bare attribute
+    # form silently found nothing and passed every theme vacuously.
+    for tm in re.finditer(r'^:root\[data-theme="([a-z]+)"\] \{(.*?)^\}', themes_src, re.S | re.M):
         theme = dict(amber)
         theme.update(tokens(tm.group(2)))
         out[tm.group(1)] = theme
+
+    # A palette that stops being found is a check that stops running, and
+    # a green result is exactly what that looks like. Every theme the
+    # picker offers has to turn up here.
+    offered = set(re.findall(r'^\s*\["([a-z]+)", "', base_src, re.M))
+    missing = offered - set(out)
+    if missing:
+        sys.exit(f"{THEMES}: no token block found for {sorted(missing)} — "
+                 f"has the selector changed?")
     return out
 
 
