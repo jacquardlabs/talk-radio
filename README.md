@@ -63,6 +63,18 @@ a row from that re-roll, *Play now* interrupts immediately, and *Drop* returns
 that episode to rotation for another day. A caret on the deck and on each Up
 Next row opens that episode's notes when the feed publishes them.
 
+**Themes.** The board ships eight looks, each drawn from radio's own hardware:
+**Amber** (the dot-matrix VFD, default), **Solari** (a split-flap departures
+board, which sets the now-playing title in tiles), **Ceefax** (teletext, with
+the transport as the Fastext red/green/yellow/cyan row), **J-Card** (a cassette
+inlay, light, progress as a tape window), **Rams** (Braun hi-fi, light, volume
+as a pointer knob), **Quiet Storm** (late-night FM, a Bodoni clock), **Console**
+(a mixing desk, with a working VU meter) and **Longwave** (a shortwave dial with
+kHz ticks). The picker sits in the header on both pages; the choice is stored
+per device, so the wall tablet and the bedside phone can differ. Fonts are
+self-hosted — the appliance never calls out to a font CDN — and only the active
+theme's face downloads.
+
 The dashboard is an installable PWA — on a phone, *Add to Home Screen* opens it
 standalone like a remote control. Under 760px the transport docks to the bottom
 of the screen, thumb-height:
@@ -87,8 +99,8 @@ of the screen, thumb-height:
 4. Press **ON AIR**.
 5. **Manage episodes** — *Stations* is a record crate: category shelves of
    artwork tiles, each shelf header carrying that category's rotation toggle,
-   badges showing unplayed counts, and an *Amber/Color* switch for the artwork
-   treatment. Tap a tile for its station sheet — controls plus episode browser.
+   badges showing unplayed counts, and a *Tinted/Color* switch for the artwork
+   treatment — *Tinted* duotones the artwork into whichever theme is on. Tap a tile for its station sheet — controls plus episode browser.
    The sheet leads with the show's description, and a caret on an episode row
    opens that episode's notes; both come from the feed, so a show that
    publishes none shows none. Release archived episodes singly (*Release*) or
@@ -205,14 +217,24 @@ from:
     .venv/bin/pip install -r requirements-dev.txt
     .venv/bin/python -m pytest
 
-389 tests, no network and no speaker required: Sonos is faked at the
+439 tests, no network and no speaker required: Sonos is faked at the
 `sonos_ctl` seam (`tests/fake_player.py`) and feeds come from fixtures.
+
+`python tools/check_contrast.py` holds every theme to the contrast ratios the
+default one owes — text that is meant to be read clears 4.5:1 on its own
+ground. It reads the palettes out of the stylesheets, so a new theme is
+checked by adding it, not by remembering to.
 
 `main.py` starts two threads — the DJ tick loop and the feed refresher — plus
 Flask. `dj.py` holds the programming rules, `db.py` all SQLite access,
 `feeds.py` RSS ingest, `audio.py` URL resolution, `sonos_ctl.py` the speaker
 adapter, `web.py` the routes. Design notes for each feature live in
 `docs/design/`.
+
+The look is one token contract: the `:root` block in `templates/base.html` is
+both the default theme and the list of everything a theme may set, and
+`static/themes.css` redefines that set seven more times. A new theme is a
+token block plus, where it earns one, a component rule — no template changes.
 
 `make deploy DEPLOY_HOST=you@server` ships the committed tree to a home server
 over SSH and rebuilds the container there.
