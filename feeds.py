@@ -306,6 +306,22 @@ def entry_duration_seconds(entry) -> int | None:
         return None
 
 
+def entry_title(entry) -> str:
+    """Plain text title. Titles go through the same entity/tag stripping as
+    descriptions — feeds double-encode here too ('&amp;ndash;' arrives from
+    feedparser as '&ndash;', still an entity, not the dash it names)."""
+    raw = entry.get("title") or ""
+    parser = _TextExtractor()
+    try:
+        parser.feed(raw)
+        parser.close()
+    except Exception:
+        logger.debug("could not parse title as HTML", exc_info=True)
+        return raw
+    text = re.sub(r"\s+", " ", parser.text()).strip()
+    return text or raw
+
+
 def entry_description(entry) -> str | None:
     """Prefer <description>/<itunes:summary> over <content:encoded>: the
     summary is the blurb a show writes for listings, while content is often
@@ -326,7 +342,7 @@ def ingest_entries(db: Database, feed_id: int, parsed) -> int:
     """Hand the whole feed to the DB at once. Entries with no audio are
     dropped here — a feed's text-only posts are not episodes."""
     seeds = [EpisodeSeed(guid=entry.get("id") or audio_url,
-                         title=entry.get("title", ""),
+                         title=entry_title(entry),
                          audio_url=audio_url,
                          published_at=entry_published_iso(entry),
                          duration_seconds=entry_duration_seconds(entry),
@@ -340,7 +356,7 @@ def add_feed_from_parsed(db: Database, parsed, url: str, is_news: bool,
                          include: str = "latest", last_n: int | None = None) -> int:
     if include not in INCLUDE_MODES:
         raise ValueError(f"bad include mode: {include}")
-    title = parsed.feed.get("title") or url
+    title = entry_title(parsed.feed) or url
     image = (parsed.feed.get("image") or {}).get("href")
     feed_id = db.add_feed(url, title, image, is_news,
                           playback_mode=detect_playback_mode(parsed),
