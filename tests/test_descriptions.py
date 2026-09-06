@@ -6,7 +6,7 @@ import feedparser
 
 from db import Database, EpisodeSeed
 from feeds import (EPISODE_DESCRIPTION_MAX, add_feed_from_parsed,
-                   entry_description, feed_description, html_to_text,
+                   entry_description, entry_title, feed_description, html_to_text,
                    ingest_entries)
 from rss_fixtures import rss
 
@@ -85,6 +85,23 @@ def test_content_used_when_summary_absent() -> None:
 
 def test_no_description_fields_yields_none() -> None:
     assert entry_description({"title": "x"}) is None
+
+
+# ── titles ───────────────────────────────────────────────────────────
+
+def test_title_decodes_double_encoded_entity() -> None:
+    # feedparser decodes '&amp;ndash;' to '&ndash;' once; the title still
+    # needs its own pass to become the dash it names.
+    assert entry_title({"title": "A feud &ndash; and how it ends"}) \
+        == "A feud – and how it ends"
+
+
+def test_title_strips_tags() -> None:
+    assert entry_title({"title": "<b>Bold</b> title"}) == "Bold title"
+
+
+def test_missing_title_is_empty_string() -> None:
+    assert entry_title({}) == ""
 
 
 def test_feed_description_falls_back_to_summary() -> None:
