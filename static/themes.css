@@ -185,6 +185,8 @@
 [data-theme="ceefax"] .transport > *:nth-child(4) button,
 [data-theme="ceefax"] .transport > button:nth-child(4) { background: #00cccc; color: #000; }
 [data-theme="ceefax"] button.tab.power { background: #000; color: #ff2222; border: 2px solid #ff2222; }
+[data-theme="ceefax"] button.tab.power.sleepcaret { border-left-style: dashed; margin-left: -2px; }
+[data-theme="ceefax"] button.tab.power.sleepcaret.timing { color: #ffff00; }
 [data-theme="ceefax"] .vol { border: 0; background: #000; }
 [data-theme="ceefax"] .vol .meter { background: #0000bb; height: 18px; }
 [data-theme="ceefax"] .vol .meter .fill { background: #00ff00; }
