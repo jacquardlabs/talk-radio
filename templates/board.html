@@ -41,9 +41,18 @@
       <button type="button" class="danger" data-player="skip_done">Done <i>never play again</i></button>
     </div>
   </div>
-  <div class="flapwrap">
-    <button type="button" class="tab" id="btn-sleep" data-flap="sleep-flap"
-            aria-haspopup="true" aria-expanded="false">Sleep &#9662;</button>
+  <div class="vol" id="vol" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0" title="Volume">
+    <span class="lbl">VOL</span>
+    <span class="meter"><span class="fill"></span></span>
+    <span class="val glow" id="vol-val">--</span>
+  </div>
+  <!-- Power is a split switch: the switch goes off air now, the caret (or a
+       long press on the switch) goes off air later. -->
+  <div class="flapwrap powerwrap">
+    <button type="button" class="tab power" id="btn-power" data-player="stop"
+            title="Off air — stop and revert the queue. Hold for the sleep timer">&#9211;</button>
+    <button type="button" class="tab power sleepcaret" id="btn-sleep" data-flap="sleep-flap"
+            aria-haspopup="true" aria-expanded="false" aria-label="Sleep timer" title="Sleep timer">&#9662;</button>
     <div class="flap" id="sleep-flap" hidden>
       <button type="button" data-sleep="episode">End of episode <i>off air when this one finishes</i></button>
       <button type="button" data-sleep="15">15 minutes <i>fade out, then off air</i></button>
@@ -52,12 +61,6 @@
       <button type="button" id="sleep-cancel" data-player="sleep_cancel" hidden>Stay on air <i>cancel the timer</i></button>
     </div>
   </div>
-  <div class="vol" id="vol" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0" title="Volume">
-    <span class="lbl">VOL</span>
-    <span class="meter"><span class="fill"></span></span>
-    <span class="val glow" id="vol-val">--</span>
-  </div>
-  <button type="button" class="tab power" data-player="stop" title="Off air — stop and revert the queue">&#9211;</button>
 </div>
 
 <div class="eyebrow"><span>Up next</span>
@@ -113,8 +116,8 @@ function daysLabel(days) {
 // goes quiet — so both read as minutes. An episode timer whose track has no
 // length can only name the end it is waiting for.
 function sleepLabel(sleep) {
-  if (sleep.remaining == null) return "Sleep at end";
-  return `Sleep ${Math.max(1, Math.round(sleep.remaining / 60))}m`;
+  if (sleep.remaining == null) return "End";
+  return `${Math.max(1, Math.round(sleep.remaining / 60))}m`;
 }
 
 function relStart(sec) {
@@ -279,11 +282,14 @@ function renderPage(s) {
   pp.classList.toggle("paused", !playing);
   pp.innerHTML = playing ? "&#10074;&#10074;&ensp;Pause" : "&#9654;&ensp;Play";
 
-  // The sleep timer states itself on its own button — the countdown belongs
-  // where the control is, not in a readout somewhere else on the board.
+  // The sleep timer states itself on the power switch's caret — the
+  // countdown belongs where the control is, not in a readout elsewhere.
   const sleepBtn = $("btn-sleep");
+  const sleepText = s.sleep ? `Sleep timer: ${sleepLabel(s.sleep)}` : "Sleep timer";
   sleepBtn.classList.toggle("timing", !!s.sleep);
-  sleepBtn.innerHTML = (s.sleep ? sleepLabel(s.sleep) : "Sleep") + " &#9662;";
+  sleepBtn.innerHTML = (s.sleep ? sleepLabel(s.sleep) + " " : "") + "&#9662;";
+  sleepBtn.title = sleepText;
+  sleepBtn.setAttribute("aria-label", sleepText);
   $("sleep-cancel").hidden = !s.sleep;
 
   // volume (skip while the user is dragging)
@@ -594,6 +600,40 @@ $("vol").addEventListener("keydown", (ev) => {
 $("btn-playpause").addEventListener("click", (ev) => {
   const playing = status && isPlaying(status);
   post(`/player/${playing ? "pause" : "play"}`, {}, ev.currentTarget);
+});
+
+// Holding the power switch opens the sleep timer, the way a long press on
+// a remote's power key offers "later" instead of "now". The release that
+// ends the hold still produces a click; swallowed here, at the target, it
+// neither arms Off air below nor reaches base.html's closeFlaps, which
+// would shut the flap it just opened.
+const LONG_PRESS_MS = 500;
+let powerHold = null;
+let powerHeld = false;
+const endPowerHold = () => { clearTimeout(powerHold); powerHold = null; };
+$("btn-power").addEventListener("pointerdown", (ev) => {
+  if (ev.button !== 0) return;
+  powerHeld = false;
+  powerHold = setTimeout(() => {
+    powerHold = null;
+    powerHeld = true;
+    if ($("sleep-flap").hidden) $("btn-sleep").click();
+  }, LONG_PRESS_MS);
+});
+for (const type of ["pointerup", "pointercancel", "pointerleave"]) {
+  $("btn-power").addEventListener(type, endPowerHold);
+}
+$("btn-power").addEventListener("contextmenu", (ev) => ev.preventDefault());
+// A hold released off the button produces no click, leaving the flag set;
+// the next pointerdown clears it, and a keyboard press (detail 0) is never
+// the end of a hold. Not cleared on release: touch dispatches its click as
+// a later task, after pointerup.
+$("btn-power").addEventListener("click", (ev) => {
+  const held = powerHeld;
+  powerHeld = false;
+  if (!held || ev.detail === 0) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
 });
 
 // Re-rolls the DJ's picks. Armed rather than instant: it discards a queue,

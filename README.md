@@ -55,7 +55,9 @@ catalog).
 
 On-air controls: **Play/Pause**, −15/+30 seek, **Skip ▾** (*Defer* parks the
 episode in Up Next and resumes it where it stopped, *Later* returns it to
-rotation, *Done* retires it), volume, and a power switch. **Refresh all**
+rotation, *Done* retires it), volume, and a power switch that goes off air
+now — or later: its caret, or a long press on the switch, opens the sleep
+timer (end of episode, or a 15/30/60-minute fade). **Refresh all**
 re-rolls the DJ's picks: pinned rows and the track on air stay, everything
 else goes back in the pool. Up Next rows act too: drag the grip to reorder —
 arrow keys move a focused grip, so it works without a pointer — the pin spares

@@ -271,6 +271,7 @@ button.tab.tplay.paused { background: var(--bezel); color: var(--amber); border-
   font: 700 10px/1.2 var(--font-ui);
   letter-spacing: .14em; text-transform: uppercase;
 }
+.flap button[hidden] { display: none; }
 .flap button + button { border-top: 1px dashed var(--line); }
 .flap button:hover { background: var(--bezel2); }
 .flap .danger { color: var(--red); }
@@ -279,7 +280,20 @@ button.tab.tplay.paused { background: var(--bezel); color: var(--amber); border-
    edge, so the flap hangs from the right corner instead of overflowing. */
 .dropwrap { position: relative; }
 .dropwrap .flap { left: auto; right: 0; }
-button.tab.power { min-width: 52px; color: var(--red); border-color: var(--line-red); font-size: 17px; margin-left: 4px; }
+button.tab.power { min-width: 52px; color: var(--red); border-color: var(--line-red); font-size: 17px; }
+/* Power and its sleep caret are one split switch: shared edge, one radius.
+   The flap hangs from the right corner, where the switch sits. No callout
+   or text selection, so a long press reaches the sleep timer on iOS. */
+.powerwrap { display: flex; margin-left: 4px; }
+.powerwrap .flap { left: auto; right: 0; }
+/* .power's red text outranks .armed by source order; Sure? was red on red */
+button.tab.power.armed { color: var(--on-danger); }
+.powerwrap > button.power { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.powerwrap > button.power:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+button.tab.power.sleepcaret { min-width: 44px; padding: 0 12px; font-size: 10.5px; white-space: nowrap;
+  border-left-style: dashed; border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
+/* armed, the caret carries the countdown lit amber — "later" is set */
+button.tab.power.sleepcaret.timing { color: var(--amber); border-color: var(--line-lit); }
 
 /* up next: artwork rows with reveal-on-hover actions */
 .qrow {
