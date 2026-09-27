@@ -221,13 +221,18 @@ from:
     .venv/bin/pip install -r requirements-dev.txt
     .venv/bin/python -m pytest
 
-439 tests, no network and no speaker required: Sonos is faked at the
+448 tests, no network and no speaker required: Sonos is faked at the
 `sonos_ctl` seam (`tests/fake_player.py`) and feeds come from fixtures.
 
 `python tools/check_contrast.py` holds every theme to the contrast ratios the
 default one owes — text that is meant to be read clears 4.5:1 on its own
 ground. It reads the palettes out of the stylesheets, so a new theme is
 checked by adding it, not by remembering to.
+
+`uv run tools/screenshot.py http://<server>:8080/api/status` recaptures the
+images in `docs/screenshots/`: this checkout's templates, one status snapshot
+from a live instance, nothing clicked. First run on a new machine needs
+`uv run --with playwright playwright install chromium`.
 
 `main.py` starts two threads — the DJ tick loop and the feed refresher — plus
 Flask. `dj.py` holds the programming rules, `db.py` all SQLite access,
