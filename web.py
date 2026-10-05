@@ -19,7 +19,7 @@ import audio
 import feeds as feeds_mod
 import sonos_ctl
 from config import Config
-from db import Database
+from db import EPISODE_GROUPS, Database
 from dj import DJ
 
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
@@ -73,9 +73,9 @@ def _episode_json(e, feed_title: str) -> dict:
             "description": e["description"]}
 
 
-def _page_arg() -> int:
+def _page_arg(name: str = "page") -> int:
     try:
-        return max(1, int(request.args.get("page") or 1))
+        return max(1, int(request.args.get(name) or 1))
     except (TypeError, ValueError):
         return 1
 
@@ -373,13 +373,15 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
         if feed is None:
             return jsonify({"error": "no such feed"}), 404
         q = (request.args.get("q") or "").strip() or None
-        page = _page_arg()
-        total = db.count_episodes_for_feed(feed_id, q)
-        episodes = db.episodes_for_feed_page(feed_id, page, EPISODES_PAGE_SIZE, q)
-        return jsonify({
-            "episodes": [_episode_json(e, feed["title"]) for e in episodes],
-            "page": page, "page_size": EPISODES_PAGE_SIZE, "total": total,
-        })
+        # Every group, each at its own page (page_<group>, default 1), so
+        # acting on page 3 of the back catalog refreshes page 3 of it.
+        return jsonify({"page_size": EPISODES_PAGE_SIZE, "groups": [
+            {"group": name, "page": (page := _page_arg(f"page_{name}")),
+             "total": db.count_episodes_for_feed(feed_id, statuses, q),
+             "episodes": [_episode_json(e, feed["title"]) for e in
+                          db.episodes_for_feed_page(feed_id, statuses, page,
+                                                    EPISODES_PAGE_SIZE, q)]}
+            for name, statuses in EPISODE_GROUPS.items()]})
 
     @app.get("/api/episodes/search")
     def api_episode_search():
