@@ -118,9 +118,11 @@ of the screen, thumb-height:
    Next* queues it at the end of the line; all three work on any episode
    regardless of status, and turn the station on air if it is off. An episode
    whose title carries a part marker also offers *Queue series* — every
-   unheard part of that story, appended in order. *Find an episode* searches
-   every station by episode or show title; each station panel has a local
-   search too.
+   unheard part of that story, appended in order. The search box above the
+   shelves narrows the stations and lists matching episodes from every
+   station; when nothing in the library matches, it hands the words to the
+   podcast directory. Each station sheet has its own episode filter too. A
+   show's name anywhere on *On air* opens its station sheet.
 
 ## Configuration
 

@@ -255,7 +255,10 @@ function renderPage(s) {
     }
     art.hidden = !np.image_url;
     const npDate = pubDate(np.published_at);
-    $("np-label").textContent = `Now playing — ${np.show}` + (npDate ? ` · ${npDate}` : "");
+    // rewritten only on change: the 5s poll would otherwise replace the
+    // link under a finger or a keyboard focus
+    const label = `Now playing — ${showLink(np.feed_id, np.show)}` + (npDate ? ` · ${npDate}` : "");
+    if ($("np-label").innerHTML !== label) $("np-label").innerHTML = label;
     setDeckTitle(np.title);
     setDeckDescription(np);
     // re-anchor to the speaker's authoritative position each poll, bounding
@@ -313,7 +316,7 @@ function renderPage(s) {
         `aria-label="Reorder ${esc(e.title)}">&#8801;</button>` +
         `${img}<div class="qmain">` +
         `<div class="qtitle">${e.is_news ? '<span class="news">NEWS</span>' : ""}${esc(e.title)}</div>` +
-        `<div class="qmeta">${esc(e.show)}${when ? " &middot; " + when : ""}${mins ? " &middot; " + mins : ""}${playing ? relStart(mine) : ""}</div></div>` +
+        `<div class="qmeta">${showLink(e.feed_id, e.show)}${when ? " &middot; " + when : ""}${mins ? " &middot; " + mins : ""}${playing ? relStart(mine) : ""}</div></div>` +
         discToggle(e.episode_id, e.description, e.title) +
         `<div class="qact">` +
         `<button type="button" class="tab small pin${e.pinned ? " on" : ""}" ` +
@@ -380,7 +383,7 @@ function renderPage(s) {
   }
   $("recent").innerHTML = recent.map((e) =>
     `<div class="svc-row"><span class="glow">${esc(e.title)}</span>` +
-    `<span class="m">${esc(e.show)}${e.played_at ? " &middot; " + hm(new Date(e.played_at)) : ""}</span></div>`
+    `<span class="m">${showLink(e.feed_id, e.show)}${e.played_at ? " &middot; " + hm(new Date(e.played_at)) : ""}</span></div>`
   ).join("") || '<div class="empty">NOTHING YET</div>';
 
   // Episodes the speaker took and then made no sound on. Without this the
@@ -394,7 +397,7 @@ function renderPage(s) {
   }
   $("trouble").innerHTML = trouble.map((e) =>
     `<div class="svc-row"><span class="pri">${esc(e.title)}</span>` +
-    `<span class="m">${esc(e.show)} &middot; ${e.attempts}&times;` +
+    `<span class="m">${showLink(e.feed_id, e.show)} &middot; ${e.attempts}&times;` +
     `${e.given_up ? " &middot; given up" : " &middot; will retry"}</span></div>`
   ).join("") || '<div class="empty">ALL CLEAR</div>';
 

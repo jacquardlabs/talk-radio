@@ -34,7 +34,7 @@ USAGE_GETS = frozenset({
 })
 # Jobs the dashboard does without a request of its own, reported by beacon.
 UI_EVENTS = frozenset({
-    "earlier", "wake", "trouble", "station-filter", "description", "theme",
+    "earlier", "wake", "trouble", "description", "theme",
 })
 
 
@@ -61,7 +61,7 @@ def usage_key(method: str, rule: str, view_args: dict) -> str:
 
 def _episode_json(e, feed_title: str) -> dict:
     return {"id": e["id"], "title": e["title"], "published_at": e["published_at"],
-            "status": e["status"], "show": feed_title,
+            "status": e["status"], "show": feed_title, "feed_id": e["feed_id"],
             "pinned": bool(e["pinned"]),
             # Non-null means the title carries a part marker, so the client
             # knows to offer "Queue series" without having to reimplement the
