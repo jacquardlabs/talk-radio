@@ -77,13 +77,12 @@ let expandedFeedId = null;
 let stationFilter = "";
 let lastStationsSig = "";
 const globalSearch = { q: "", page: 1 };
-const stationSearch = {};   // feedId -> { q, pages: { <group>: page } }
+const stationSearch = {};   // feedId -> { q, page }
 const selectMode = {};      // feedId -> bool
 const selectedIds = {};     // feedId -> Set<number>
 
 function episodeState(feedId) {
-  return stationSearch[feedId] ||
-    (stationSearch[feedId] = { q: "", pages: { unplayed: 1, archived: 1, heard: 1 } });
+  return stationSearch[feedId] || (stationSearch[feedId] = { q: "", page: 1 });
 }
 
 // ── shared episode rendering (station panel + global search) ────────
@@ -100,15 +99,8 @@ const STATUS_LABEL = {
   new: "Unplayed", queued: "Up next", played: "Heard", skipped: "Missed",
   archived: "Back catalog",
 };
-const STATUS_CLASS = { queued: "glow", played: "ok", skipped: "pri", archived: "m" };
-
-// The station sheet lists episodes in these groups (server: EPISODE_GROUPS),
-// so each group's usual status goes without saying on its rows.
-const GROUPS = [
-  { key: "unplayed", label: "Unplayed", plain: "new" },
-  { key: "archived", label: "Back catalog", plain: "archived" },
-  { key: "heard", label: "Heard", plain: "played" },
-];
+// Done is quiet: the strike already says it, and a news show is all heard.
+const STATUS_CLASS = { queued: "glow", played: "m", skipped: "pri", archived: "m" };
 
 function epMenu(e) {
   const open = openEpMenuId === String(e.id);
@@ -136,7 +128,11 @@ function setEpMenuOpen(id) {
 
 // A grid row like Up Next's: title, a meta line under it, actions in their
 // own column, so every row has the same shape whatever its title's length.
-// opts.plain is the status the surrounding list already implies.
+// The row wears its status like a display segment: lit while the DJ can
+// pick it, unlit in the back catalog, struck through once heard — so one
+// newest-first list reads at a glance and a heard episode is still one tap
+// from playing again. The meta label says the same in words.
+// opts.plain is the status that goes without a label.
 function episodeRow(e, opts) {
   opts = opts || {};
   const checkbox = opts.checkbox
@@ -153,7 +149,7 @@ function episodeRow(e, opts) {
       ? `<span class="pri" title="Sonos accepted this episode but no audio came out">` +
         `${e.failures}&times; no audio</span>` : "",
   ].filter(Boolean).join(" &middot; ");
-  return `<div class="ep-row${checkbox ? " sel" : ""}">` +
+  return `<div class="ep-row st-${e.status}${checkbox ? " sel" : ""}">` +
     checkbox +
     `<div class="qmain"><div class="ep-title">${esc(e.title)}</div>` +
     // the caret rides the meta line, under the title it discloses
@@ -353,36 +349,30 @@ async function renderEpisodePanel(feedId) {
   if (!panel) return;
   const browser = panel.querySelector(".ep-browser");
   const st = episodeState(feedId);
-  const params = new URLSearchParams({ q: st.q });
-  for (const [group, page] of Object.entries(st.pages)) params.set(`page_${group}`, page);
-  const data = await (await fetch(`/api/feeds/${feedId}/episodes?${params}`)).json();
+  const data = await (await fetch(
+    `/api/feeds/${feedId}/episodes?page=${st.page}&q=${encodeURIComponent(st.q)}`
+  )).json();
   const sel = !!selectMode[feedId];
   const selected = selectedIds[feedId] || (selectedIds[feedId] = new Set());
+  const feed = status && status.stations.find((f) => f.id === feedId);
+  const backCatalog = feed ? feed.counts.archived : 0;
   const prevInput = browser.querySelector("[data-station-search]");
   const hadFocus = prevInput && document.activeElement === prevInput;
-  const sections = data.groups.filter((g) => g.total).map((g) => {
-    const def = GROUPS.find((x) => x.key === g.group);
-    const backCatalog = g.group === "archived";
-    const actions = backCatalog
-      ? `<span class="ep-group-act">` +
-        (sel ? `<button type="button" class="tab small" data-release-selected="${feedId}">Add selected (${selected.size})</button>` : "") +
-        `<button type="button" class="tab small" data-select-toggle="${feedId}">${sel ? "Done" : "Select"}</button>` +
-        (sel ? "" : `<button type="button" class="tab small" data-feed="${feedId}/unarchive" data-confirm="1" ` +
-                    `title="The DJ can pick any of these">Add all to rotation</button>`) +
-        `</span>` : "";
-    return `<section class="ep-group">` +
-      `<div class="eyebrow"><span>${def.label} &middot; ${g.total.toLocaleString()}</span>${actions}</div>` +
-      g.episodes.map((e) => episodeRow(e, {
-        plain: def.plain, checkbox: sel && backCatalog, selected: selected.has(e.id),
-      })).join("") +
-      paginationHTML(g.page, data.page_size, g.total, "group", `${feedId}.${g.group}`) +
-      `</section>`;
-  });
   browser.innerHTML =
     `<div class="ep-toolbar">` +
     `<input type="search" placeholder="Filter this station's episodes" value="${esc(st.q)}" data-station-search="${feedId}">` +
+    // the back catalog's verbs, only while it has something in it
+    (backCatalog
+      ? (sel ? `<button type="button" class="tab small" data-release-selected="${feedId}">Add selected (${selected.size})</button>` : "") +
+        `<button type="button" class="tab small" data-select-toggle="${feedId}">${sel ? "Done" : "Select"}</button>` +
+        (sel ? "" : `<button type="button" class="tab small" data-feed="${feedId}/unarchive" data-confirm="1" ` +
+                    `title="The DJ can pick any of these">Add all to rotation</button>`)
+      : "") +
     `</div>` +
-    (sections.join("") || '<div class="empty">No episodes match</div>');
+    (data.episodes.map((e) => episodeRow(e, {
+      plain: "new", checkbox: sel && e.status === "archived", selected: selected.has(e.id),
+    })).join("") || '<div class="empty">No episodes match</div>') +
+    paginationHTML(data.page, data.page_size, data.total, "station", feedId);
   if (hadFocus) {   // the rebuild replaced the input mid-typing
     const input = browser.querySelector("[data-station-search]");
     input.focus();
@@ -564,11 +554,7 @@ document.addEventListener("click", (ev) => {
     const p = Number(page);
     if (p < 1) return;
     if (kind === "global") { globalSearch.page = p; renderGlobalSearch(); }
-    else if (kind === "group") {
-      const [feedId, group] = key.split(".");
-      episodeState(Number(feedId)).pages[group] = p;
-      renderEpisodePanel(Number(feedId));
-    }
+    else if (kind === "station") { episodeState(Number(key)).page = p; renderEpisodePanel(Number(key)); }
     return;
   }
   if (btn.dataset.selectToggle) {
@@ -654,7 +640,7 @@ document.addEventListener("input", (ev) => {
     debounce(el, () => {
       const st = episodeState(feedId);
       st.q = el.value;
-      for (const group of Object.keys(st.pages)) st.pages[group] = 1;
+      st.page = 1;
       renderEpisodePanel(feedId);
     });
   } else if (el.id === "podcast-search-input") {

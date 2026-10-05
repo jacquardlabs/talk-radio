@@ -109,8 +109,9 @@ of the screen, thumb-height:
    artwork tiles, badges showing unplayed counts, *Manage* for adding
    stations and editing categories, and a *Tinted/Color* switch for the artwork
    treatment — *Tinted* duotones the artwork into whichever theme is on. Tap a tile for its station sheet: the show's description, then its
-   episodes in three groups — *Unplayed* (the DJ can pick them), *Back
-   catalog* (it won't until you add them), and *Heard*. Station settings
+   episodes newest first. An episode the DJ can pick is lit; one in the *Back
+   catalog* (it won't until you add it) is dimmed; a *Heard* one is struck
+   through, and plays again with one tap. Station settings
    (category, order, news, off, remove) sit behind *Settings*. A caret on an
    episode row opens that episode's notes; descriptions come from the feed,
    so a show that publishes none shows none. Add back-catalog episodes to

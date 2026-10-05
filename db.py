@@ -102,16 +102,6 @@ CREATE INDEX IF NOT EXISTS idx_usage_events_at ON usage_events (at);
 """
 
 
-# How a listener sees an episode's status: what the DJ can still pick, what
-# it won't until asked (the back catalog), and what's done. The station
-# sheet lists episodes in these three groups, in this order.
-EPISODE_GROUPS: dict[str, tuple[str, ...]] = {
-    "unplayed": ("new", "queued"),
-    "archived": ("archived",),
-    "heard": ("played", "skipped"),
-}
-
-
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -679,30 +669,33 @@ class Database:
             )
             return cur.rowcount
 
-    @staticmethod
-    def _feed_episodes_where(feed_id: int, statuses: tuple[str, ...],
-                             q: str | None) -> tuple[str, list]:
-        where = (f"feed_id=? AND status IN ({','.join('?' * len(statuses))})"
-                 + (" AND title LIKE ?" if q else ""))
-        return where, [feed_id, *statuses, *([f"%{q}%"] if q else [])]
-
-    def count_episodes_for_feed(self, feed_id: int, statuses: tuple[str, ...],
-                                q: str | None = None) -> int:
-        where, params = self._feed_episodes_where(feed_id, statuses, q)
+    def count_episodes_for_feed(self, feed_id: int, q: str | None = None) -> int:
         with self._conn() as c:
-            return c.execute(f"SELECT COUNT(*) AS n FROM episodes WHERE {where}",
-                             params).fetchone()["n"]
+            if q:
+                row = c.execute(
+                    "SELECT COUNT(*) AS n FROM episodes WHERE feed_id=? AND title LIKE ?",
+                    (feed_id, f"%{q}%"),
+                ).fetchone()
+            else:
+                row = c.execute(
+                    "SELECT COUNT(*) AS n FROM episodes WHERE feed_id=?", (feed_id,)
+                ).fetchone()
+            return row["n"]
 
-    def episodes_for_feed_page(self, feed_id: int, statuses: tuple[str, ...],
-                               page: int, page_size: int,
+    def episodes_for_feed_page(self, feed_id: int, page: int, page_size: int,
                                q: str | None = None) -> list[sqlite3.Row]:
-        where, params = self._feed_episodes_where(feed_id, statuses, q)
         offset = max(0, page - 1) * page_size
         with self._conn() as c:
+            if q:
+                return c.execute(
+                    "SELECT * FROM episodes WHERE feed_id=? AND title LIKE ?"
+                    " ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?",
+                    (feed_id, f"%{q}%", page_size, offset),
+                ).fetchall()
             return c.execute(
-                f"SELECT * FROM episodes WHERE {where}"
+                "SELECT * FROM episodes WHERE feed_id=?"
                 " ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?",
-                [*params, page_size, offset],
+                (feed_id, page_size, offset),
             ).fetchall()
 
     def count_search_episodes(self, q: str) -> int:

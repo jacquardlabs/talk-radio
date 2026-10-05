@@ -215,47 +215,27 @@ def test_feed_episodes_paginates_and_searches(client) -> None:
     for i in range(1, 4):
         _add_episode(db, fid, i)
     _add_episode(db, fid, 4, duration=1860)
-    data = c.get(f"/api/feeds/{fid}/episodes").get_json()
-    unplayed = data["groups"][0]
-    assert unplayed["group"] == "unplayed"
-    assert unplayed["total"] == 4 and len(unplayed["episodes"]) == 4
-    assert unplayed["episodes"][0]["show"] == "X Show"
-    assert unplayed["episodes"][0]["duration"] == 1860
-    assert unplayed["episodes"][1]["duration"] is None
-    filtered = c.get(f"/api/feeds/{fid}/episodes?q=Ep 2").get_json()["groups"][0]
+    resp = c.get(f"/api/feeds/{fid}/episodes?page=1")
+    data = resp.get_json()
+    assert data["total"] == 4 and len(data["episodes"]) == 4
+    assert data["episodes"][0]["show"] == "X Show"
+    assert data["episodes"][0]["duration"] == 1860
+    assert data["episodes"][1]["duration"] is None
+    filtered = c.get(f"/api/feeds/{fid}/episodes?q=Ep 2").get_json()
     assert filtered["total"] == 1 and filtered["episodes"][0]["title"] == "Ep 2"
 
 
-def test_feed_episodes_group_by_what_the_listener_can_do(client) -> None:
+def test_feed_episodes_list_every_status_newest_first(client) -> None:
+    """One list, whatever the status: a news show's heard episodes are its
+    recent ones, and grouping them under an older back catalog hid them."""
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X Show", None, False)
-    _add_episode(db, fid, 1)
-    _add_episode(db, fid, 2, status="archived")
-    _add_episode(db, fid, 3, status="archived")
-    db.mark_skipped(_add_episode(db, fid, 4))
-    groups = c.get(f"/api/feeds/{fid}/episodes").get_json()["groups"]
-    assert [(g["group"], g["total"], [e["title"] for e in g["episodes"]])
-            for g in groups] == [
-        ("unplayed", 1, ["Ep 1"]),
-        ("archived", 2, ["Ep 3", "Ep 2"]),     # newest first within a group
-        ("heard", 1, ["Ep 4"]),
-    ]
-
-
-def test_feed_episodes_page_each_group_on_its_own(client, monkeypatch) -> None:
-    c, db, _ = client
-    monkeypatch.setattr("web.EPISODES_PAGE_SIZE", 2)
-    fid = db.add_feed("https://x/rss", "X Show", None, False)
-    _add_episode(db, fid, 9)                       # newest overall, unplayed
-    for i in range(1, 4):
-        _add_episode(db, fid, i, status="archived")
-    groups = c.get(f"/api/feeds/{fid}/episodes?page_archived=2").get_json()["groups"]
-    assert [(g["group"], g["page"], [e["title"] for e in g["episodes"]])
-            for g in groups] == [
-        ("unplayed", 1, ["Ep 9"]),
-        ("archived", 2, ["Ep 1"]),
-        ("heard", 1, []),
-    ]
+    _add_episode(db, fid, 1, status="archived")
+    db.mark_played(_add_episode(db, fid, 3), "2026-01-09T00:00:00Z")
+    _add_episode(db, fid, 2)
+    rows = c.get(f"/api/feeds/{fid}/episodes").get_json()["episodes"]
+    assert [(e["title"], e["status"]) for e in rows] == [
+        ("Ep 3", "played"), ("Ep 2", "new"), ("Ep 1", "archived")]
 
 
 def test_feed_episodes_unknown_feed_404s(no_sonos_client) -> None:
@@ -684,7 +664,7 @@ def test_episode_json_exposes_pin_and_series(client) -> None:
     c, db, _ = client
     fid = _feed_with(db, ["The Siege (Part One)", "Solo Episode"])
 
-    rows = c.get(f"/api/feeds/{fid}/episodes").get_json()["groups"][0]["episodes"]
+    rows = c.get(f"/api/feeds/{fid}/episodes").get_json()["episodes"]
     by_title = {r["title"]: r for r in rows}
 
     assert by_title["The Siege (Part One)"]["arc"]
