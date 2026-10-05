@@ -86,6 +86,19 @@ CREATE TABLE IF NOT EXISTS schedules (
     enabled INTEGER NOT NULL DEFAULT 1,
     last_fired_date TEXT
 );
+-- One row per thing a person did: a POST, an intent GET (a search, a
+-- station's episode list, a page view), or a client-only beacon. Kept to
+-- measure how often each job happens, not to replay anything. `action` is a
+-- route key ("POST /player/pause") or "UI <event>"; `page` is the page it
+-- was done from; `ok` is whether it succeeded.
+CREATE TABLE IF NOT EXISTS usage_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    action TEXT NOT NULL,
+    page TEXT,
+    ok INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_usage_events_at ON usage_events (at);
 """
 
 
@@ -730,6 +743,25 @@ class Database:
     def kv_del(self, key: str) -> None:
         with self._conn() as c:
             c.execute("DELETE FROM kv WHERE key=?", (key,))
+
+    # ── usage ─────────────────────────────────────────────────────────
+    def record_usage(self, action: str, page: str | None, ok: bool) -> None:
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO usage_events (at, action, page, ok) VALUES (?,?,?,?)",
+                (utcnow_iso(), action, page, int(ok)),
+            )
+
+    def usage_summary(self, since: str) -> list[sqlite3.Row]:
+        """Per action and page since an ISO timestamp, most frequent first."""
+        with self._conn() as c:
+            return c.execute(
+                "SELECT action, page, COUNT(*) AS count,"
+                " SUM(ok = 0) AS failed, MAX(at) AS last_at"
+                " FROM usage_events WHERE at >= ?"
+                " GROUP BY action, page ORDER BY count DESC, action",
+                (since,),
+            ).fetchall()
 
     # ── schedules ─────────────────────────────────────────────────────
     def add_schedule(self, time_str: str, days: list[int]) -> int:

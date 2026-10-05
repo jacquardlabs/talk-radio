@@ -534,6 +534,7 @@ document.addEventListener("input", (ev) => {
   } else if (el.id === "station-filter") {
     debounce(el, () => {
       stationFilter = el.value.trim().toLowerCase();
+      if (stationFilter) track("station-filter");
       if (status) renderStations(status);
     });
   } else if (el.dataset.stationSearch) {
