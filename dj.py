@@ -1496,7 +1496,8 @@ class DJ:
             ],
             "next_start": None,
             "recently_played": [
-                {"title": e["title"], "show": e["feed_title"], "played_at": e["played_at"]}
+                {"title": e["title"], "show": e["feed_title"], "feed_id": e["feed_id"],
+                 "played_at": e["played_at"]}
                 for e in self.db.recently_played()
             ],
             # Episodes the speaker accepted and then made no sound on. Surfaced
@@ -1504,7 +1505,7 @@ class DJ:
             # without this the only symptom is an episode you queued not being
             # the one you hear.
             "recent_failures": [
-                {"title": e["title"], "show": e["feed_title"],
+                {"title": e["title"], "show": e["feed_title"], "feed_id": e["feed_id"],
                  "failed_at": e["last_failed_at"], "attempts": e["failure_count"],
                  "given_up": e["status"] == "skipped"}
                 for e in self.db.recent_failures()
@@ -1530,6 +1531,7 @@ class DJ:
             feed = self.db.get_feed(ep["feed_id"])
             return {"episode_id": ep["id"], "title": ep["title"],
                     "show": feed["title"] if feed else "",
+                    "feed_id": ep["feed_id"],
                     "is_news": bool(feed and feed["is_news"]),
                     "image_url": feed["image_url"] if feed else None,
                     "published_at": ep["published_at"],

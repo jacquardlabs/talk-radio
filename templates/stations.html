@@ -3,20 +3,24 @@
 {% block title %}Stations — Sonos Talk Radio{% endblock %}
 
 {% block content %}
-<div class="eyebrow"><span>Find an episode</span></div>
-<input type="search" id="global-search-input" placeholder="Search all stations by episode or show title" style="width:100%">
-<div class="svc" id="global-search-results"></div>
-<div id="global-search-pagination"></div>
-
 <div class="eyebrow"><span>Stations</span><span id="stn-summary"></span></div>
 <div class="crate-toolbar">
-  <input type="search" id="station-filter" placeholder="Filter stations by name">
+  <input type="search" id="global-search-input" placeholder="Search stations and episodes"
+         aria-label="Search stations and episodes">
   <div class="artmode">
     <button type="button" class="tab small" data-artmode="amber">Tinted</button>
     <button type="button" class="tab small" data-artmode="color">Color</button>
   </div>
 </div>
 <div id="station-groups"></div>
+<!-- One box answers three questions in turn: which stations, which
+     episodes, and — when the library has nothing — which podcasts to add. -->
+<div id="search-more" hidden>
+  <div class="eyebrow"><span id="search-episodes-head"></span></div>
+  <div class="svc" id="global-search-results"></div>
+  <div id="global-search-pagination"></div>
+  <button type="button" class="tab small" id="search-directory"></button>
+</div>
 
 <div class="eyebrow"><span>Add station</span></div>
 <div class="tabs" style="margin-top:0">
@@ -136,7 +140,7 @@ function episodeRow(e, opts) {
   const meta = [
     e.status !== opts.plain
       ? `<span class="${STATUS_CLASS[e.status] || ""}">${STATUS_LABEL[e.status] || esc(e.status)}</span>` : "",
-    opts.showBadge ? esc(e.show) : "",
+    opts.showBadge ? showLink(e.feed_id, e.show) : "",
     esc((e.published_at || "").slice(0, 10)),
     e.duration ? `${Math.round(e.duration / 60)} min` : "",
     e.failures
@@ -311,7 +315,9 @@ function renderStations(s) {
     `<div class="shelf-row">` +
     (g.rows.map(tileHTML).join("") || '<div class="empty">NO STATIONS IN THIS CATEGORY</div>') +
     `</div><div data-sheet-slot></div></section>`
-  ).join("") || '<div class="empty">NO STATIONS — ADD ONE BELOW</div>';
+  ).join("") || (stationFilter
+    ? '<div class="empty">No stations match</div>'
+    : '<div class="empty">NO STATIONS — ADD ONE BELOW</div>');
 
   if (expandedFeedId == null) return;
   const tile = container.querySelector(`[data-tile="${expandedFeedId}"]`);
@@ -388,6 +394,7 @@ async function postEpisodeAction(id, action, btn) {
 async function renderGlobalSearch() {
   const results = $("global-search-results");
   const pager = $("global-search-pagination");
+  $("search-more").hidden = !globalSearch.q;
   if (!globalSearch.q) {
     results.innerHTML = "";
     pager.innerHTML = "";
@@ -396,17 +403,22 @@ async function renderGlobalSearch() {
   const data = await (await fetch(
     `/api/episodes/search?q=${encodeURIComponent(globalSearch.q)}&page=${globalSearch.page}`
   )).json();
+  $("search-episodes-head").textContent =
+    `Episodes matching “${globalSearch.q}” · ${data.total.toLocaleString()}`;
   results.innerHTML = data.episodes.map((e) => episodeRow(e, { showBadge: true, plain: "new" })).join("")
-    || '<div class="empty">No matching episodes</div>';
+    || '<div class="empty">No episodes match</div>';
   pager.innerHTML = data.total ? paginationHTML(data.page, data.page_size, data.total, "global", "q") : "";
+  $("search-directory").textContent = `Find “${globalSearch.q}” in the podcast directory`;
 }
 
+let openedFromHash = false;
 function renderPage(s) {
   const cats = (s.categories || []).length;
   $("stn-summary").textContent =
     `${s.stations.length} STATIONS · ${cats} CATEGOR${cats === 1 ? "Y" : "IES"}`;
   renderStations(s);
   renderMiniTransport(s);
+  if (!openedFromHash) { openedFromHash = true; openFromHash(); }   // first status only
 }
 
 // the phone remote: pausing from this page shouldn't mean navigating back
@@ -556,6 +568,13 @@ document.addEventListener("click", (ev) => {
       renderEpisodePanel(id);
     });
   }
+  if (btn.id === "search-directory") {
+    setAddMode("search");
+    $("podcast-search-input").value = globalSearch.q;
+    runPodcastSearch(globalSearch.q);
+    $("podcast-search-block").scrollIntoView({ block: "start" });
+    return;
+  }
   if (btn.dataset.addMode) return void setAddMode(btn.dataset.addMode);
   if (btn.dataset.pickPodcast) return void pickPodcast(podcastResults[Number(btn.dataset.pickPodcast)]);
   if (btn.id === "podcast-picked-change") {
@@ -604,15 +623,11 @@ document.addEventListener("input", (ev) => {
   const el = ev.target;
   if (el.id === "global-search-input") {
     debounce(el, () => {
-      globalSearch.q = el.value;
+      globalSearch.q = el.value.trim();
       globalSearch.page = 1;
-      renderGlobalSearch();
-    });
-  } else if (el.id === "station-filter") {
-    debounce(el, () => {
-      stationFilter = el.value.trim().toLowerCase();
-      if (stationFilter) track("station-filter");
+      stationFilter = globalSearch.q.toLowerCase();
       if (status) renderStations(status);
+      renderGlobalSearch();
     });
   } else if (el.dataset.stationSearch) {
     const feedId = Number(el.dataset.stationSearch);
@@ -673,5 +688,19 @@ $("add-category").addEventListener("submit", async (ev) => {
 });
 
 setAddMode("search");
+
+// /stations#feed-<id>: a show name tapped anywhere lands on its sheet.
+function openFromHash() {
+  const m = location.hash.match(/^#feed-(\d+)$/);
+  if (!m) return;
+  // a search would hide the tile the sheet opens under
+  $("global-search-input").value = "";
+  globalSearch.q = "";
+  stationFilter = "";
+  renderGlobalSearch();
+  expandedFeedId = null;   // toggleManage opens; never closes from a link
+  toggleManage(Number(m[1]));
+}
+window.addEventListener("hashchange", openFromHash);
 </script>
 {% endblock %}

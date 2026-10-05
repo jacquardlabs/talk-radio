@@ -169,6 +169,9 @@ def test_status_now_playing_with_fake(client) -> None:
     data = c.get("/api/status").get_json()
     assert data["dj_state"] == "playing" and data["transport"] == "PLAYING"
     assert data["now_playing"]["show"] == "showa"
+    # the board links each show to its station sheet
+    assert data["now_playing"]["feed_id"] == data["stations"][0]["id"]
+    assert all("feed_id" in e for e in data["up_next"])
     assert len(data["up_next"]) >= 1
     assert data["stations"][0]["counts"]["queued"] >= 1
 
