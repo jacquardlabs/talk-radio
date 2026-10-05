@@ -7,6 +7,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from typing import NamedTuple
+from urllib.parse import urlparse
 
 import feedparser
 import requests
@@ -203,6 +204,11 @@ class FeedError(Exception):
     pass
 
 
+class NotAFeed(FeedError):
+    """The address answered, but not with anything feedparser can read:
+    usually a web page pasted where the RSS link should go."""
+
+
 class FeedFetch(NamedTuple):
     """A feed as the server just described it.
 
@@ -238,7 +244,7 @@ def fetch_feed(url: str, user_agent: str, etag: str | None = None,
                          resp.headers.get("Last-Modified") or last_modified)
     parsed = feedparser.parse(resp.content)
     if not parsed.entries and parsed.bozo:
-        raise FeedError(f"could not parse feed: {url}")
+        raise NotAFeed(f"could not parse feed: {url}")
     return FeedFetch(parsed, resp.headers.get("ETag"),
                      resp.headers.get("Last-Modified"))
 
@@ -370,8 +376,37 @@ def add_feed_from_parsed(db: Database, parsed, url: str, is_news: bool,
     return feed_id
 
 
+# Show pages people copy out of podcast apps instead of the feed. Apple's
+# carry an id its lookup API turns into the feed; the rest can only be
+# found by name. Pocket Casts answers 403 to a fetch, so without this the
+# listener sees an HTTP error about a URL that was never a feed.
+APPLE_SHOW = re.compile(r"^https?://podcasts\.apple\.com/.*?/id(\d+)")
+SHOW_PAGE_HOSTS = ("pocketcasts.com", "open.spotify.com", "overcast.fm",
+                   "castbox.fm", "castro.fm", "podcasts.google.com",
+                   "music.amazon.com", "music.youtube.com")
+
+
+def feed_url_for(url: str, user_agent: str) -> str:
+    """The feed a pasted URL stands for: itself, or an Apple show page's
+    feed. A show page from any other app raises FeedError saying what to do."""
+    if m := APPLE_SHOW.match(url):
+        resp = requests.get("https://itunes.apple.com/lookup",
+                            params={"id": m[1], "entity": "podcast"},
+                            headers={"User-Agent": user_agent}, timeout=8)
+        resp.raise_for_status()
+        for r in resp.json().get("results", []):
+            if r.get("feedUrl"):
+                return r["feedUrl"]
+        raise FeedError("Apple lists no public feed for that show")
+    host = (urlparse(url).hostname or "").lower()
+    if any(host == h or host.endswith("." + h) for h in SHOW_PAGE_HOSTS):
+        raise FeedError("That's a show page, not a feed. Search for the show by name instead.")
+    return url
+
+
 def add_feed(db: Database, cfg: Config, url: str, is_news: bool,
              include: str = "latest", last_n: int | None = None) -> int:
+    url = feed_url_for(url, cfg.user_agent)
     return add_feed_from_parsed(db, fetch_feed(url, cfg.user_agent).parsed,
                                 url, is_news, include, last_n)
 

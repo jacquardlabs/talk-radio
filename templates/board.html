@@ -1,17 +1,22 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="output">
-  <span class="lbl">OUTPUT</span>
-  <div class="spk-list" id="speakers" role="group" aria-label="Speakers"></div>
-  <button type="button" class="tab small" id="btn-scan">Scan</button>
-  <button type="button" class="tab small" data-player="group_all">Group all</button>
-</div>
-
 <div class="deck">
   <img class="deck-art" id="np-art" alt="" hidden>
   <div class="deck-info">
-    <div class="np-eyebrow"><span id="np-label">Off air</span><span id="np-departs"></span></div>
+    <div class="np-eyebrow"><span id="np-label">Off air</span>
+      <span class="np-right"><span id="np-departs"></span>
+      <!-- Rooms change weekly; they sat above the deck as its first row.
+           Now one chip says where it's playing and opens the list. -->
+      <span class="flapwrap roomswrap">
+        <button type="button" class="tab small" id="btn-rooms" data-flap="rooms-flap"
+                aria-haspopup="true" aria-expanded="false">Rooms &#9662;</button>
+        <div class="flap rooms-flap" id="rooms-flap" data-flap-keep hidden>
+          <div class="spk-list" id="speakers" role="group" aria-label="Speakers"></div>
+          <button type="button" id="btn-scan">Scan for speakers <i>takes a few seconds</i></button>
+          <button type="button" data-player="group_all">Group all <i>every room plays</i></button>
+        </div>
+      </span></span></div>
     <h1 class="np-title glow" id="np-title">Press Play to go on air</h1>
     <div class="np-meta" id="np-meta"></div>
     <div class="np-desc-row" id="np-desc-row" hidden>
@@ -316,17 +321,12 @@ function renderPage(s) {
         `aria-label="Reorder ${esc(e.title)}">&#8801;</button>` +
         `${img}<div class="qmain">` +
         `<div class="qtitle">${e.is_news ? '<span class="news">NEWS</span>' : ""}${esc(e.title)}</div>` +
-        `<div class="qmeta">${showLink(e.feed_id, e.show)}${when ? " &middot; " + when : ""}${mins ? " &middot; " + mins : ""}${playing ? relStart(mine) : ""}</div></div>` +
+        `<div class="qmeta">` +
+        (e.pinned ? `<span class="qpin" title="Pinned — Refresh all leaves this alone">${PIN_SVG}</span>` : "") +
+        `${showLink(e.feed_id, e.show)}${when ? " &middot; " + when : ""}${mins ? " &middot; " + mins : ""}${playing ? relStart(mine) : ""}</div></div>` +
         discToggle(e.episode_id, e.description, e.title) +
-        `<div class="qact">` +
-        `<button type="button" class="tab small pin${e.pinned ? " on" : ""}" ` +
-        `data-episode="${e.episode_id}/pin" aria-pressed="${e.pinned ? "true" : "false"}" ` +
-        `aria-label="Pin ${esc(e.title)}" ` +
-        `title="${e.pinned ? "Pinned — Refresh all leaves this alone" : "Pin so Refresh all keeps it"}">` +
-        PIN_SVG + `</button>` +
-        `<button type="button" class="tab small" data-episode="${e.episode_id}/play_now" title="Interrupt and play now">Play now</button>` +
-        dropControl(e.episode_id) +
-        `</div>` + discPanel(e.episode_id, e.description) + `</div>`;
+        `<div class="qact">${rowMenu(e)}</div>` +
+        discPanel(e.episode_id, e.description) + `</div>`;
     }).join("") || '<div class="empty">QUEUE EMPTY</div>';
     // a keyboard reorder re-renders through this path, so put focus back on
     // the handle the user is still holding down the arrow key on
@@ -438,6 +438,10 @@ function renderSpeakers(s) {
   lastSpeakerSig = sig;
 
   const station = s.speaker ? s.speaker.ip : null;
+  const hearing = rows.filter(([, r]) => r.member).length;
+  $("btn-rooms").innerHTML = (s.speaker
+    ? esc(s.speaker.name) + (hearing > 1 ? ` + ${hearing - 1}` : "")
+    : "No speaker") + " &#9662;";
   list.innerHTML = rows.map(([ip, r]) => {
     const isStation = ip === station;
     return `<span class="spk${r.coordinator ? " co" : ""}">` +
@@ -453,30 +457,38 @@ function renderSpeakers(s) {
   }).join("") || '<span class="spk-empty">No speaker — press Scan</span>';
 }
 
-// ── dropping from up next ──────────────────────────────────────────
-// Which row's drop flap is open lives here, not in the DOM, for the same
-// reason as expandedEpisodes: the 5s poll rewrites the rows wholesale and
-// would fold the flap under a finger mid-choice.
-let openDropId = null;
+// ── the up next row menu ───────────────────────────────────────────
+// Every row used to carry pin, Play now, and Drop ▾: 33 controls over 11
+// rows, at .35 opacity until hover, where a pinned row's lit pin was all
+// but indistinguishable from the rest. One flap per row instead; the pin
+// shows as state in the meta line.
+// Which row's flap is open lives here, not in the DOM, for the same reason
+// as expandedEpisodes: the 5s poll rewrites the rows wholesale and would
+// fold the flap under a finger mid-choice.
+let openRowMenuId = null;
 
-function dropControl(id) {
-  const open = openDropId === String(id);
+function rowMenu(e) {
+  const id = e.episode_id;
+  const open = openRowMenuId === String(id);
   return `<div class="dropwrap">` +
-    `<button type="button" class="tab small" data-dropbtn="${id}" ` +
+    `<button type="button" class="tab small" data-rowmenu="${id}" ` +
     `aria-haspopup="true" aria-expanded="${open}" ` +
-    `title="Remove from Up Next">Drop &#9662;</button>` +
-    `<div class="flap" data-dropflap="${id}"${open ? "" : " hidden"}>` +
-    `<button type="button" data-drop="${id}/later">Later <i>back in rotation</i></button>` +
-    `<button type="button" class="danger" data-drop="${id}/done">Done <i>never play again</i></button>` +
+    `aria-label="Actions for ${esc(e.title)}">&middot;&middot;&middot;</button>` +
+    `<div class="flap" data-rowflap="${id}"${open ? "" : " hidden"}>` +
+    `<button type="button" data-episode="${id}/play_now">Play now <i>interrupt</i></button>` +
+    `<button type="button" data-episode="${id}/pin">${e.pinned ? "Unpin" : "Pin"} ` +
+    `<i>${e.pinned ? "Refresh all may replace it" : "Refresh all keeps it"}</i></button>` +
+    `<button type="button" data-drop="${id}/later">Drop for later <i>back in rotation</i></button>` +
+    `<button type="button" class="danger" data-drop="${id}/done">Drop for good <i>never play again</i></button>` +
     `</div></div>`;
 }
 
-function setDropOpen(id) {
-  openDropId = id;
-  for (const flap of document.querySelectorAll("[data-dropflap]"))
-    flap.hidden = flap.dataset.dropflap !== id;
-  for (const b of document.querySelectorAll("[data-dropbtn]"))
-    b.setAttribute("aria-expanded", String(b.dataset.dropbtn === id));
+function setRowMenuOpen(id) {
+  openRowMenuId = id;
+  for (const flap of document.querySelectorAll("[data-rowflap]"))
+    flap.hidden = flap.dataset.rowflap !== id;
+  for (const b of document.querySelectorAll("[data-rowmenu]"))
+    b.setAttribute("aria-expanded", String(b.dataset.rowmenu === id));
 }
 
 // ── reordering up next ─────────────────────────────────────────────
@@ -646,13 +658,13 @@ $("btn-refresh").addEventListener("click", (ev) => {
 });
 
 document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") setDropOpen(null);
+  if (ev.key === "Escape") setRowMenuOpen(null);
 });
 document.addEventListener("click", (ev) => {
   // base.html has already opened or closed the flap by now; this handler
   // owns the row menus and the actions the flaps contain.
   if (ev.target.closest("[data-flap]")) return;
-  if (!ev.target.closest(".dropwrap")) setDropOpen(null);
+  if (!ev.target.closest(".dropwrap")) setRowMenuOpen(null);
   const btn = ev.target.closest("button");
   if (!btn) return;
   if (btn.dataset.sleep) {
@@ -660,12 +672,12 @@ document.addEventListener("click", (ev) => {
     return void post("/player/sleep", choice === "episode"
       ? { mode: "episode" } : { mode: "fade", minutes: Number(choice) }, btn);
   }
-  if (btn.dataset.dropbtn) {
-    return void setDropOpen(openDropId === btn.dataset.dropbtn ? null : btn.dataset.dropbtn);
+  if (btn.dataset.rowmenu) {
+    return void setRowMenuOpen(openRowMenuId === btn.dataset.rowmenu ? null : btn.dataset.rowmenu);
   }
   if (btn.dataset.drop) {
     const [id, disposition] = btn.dataset.drop.split("/");
-    setDropOpen(null);
+    setRowMenuOpen(null);
     return void post(`/episodes/${id}/drop`, { disposition }, btn);
   }
   if (btn.dataset.player) {
@@ -679,6 +691,7 @@ document.addEventListener("click", (ev) => {
   if (btn.dataset.category) return void post(`/categories/${btn.dataset.category}`, {}, btn);
   if (btn.dataset.episode) {
     const [id, action] = btn.dataset.episode.split("/");
+    setRowMenuOpen(null);
     return void post(`/episodes/${id}/${action}`, {}, btn);
   }
 });
@@ -727,7 +740,7 @@ $("btn-scan").addEventListener("click", async (ev) => {
     else await poll();
   } finally {
     btn.classList.remove("pressed");
-    btn.textContent = "Scan";
+    btn.innerHTML = "Scan for speakers <i>takes a few seconds</i>";
   }
 });
 

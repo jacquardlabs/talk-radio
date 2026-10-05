@@ -294,6 +294,11 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             last_n = None
         try:
             feeds_mod.add_feed(db, cfg, url, is_news, include, last_n)
+        except feeds_mod.NotAFeed:
+            return result("That address isn't a podcast feed. Paste the show's "
+                          "RSS link, or search for it by name.")
+        except feeds_mod.FeedError as exc:
+            return result(str(exc))
         except Exception as exc:
             return result(f"could not add feed: {exc}")
         return result()

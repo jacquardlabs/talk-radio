@@ -11,6 +11,8 @@
     <button type="button" class="tab small" data-artmode="amber">Tinted</button>
     <button type="button" class="tab small" data-artmode="color">Color</button>
   </div>
+  <button type="button" class="tab small" id="btn-manage" aria-expanded="false"
+          aria-controls="manage-block">Manage</button>
 </div>
 <div id="station-groups"></div>
 <!-- One box answers three questions in turn: which stations, which
@@ -22,6 +24,9 @@
   <button type="button" class="tab small" id="search-directory"></button>
 </div>
 
+<!-- Library admin, monthly at most: adding stations and categories, and
+     each shelf's Edit menu. Behind Manage so the crate is for listening. -->
+<div id="manage-block" hidden>
 <div class="eyebrow"><span>Add station</span></div>
 <div class="tabs" style="margin-top:0">
   <button type="button" class="tab small live" id="mode-search" data-add-mode="search">Search</button>
@@ -40,7 +45,7 @@
   </div>
 </div>
 <form class="inline" id="add-feed">
-  <input type="url" id="feed-url" placeholder="RSS URL" required style="display:none">
+  <input type="url" id="feed-url" placeholder="Feed URL, or an Apple Podcasts link" required style="display:none">
   <label class="chk"><input type="checkbox" id="feed-news"> News</label>
   <select id="feed-include" aria-label="How much back catalog">
     <option value="latest" selected>Latest episode</option>
@@ -57,6 +62,7 @@
   <input type="text" id="category-name" placeholder="New category name" required>
   <button type="submit" class="tab">Add category</button>
 </form>
+</div>
 
 <div class="mini-transport" id="mini-transport" hidden>
   <button type="button" class="tab small" id="mini-playpause" aria-label="Play or pause">&#9654;</button>
@@ -263,13 +269,14 @@ function setCatMenuOpen(id) {
 function groupHeadHTML(cat, rows) {
   const count = rows.length;
   const unplayed = rows.reduce((n, f) => n + f.counts.new + f.counts.queued, 0);
-  const cnt = `<span class="cnt">${count} station${count === 1 ? "" : "s"} &middot; ${unplayed.toLocaleString()} unplayed</span>`;
+  const cnt = `<span class="cnt">${count} station${count === 1 ? "" : "s"} &middot; ${unplayed.toLocaleString()} unplayed` +
+    // the switch lives on On air; here the shelf only says which way it's set
+    (cat && !cat.rotation_enabled ? ' &middot; <span class="pri">Rotation off</span>' : "") + `</span>`;
   if (!cat) return `<span class="glow">Uncategorized</span>` + cnt;
+  if (!managing) return `<span class="glow">${esc(cat.name)}</span>` + cnt;
   const open = openCatMenuId === String(cat.id);
   return `<span class="glow">${esc(cat.name)}</span>` + cnt +
     `<span class="spacer"></span>` +
-    `<button type="button" class="tab small${cat.rotation_enabled ? " live" : " red"}" data-category="${cat.id}/toggle">` +
-    `${rotationLabel(cat.rotation_enabled)}</button>` +
     `<div class="dropwrap">` +
     `<button type="button" class="tab small" data-catmenu="${cat.id}" ` +
     `aria-haspopup="true" aria-expanded="${open}" ` +
@@ -297,7 +304,7 @@ function buildGroups(s) {
 }
 
 function renderStations(s) {
-  const sig = JSON.stringify([s.stations, s.categories, stationFilter, expandedFeedId]);
+  const sig = JSON.stringify([s.stations, s.categories, stationFilter, expandedFeedId, managing]);
   if (sig === lastStationsSig) return;   // nothing changed: keep DOM (and focus) intact
   lastStationsSig = sig;
 
@@ -317,7 +324,7 @@ function renderStations(s) {
     `</div><div data-sheet-slot></div></section>`
   ).join("") || (stationFilter
     ? '<div class="empty">No stations match</div>'
-    : '<div class="empty">NO STATIONS — ADD ONE BELOW</div>');
+    : '<div class="empty">No stations yet — add one below</div>');
 
   if (expandedFeedId == null) return;
   const tile = container.querySelector(`[data-tile="${expandedFeedId}"]`);
@@ -412,10 +419,21 @@ async function renderGlobalSearch() {
 }
 
 let openedFromHash = false;
+let managing = false;
+
+function setManaging(on) {
+  managing = on;
+  $("manage-block").hidden = !on;
+  $("btn-manage").classList.toggle("live", on);
+  $("btn-manage").setAttribute("aria-expanded", String(on));
+  lastStationsSig = "";   // the shelf heads change shape
+  if (status) renderStations(status);
+}
 function renderPage(s) {
   const cats = (s.categories || []).length;
   $("stn-summary").textContent =
     `${s.stations.length} STATIONS · ${cats} CATEGOR${cats === 1 ? "Y" : "IES"}`;
+  if (!s.stations.length && !managing) setManaging(true);   // first run: adding is the only job
   renderStations(s);
   renderMiniTransport(s);
   if (!openedFromHash) { openedFromHash = true; openFromHash(); }   // first status only
@@ -568,7 +586,9 @@ document.addEventListener("click", (ev) => {
       renderEpisodePanel(id);
     });
   }
+  if (btn.id === "btn-manage") return void setManaging(!managing);
   if (btn.id === "search-directory") {
+    setManaging(true);
     setAddMode("search");
     $("podcast-search-input").value = globalSearch.q;
     runPodcastSearch(globalSearch.q);
