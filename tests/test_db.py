@@ -163,13 +163,15 @@ def test_episodes_for_feed_page_paginates_and_filters(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     for i in range(1, 8):
         _ep(db, fid, i)
-    assert db.count_episodes_for_feed(fid) == 7
-    page1 = db.episodes_for_feed_page(fid, 1, 5)
-    page2 = db.episodes_for_feed_page(fid, 2, 5)
+    new = ("new",)
+    assert db.count_episodes_for_feed(fid, new) == 7
+    page1 = db.episodes_for_feed_page(fid, new, 1, 5)
+    page2 = db.episodes_for_feed_page(fid, new, 2, 5)
     assert len(page1) == 5 and len(page2) == 2
     assert page1[0]["guid"] == f"guid-{fid}-7"  # newest first
-    assert db.count_episodes_for_feed(fid, q="Ep 3") == 1
-    assert db.episodes_for_feed_page(fid, 1, 5, q="Ep 3")[0]["guid"] == f"guid-{fid}-3"
+    assert db.count_episodes_for_feed(fid, new, q="Ep 3") == 1
+    assert db.episodes_for_feed_page(fid, new, 1, 5, q="Ep 3")[0]["guid"] == f"guid-{fid}-3"
+    assert db.count_episodes_for_feed(fid, ("archived",)) == 0
 
 
 def test_search_episodes_matches_title_or_feed_title(db: Database) -> None:

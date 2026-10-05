@@ -83,8 +83,8 @@
 }
 [data-theme="solari"] .clock, [data-theme="solari"] .np-eyebrow span:last-child { color: var(--accent); }
 [data-theme="solari"] header .t { letter-spacing: .26em; }
-[data-theme="solari"] .qtitle, [data-theme="solari"] .svc-row { text-transform: uppercase; letter-spacing: .04em; }
-[data-theme="solari"] .qrow { border-bottom: 1px solid var(--line-soft); }
+[data-theme="solari"] .qtitle, [data-theme="solari"] .ep-title, [data-theme="solari"] .svc-row { text-transform: uppercase; letter-spacing: .04em; }
+[data-theme="solari"] .qrow, [data-theme="solari"] .ep-row { border-bottom: 1px solid var(--line-soft); }
 /* The tiles. A flex row of glyphs, so the clamp on .np-title cannot
    apply — the height is capped explicitly instead, or a long episode
    name grows the deck without limit. */
@@ -132,7 +132,7 @@
 [data-theme="ceefax"] .lbl, [data-theme="ceefax"] .basement,
 [data-theme="ceefax"] .rots .n, [data-theme="ceefax"] .rots .st,
 [data-theme="ceefax"] .times, [data-theme="ceefax"] .grp-head,
-[data-theme="ceefax"] .qtitle, [data-theme="ceefax"] .svc-row,
+[data-theme="ceefax"] .qtitle, [data-theme="ceefax"] .ep-title, [data-theme="ceefax"] .svc-row,
 [data-theme="ceefax"] .empty, [data-theme="ceefax"] .sheet-counts {
   font-size: 17px; letter-spacing: 0; font-weight: 400;
 }
@@ -192,7 +192,7 @@
 [data-theme="ceefax"] .vol .meter .fill { background: #00ff00; }
 [data-theme="ceefax"] .qtitle .news { background: #dd0000; color: #fff; padding: 0 5px; }
 [data-theme="ceefax"] .flap { border: 2px solid #00ffff; }
-[data-theme="ceefax"] .qrow, [data-theme="ceefax"] .svc-row { border-bottom: 0; }
+[data-theme="ceefax"] .qrow, [data-theme="ceefax"] .ep-row, [data-theme="ceefax"] .svc-row { border-bottom: 0; }
 
 /* ══ J-Card ═══════════════════════════════════════════════════════════
    A cassette inlay. The first light theme, and the one that proves the
@@ -228,7 +228,7 @@
   border: 1.5px solid var(--ink); font-weight: 600;
 }
 [data-theme="jcard"] button.tab.off, [data-theme="jcard"] .spk { border-color: var(--line); }
-[data-theme="jcard"] .np-title, [data-theme="jcard"] .qtitle { font-weight: 700; letter-spacing: -.015em; }
+[data-theme="jcard"] .np-title, [data-theme="jcard"] .qtitle, [data-theme="jcard"] .ep-title { font-weight: 700; letter-spacing: -.015em; }
 /* The stripe stack, printed behind the artwork rather than around it. */
 [data-theme="jcard"] .deck-art {
   box-shadow: 6px 6px 0 var(--red), 12px 12px 0 #1c2a6b;
@@ -366,7 +366,7 @@
 [data-theme="storm"] .np-title { font-weight: 500; }
 /* The serif stops at the deck. Queue rows and sheets stay on Public
    Sans, where 13px still has stems. */
-[data-theme="storm"] .qtitle, [data-theme="storm"] .sheet-title { font-family: var(--font-body); font-weight: 500; }
+[data-theme="storm"] .qtitle, [data-theme="storm"] .ep-title, [data-theme="storm"] .sheet-title { font-family: var(--font-body); font-weight: 500; }
 [data-theme="storm"] .deck-art { border-radius: 6px; }
 [data-theme="storm"] .track { padding: 20px 0; border-radius: 3px; margin-bottom: -4px; }
 [data-theme="storm"] .track .fill { top: 20px; bottom: 20px; border-radius: 3px; }

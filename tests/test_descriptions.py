@@ -255,4 +255,4 @@ def test_description_reaches_the_episode_list(db: Database, cfg) -> None:
     app.config["TESTING"] = True
     body = app.test_client().get(f"/api/feeds/{fid}/episodes").get_json()
 
-    assert body["episodes"][0]["description"] == "What happens"
+    assert body["groups"][0]["episodes"][0]["description"] == "What happens"
