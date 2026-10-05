@@ -338,11 +338,11 @@ button.tab.power.sleepcaret.timing { color: var(--amber); border-color: var(--li
 }
 .qdesc[hidden] { display: none; }
 .qdesc {
-  /* Up Next is a grid, the station sheet's episode rows are a wrapping
-     flexbox. Each layout ignores the other's property, so one rule spans
-     the row in both. */
-  grid-column: 1 / -1; flex-basis: 100%; width: 100%;
-  margin: 2px 0 4px 64px; padding-right: 8px;
+  /* Spans the row under it, starting where the title starts (grip 18 +
+     art 34 + two 12px gaps) and stopping at the show blurb's 68ch: at the
+     row's full width a line ran past 150 characters. */
+  grid-column: 1 / -1; max-width: 68ch;
+  margin: 2px 0 4px 76px; padding-right: 8px;
   font-size: 12.5px; line-height: 1.55; color: var(--amber-prose);
   white-space: pre-wrap; text-transform: none; letter-spacing: normal;
   font-weight: 400;
