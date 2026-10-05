@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 import mimetypes
 import re
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
-from flask import (Flask, Response, jsonify, render_template, request,
+from flask import (Flask, Response, g, jsonify, render_template, request,
                    send_from_directory, stream_with_context)
 
 # Python's mimetypes table predates .webmanifest; without this the manifest
@@ -25,6 +26,16 @@ TIME_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
 logger = logging.getLogger(__name__)
 EPISODES_PAGE_SIZE = 25
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+# GETs that are a person doing something rather than a page polling. Every
+# POST is recorded; of the GETs, only these.
+USAGE_GETS = frozenset({
+    "/", "/stations", "/api/speakers", "/api/podcasts/search",
+    "/api/episodes/search", "/api/feeds/<int:feed_id>/episodes",
+})
+# Jobs the dashboard does without a request of its own, reported by beacon.
+UI_EVENTS = frozenset({
+    "earlier", "wake", "trouble", "station-filter", "description", "theme",
+})
 
 
 def _origin_is_foreign(origin: str, host: str) -> bool:
@@ -36,6 +47,16 @@ def _origin_is_foreign(origin: str, host: str) -> bool:
     "null" — a sandboxed iframe, a file:// page — has no netloc and is
     foreign like any other value that is not ours."""
     return urlparse(origin).netloc.lower() != host.lower()
+
+
+def usage_key(method: str, rule: str, view_args: dict) -> str:
+    """The action a request stands for. String arguments are the verb
+    ("/player/<action>" -> "/player/pause") and are spelled out; ints are
+    which row, so they stay placeholders and every feed counts as one key."""
+    for name, value in view_args.items():
+        if isinstance(value, str):
+            rule = re.sub(rf"<(?:\w+:)?{re.escape(name)}>", lambda _: value, rule)
+    return f"{method} {rule}"
 
 
 def _episode_json(e, feed_title: str) -> dict:
@@ -100,8 +121,63 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
         if _origin_is_foreign(origin, request.host):
             logger.warning("refused %s %s from origin %r", request.method,
                            request.path, origin)
+            g.cross_site = True
             return result("cross-site request rejected"), 403
         return None
+
+    @app.after_request
+    def record_usage(response: Response) -> Response:
+        """Count what people do, at the one place every request passes.
+
+        `result(error)` answers 200 with ok:false, so success is read from
+        the body where there is one; the status code alone would count a
+        feed that failed to add as an added feed."""
+        rule = request.url_rule
+        if rule is None or g.get("cross_site"):
+            return response
+        if not (request.method == "POST" or (request.method == "GET"
+                                             and rule.rule in USAGE_GETS)):
+            return response   # polling, assets, audio: nobody did anything
+        # Read the body only now: a streamed or file response can't be.
+        ok = response.status_code < 400
+        if ok and response.is_json:
+            ok = bool((response.get_json(silent=True) or {}).get("ok", True))
+        if rule.rule == "/api/usage":
+            if not ok:   # an event the beacon refused is nobody's action
+                return response
+            action = f"UI {request.get_json(silent=True)['event']}"
+        else:
+            action = usage_key(request.method, rule.rule, request.view_args or {})
+        if rule.rule in ("/", "/stations"):
+            page = rule.rule
+        else:
+            referrer = urlparse(request.referrer or "")
+            page = referrer.path if referrer.netloc.lower() == request.host.lower() else None
+        try:
+            db.record_usage(action, page, ok)
+        except Exception:
+            logger.exception("could not record usage of %s", action)
+        return response
+
+    @app.post("/api/usage")
+    def usage_beacon():
+        event = (request.get_json(silent=True) or {}).get("event")
+        if event not in UI_EVENTS:
+            return result(f"event must be one of {sorted(UI_EVENTS)}")
+        return result()
+
+    @app.get("/api/usage")
+    def usage_report():
+        try:
+            days = min(3650, max(1, int(request.args.get("days") or 30)))
+        except (TypeError, ValueError):
+            days = 30
+        since = (datetime.now(timezone.utc) - timedelta(days=days)
+                 ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return jsonify({"since": since, "actions": [
+            {"action": r["action"], "page": r["page"], "count": r["count"],
+             "failed": r["failed"], "last_at": r["last_at"]}
+            for r in db.usage_summary(since)]})
 
     @app.get("/")
     def index():

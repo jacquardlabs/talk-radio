@@ -205,6 +205,14 @@ from:
     curl -X POST http://server:8080/player/sleep \
       -H 'Content-Type: application/json' -d '{"mode":"fade","minutes":30}'
 
+## Usage log
+
+Every action, search, and page view is counted in the database (polling is
+not), with the page it came from and whether it worked. Scripted calls like
+the ones above have no page. To see the last 30 days, most frequent first:
+
+    curl http://server:8080/api/usage?days=30
+
 ## Troubleshooting
 
 - **Discovery finds nothing** — the container must share the LAN

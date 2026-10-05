@@ -698,7 +698,8 @@ document.addEventListener("click", (ev) => {
   if (!btn) return;
   const id = String(btn.dataset.disc);
   const open = !expandedEpisodes.has(id);
-  if (open) expandedEpisodes.add(id); else expandedEpisodes.delete(id);
+  if (open) { expandedEpisodes.add(id); track("description"); }
+  else expandedEpisodes.delete(id);
   btn.setAttribute("aria-expanded", String(open));
   const panel = document.getElementById(`desc-${id}`);
   if (panel) panel.hidden = !open;
@@ -773,6 +774,16 @@ function armed(btn) {
     }
   }, 3000);
   return false;
+}
+// Counts a job the page does without asking the server (opening a panel,
+// filtering), so the usage log sees it too. Fire and forget: a lost count
+// must never cost the listener anything.
+function track(event) {
+  fetch("/api/usage", {
+    method: "POST", keepalive: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event }),
+  }).catch(() => {});
 }
 async function post(path, body, btn) {
   if (btn) { btn.classList.add("pressed"); setTimeout(() => btn.classList.remove("pressed"), 350); }
@@ -910,7 +921,7 @@ function setTheme(id) {
   }
   flap.addEventListener("click", (ev) => {
     const btn = ev.target.closest("[data-theme-id]");
-    if (btn) setTheme(btn.dataset.themeId);
+    if (btn) { setTheme(btn.dataset.themeId); track("theme"); }
   });
   paintThemeButton();
 })();

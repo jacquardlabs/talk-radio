@@ -751,17 +751,18 @@ $("speakers").addEventListener("click", (ev) => {
   post("/api/speaker", { ip: btn.dataset.spkSelect });
 });
 
-function wireDisclosure(lineId, panelId) {
+function wireDisclosure(lineId, panelId, event) {
   $(lineId).addEventListener("click", () => {
     const panel = $(panelId);
     panel.hidden = !panel.hidden;
+    if (!panel.hidden) track(event);
     $(lineId).setAttribute("aria-expanded", String(!panel.hidden));
     if (status) renderPage(status);   // refresh the ▾/▴ arrow
   });
 }
-wireDisclosure("wake-line", "wake-editor");
-wireDisclosure("earlier-line", "recent-editor");
-wireDisclosure("trouble-line", "trouble-editor");
+wireDisclosure("wake-line", "wake-editor", "wake");
+wireDisclosure("earlier-line", "recent-editor", "earlier");
+wireDisclosure("trouble-line", "trouble-editor", "trouble");
 
 const dayChips = DAYS.map((d, i) => {
   const b = document.createElement("button");
