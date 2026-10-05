@@ -303,6 +303,23 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             return result(f"could not add feed: {exc}")
         return result()
 
+    @app.post("/feeds/<int:feed_id>/backfill")
+    def feed_backfill(feed_id: int):
+        """Re-cut an existing station's rotation the way Add station cuts a
+        new one: the same include/count body, applied to what is unplayed."""
+        if db.get_feed(feed_id) is None:
+            return result("no such feed"), 404
+        body = request.get_json(silent=True) or {}
+        include = body.get("include") or ""
+        if include not in feeds_mod.INCLUDE_MODES:
+            return result(f"include must be one of {feeds_mod.INCLUDE_MODES}")
+        try:
+            last_n = int(body.get("count") or 0) or None
+        except (TypeError, ValueError):
+            return result("count must be a number")
+        db.set_rotation_depth(feed_id, feeds_mod.rotation_depth(include, last_n))
+        return result()
+
     @app.post("/feeds/<int:feed_id>/<action>")
     def feed_action(feed_id: int, action: str):
         feed = db.get_feed(feed_id)

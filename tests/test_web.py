@@ -777,3 +777,40 @@ def test_sleep_route_rejects_bad_minutes(client) -> None:
     data = c.post("/player/sleep", json={"mode": "fade", "minutes": "soon"}).get_json()
     assert data["ok"] is False and "minutes" in data["error"]
     assert db.kv_get("sleep_mode") is None
+
+
+def _statuses(db, fid) -> list[tuple[str, str]]:
+    return [(e["title"], e["status"]) for e in db.episodes_for_feed(fid)]
+
+
+def test_backfill_caps_rotation_and_spares_what_was_queued_or_heard(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X Show", None, False)
+    ids = {n: _add_episode(db, fid, n) for n in range(1, 6)}       # Ep 5 newest
+    db.mark_queued(ids[4], "uri")                                   # in Up Next
+    db.mark_played(ids[1], "2026-01-09T00:00:00Z")
+    assert c.post(f"/feeds/{fid}/backfill",
+                  json={"include": "last_n", "count": 2}).get_json()["ok"] is True
+    assert _statuses(db, fid) == [
+        ("Ep 5", "new"), ("Ep 4", "queued"),            # the newest two
+        ("Ep 3", "archived"), ("Ep 2", "archived"),     # older, unplayed
+        ("Ep 1", "played"),                             # history stays
+    ]
+
+
+def test_backfill_all_restores_and_new_only_empties(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X Show", None, False)
+    for n in range(1, 4):
+        _add_episode(db, fid, n, status="archived")
+    c.post(f"/feeds/{fid}/backfill", json={"include": "all"})
+    assert {s for _, s in _statuses(db, fid)} == {"new"}
+    c.post(f"/feeds/{fid}/backfill", json={"include": "new_only"})
+    assert {s for _, s in _statuses(db, fid)} == {"archived"}
+
+
+def test_backfill_validates(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X Show", None, False)
+    assert c.post(f"/feeds/{fid}/backfill", json={"include": "some"}).get_json()["ok"] is False
+    assert c.post("/feeds/999/backfill", json={"include": "all"}).status_code == 404
