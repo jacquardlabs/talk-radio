@@ -480,15 +480,20 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
 .ep-row input[type="checkbox"] { accent-color: var(--amber); width: 16px; height: 16px; }
 .ep-title { font-family: var(--font-title); font-size: 13.5px; font-weight: 500; line-height: 1.4;
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.ep-row .qmeta .ok { color: var(--green); text-shadow: var(--glow-green); }
 .ep-row .qmeta .pri { color: var(--red); text-shadow: var(--glow-red); }
 .ep-row .qmeta .glow { color: var(--amber); }
 .ep-row .disc { margin-left: 6px; }
 .ep-row .qdesc { margin-left: 0; }
 .ep-actions { display: flex; gap: 7px; flex: none; }
 .ep-actions [data-epmenu] { min-width: 44px; font-size: 14px; letter-spacing: 0; }
-.ep-group-act { display: flex; gap: 7px; letter-spacing: normal; }
-.ep-group .eyebrow { align-items: center; margin-top: 18px; }
+/* status as a display segment: what the DJ can pick stays lit; the back
+   catalog and anything missed are unlit; a heard episode is struck through
+   but readable, since playing it again is one tap. Secondary ink, never
+   opacity, so every theme's contrast floor still holds. */
+.ep-row.st-new .ep-title, .ep-row.st-queued .ep-title { text-shadow: var(--glow-soft); }
+.ep-row.st-archived .ep-title, .ep-row.st-skipped .ep-title,
+.ep-row.st-played .ep-title { color: var(--amber-prose); }
+.ep-row.st-played .ep-title { text-decoration: line-through 1px var(--amber-dim); }
 
 /* the theme picker: a global control, so it sits in the header with
    the other one. The button wears the theme it will switch away from —
