@@ -143,11 +143,18 @@ nav.nav { display: flex; gap: 7px; align-self: center; }
 .navlink:hover { background: var(--bezel2); }
 .navlink.live { background: var(--accent); color: var(--on-accent); text-shadow: none; }
 
-.output {
-  display: flex; justify-content: flex-end; align-items: center; gap: 7px;
-  flex-wrap: wrap; margin-top: 10px;
-}
-.output .lbl { font-size: 9px; letter-spacing: .2em; color: var(--amber-prose); margin-right: auto; }
+.np-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.np-eyebrow { align-items: center; }
+.roomswrap .flap { left: auto; right: 0; }
+.rooms-flap { min-width: 260px; }
+.rooms-flap .spk-list { flex-direction: column; align-items: stretch; padding: 8px; }
+/* the room names are buttons inside a flap, whose button rule would make
+   them full-width menu rows */
+.flap .spk-name { display: inline; width: auto; padding: 0; text-transform: none;
+  font: inherit; font-size: 12.5px; letter-spacing: .06em; color: var(--amber-dim); }
+.flap .spk-name:hover { background: none; color: var(--amber); }
+.flap .spk-name.on { color: var(--amber); }
+.rooms-flap .spk-list + button { border-top: 1px dashed var(--line); }
 /* One chip per room: the checkbox is membership, the name selects which room
    is the station. Two controls, because they answer two different questions. */
 .spk-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -237,19 +244,12 @@ button.tab.red { color: var(--red); border-color: var(--line-red); }
 button.tab.red:active, button.tab.red.pressed { background: var(--red); color: var(--on-danger); }
 button.tab.small { min-height: 44px; padding: 0 12px; font-size: 9.5px; }
 button.tab.off { color: var(--amber-dim); }
-/* the pin: lit when this row is held back from a refresh, dim when not.
+/* the pin, as state: shown in a pinned row's meta line, absent otherwise.
    Drawn rather than set, because 📌 is a color emoji — it ignores `color`
-   and came out red on an all-amber panel. currentColor keeps it in step,
-   including the invert on press. */
-button.tab.pin { display: inline-flex; align-items: center; justify-content: center; padding: 0 12px;
-  color: var(--amber-dim); opacity: .55; }
-button.tab.pin svg { width: 15px; height: 15px; fill: currentColor; }
-button.tab.pin.on { color: var(--amber); opacity: 1; }
-button.tab.pin.on svg { filter: var(--glow-pin); }
-/* press inverts like every other tab — dark pin on an amber field, no glow.
-   Has to outrank .pin.on above, which is why it sits last. */
-button.tab.pin:active, button.tab.pin.pressed { color: var(--on-accent); opacity: 1; }
-button.tab.pin:active svg, button.tab.pin.pressed svg { filter: none; }
+   and came out red on an all-amber panel. */
+.qpin { display: inline-flex; vertical-align: -2px; margin-right: 6px; color: var(--amber); }
+.qpin svg { width: 11px; height: 11px; fill: currentColor; filter: var(--glow-pin); }
+.qact [data-rowmenu] { min-width: 44px; font-size: 14px; letter-spacing: 0; }
 button.tab.armed, .flap button.armed { background: var(--red); color: var(--on-danger); border-color: var(--red); text-shadow: none; }
 .flap button.armed i { color: var(--on-danger); }
 
@@ -368,7 +368,8 @@ button.tab.power.sleepcaret.timing { color: var(--amber); border-color: var(--li
 .qtitle { font-family: var(--font-title); font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qtitle .news { color: var(--red); font-size: 9px; font-weight: 700; letter-spacing: .2em; margin-right: 8px; text-shadow: var(--glow-red); }
 .qmeta { font-size: 9.5px; color: var(--amber-prose); letter-spacing: .18em; text-transform: uppercase; font-weight: 700; margin-top: 2px; }
-.qact { display: flex; gap: 6px; opacity: .35; transition: opacity .15s; }
+/* one menu per row now, so it rests readable rather than near-invisible */
+.qact { display: flex; gap: 6px; opacity: .6; transition: opacity .15s; }
 .qrow:hover .qact, .qrow:focus-within .qact { opacity: 1; }
 @media (hover: none) { .qact { opacity: 1; } }
 
@@ -542,8 +543,7 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
   header .clock { display: none; }
   .themepick #theme-name { display: none; }
   .themepick > button { padding: 0 11px; }
-  .qrow { grid-template-columns: 18px 34px 1fr auto; row-gap: 6px; }
-  .qrow .qact { grid-column: 3 / -1; justify-content: flex-end; }
+  .qrow { gap: 10px; row-gap: 6px; }
   .qrow .qdesc { margin-left: 0; }
   .qtitle { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   /* episode rows: the title takes the full width and the actions share the
@@ -555,11 +555,6 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
   .ep-row .qmeta { grid-area: meta; }
   .ep-row .ep-actions { grid-area: actions; }
   .ep-row input[type="checkbox"] { grid-area: check; }
-}
-/* touch: no hover to lift the pin out of its resting dim, so it rests lit
-   enough to be seen; pressed/pinned states still outrank it */
-@media (hover: none) {
-  button.tab.pin { opacity: .85; }
 }
 /* stations page, phone: a slim docked remote so pausing doesn't mean
    navigating back to the board first */
@@ -588,6 +583,7 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
   font-size: 12px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase;
 }
 .grp-head .cnt { font-size: 9.5px; letter-spacing: .18em; color: var(--amber-prose); }
+.grp-head .pri { color: var(--red); }
 .grp-head .spacer { flex: 1 1 auto; }
 .crate-toolbar { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
 .crate-toolbar input { flex: 1 1 240px; }
@@ -877,6 +873,8 @@ function closeFlaps(except) {
   }
 }
 document.addEventListener("click", (ev) => {
+  // a flap of several choices (rooms) stays open while you make them
+  if (ev.target.closest("[data-flap-keep]")) return;
   const toggle = ev.target.closest("[data-flap]");
   closeFlaps(toggle ? toggle.dataset.flap : null);
   if (!toggle) return;

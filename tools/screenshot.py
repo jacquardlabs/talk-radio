@@ -116,9 +116,9 @@ def shoot_pages(browser: Browser, base: str) -> None:
 
 
 def deck_clip(page: Page) -> dict[str, float]:
-    """The output row down through the transport, with a little margin that
-    stops short of the header (Ceefax paints it as a band)."""
-    top = page.locator(".output").bounding_box()
+    """The deck down through the transport, with a little margin that stops
+    short of the header (Ceefax paints it as a band)."""
+    top = page.locator(".deck").bounding_box()
     bottom = page.locator(".transport").bounding_box()
     header = page.locator("header").bounding_box()
     pad = 12

@@ -11,7 +11,7 @@ speakers like a personal talk-radio station — forever.
 1. **Random show rotation.** The DJ picks a random *show*, not a random
    episode, and won't repeat a show while another has unplayed episodes.
    Switch a whole category's rotation off — from the *In rotation* row on
-   *On air*, or the category header on *Stations* — without pausing or
+   *On air*; its shelf on *Stations* says so — without pausing or
    removing its stations. Force-play (*Play next*, *Play now*) ignores
    rotation settings, and an episode already queued when you switch a
    category off still plays out.
@@ -60,9 +60,10 @@ now — or later: its caret, or a long press on the switch, opens the sleep
 timer (end of episode, or a 15/30/60-minute fade). **Refresh all**
 re-rolls the DJ's picks: pinned rows and the track on air stay, everything
 else goes back in the pool. Up Next rows act too: drag the grip to reorder —
-arrow keys move a focused grip, so it works without a pointer — the pin spares
-a row from that re-roll, *Play now* interrupts immediately, and *Drop* returns
-that episode to rotation for another day. A caret on the deck and on each Up
+arrow keys move a focused grip, so it works without a pointer — and each
+row's menu offers *Play now* (interrupts immediately), *Pin* (spares the row
+from that re-roll; pinned rows show a pin), and *Drop* for later or for good.
+A caret on the deck and on each Up
 Next row opens that episode's notes when the feed publishes them.
 
 **Themes.** The board ships eight looks, each drawn from radio's own hardware:
@@ -85,12 +86,14 @@ of the screen, thumb-height:
 
 <img src="docs/screenshots/on-air-narrow.jpg" alt="The On air page at phone width, transport docked to the bottom" width="420">
 
-1. **Pick a speaker** — on *On air*, hit *Scan*. Tap a room's name to make it
+1. **Pick a speaker** — on *On air*, open the rooms chip beside *Now playing*
+   and hit *Scan for speakers*. Tap a room's name to make it
    the one the DJ plays through. Each room's checkbox adds it to the group or
    drops it out; the room holding the queue is fixed on — switch rooms rather
    than unticking it. *Group all* adds every speaker.
-2. **Add stations** — on *Stations*, search by podcast name, or toggle to
-   *Paste URL* for feeds a directory search won't find. Check *news* for news
+2. **Add stations** — on *Stations*, press *Manage*, then search by podcast
+   name, or toggle to *Paste URL* for feeds a directory search won't find (an
+   Apple Podcasts show link works too). Check *news* for news
    feeds. Pick how much back catalog to include:
    - *New episodes only* — nothing until the next episode drops
    - *Latest episode* (default) — start from the newest
@@ -103,8 +106,8 @@ of the screen, thumb-height:
    Mon–Fri and 10:00 Sat–Sun.
 4. Press **ON AIR**.
 5. **Manage episodes** — *Stations* is a record crate: category shelves of
-   artwork tiles, each shelf header carrying that category's rotation toggle,
-   badges showing unplayed counts, and a *Tinted/Color* switch for the artwork
+   artwork tiles, badges showing unplayed counts, *Manage* for adding
+   stations and editing categories, and a *Tinted/Color* switch for the artwork
    treatment — *Tinted* duotones the artwork into whichever theme is on. Tap a tile for its station sheet: the show's description, then its
    episodes in three groups — *Unplayed* (the DJ can pick them), *Back
    catalog* (it won't until you add them), and *Heard*. Station settings

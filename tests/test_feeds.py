@@ -2,6 +2,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import feedparser
+import pytest
 
 from config import Config
 from db import Database
@@ -391,3 +392,46 @@ def test_add_feed_from_parsed_sets_detected_mode(db: Database) -> None:
         f"<rss version='2.0'><channel><title>Serialized</title>{items}</channel></rss>")
     fid = add_feed_from_parsed(db, parsed, "https://x/rss", False, include="all")
     assert db.get_feed(fid)["playback_mode"] == "in_order"
+
+
+def test_an_apple_show_page_resolves_to_its_feed(monkeypatch) -> None:
+    import feeds as feeds_mod
+
+    seen = {}
+
+    def lookup(url, params, **kw):
+        seen.update(url=url, **params)
+        return _FakeItunesResponse({"results": [{"feedUrl": "https://example/feed.xml"}]})
+
+    monkeypatch.setattr(feeds_mod.requests, "get", lookup)
+    url = "https://podcasts.apple.com/us/podcast/pretty-heady-stuff/id1678231234?i=1"
+    assert feeds_mod.feed_url_for(url, "TestAgent/1.0") == "https://example/feed.xml"
+    assert seen["url"] == "https://itunes.apple.com/lookup" and seen["id"] == "1678231234"
+
+
+def test_an_apple_show_without_a_feed_says_so(monkeypatch) -> None:
+    import feeds as feeds_mod
+
+    monkeypatch.setattr(feeds_mod.requests, "get",
+                        lambda *a, **k: _FakeItunesResponse({"results": [{}]}))
+    with pytest.raises(feeds_mod.FeedError, match="no public feed"):
+        feeds_mod.feed_url_for("https://podcasts.apple.com/us/podcast/x/id42", "UA")
+
+
+@pytest.mark.parametrize("url", [
+    "https://pocketcasts.com/podcast/pretty-heady-stuff/96798930-1657-0139-41ec-0acc26574db2",
+    "https://open.spotify.com/show/abc",
+    "https://www.overcast.fm/itunes123",
+])
+def test_another_apps_show_page_is_refused_with_directions(url) -> None:
+    import feeds as feeds_mod
+
+    with pytest.raises(feeds_mod.FeedError, match="Search for the show by name"):
+        feeds_mod.feed_url_for(url, "UA")
+
+
+def test_a_feed_url_passes_through_untouched() -> None:
+    import feeds as feeds_mod
+
+    assert feeds_mod.feed_url_for("https://anchor.fm/s/10181c7c8/podcast/rss", "UA") \
+        == "https://anchor.fm/s/10181c7c8/podcast/rss"

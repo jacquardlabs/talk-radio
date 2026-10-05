@@ -119,6 +119,27 @@ def test_add_feed_requires_url(no_sonos_client) -> None:
     assert c.post("/feeds", json={}).get_json()["ok"] is False
 
 
+def test_add_feed_explains_a_show_page(no_sonos_client) -> None:
+    """The Pocket Casts page answered 403, and the listener was shown the
+    HTTP error rather than told to search by name."""
+    c, _ = no_sonos_client
+    data = c.post("/feeds", json={
+        "url": "https://pocketcasts.com/podcast/pretty-heady-stuff/96798930"}).get_json()
+    assert data["ok"] is False
+    assert "Search for the show by name" in data["error"]
+
+
+def test_add_feed_explains_a_page_that_is_not_a_feed(no_sonos_client, monkeypatch) -> None:
+    c, _ = no_sonos_client
+
+    def html_page(url, user_agent, *a, **k):
+        raise feeds_mod.NotAFeed(f"could not parse feed: {url}")
+
+    monkeypatch.setattr(feeds_mod, "fetch_feed", html_page)
+    data = c.post("/feeds", json={"url": "https://example.com/about"}).get_json()
+    assert data["error"].startswith("That address isn't a podcast feed")
+
+
 def test_feed_actions(client, monkeypatch) -> None:
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X", None, False)

@@ -81,7 +81,7 @@
   --font-body: "Oswald", "Arial Narrow", sans-serif;
   color-scheme: dark;
 }
-[data-theme="solari"] .clock, [data-theme="solari"] .np-eyebrow span:last-child { color: var(--accent); }
+[data-theme="solari"] .clock, [data-theme="solari"] #np-departs { color: var(--accent); }
 [data-theme="solari"] header .t { letter-spacing: .26em; }
 [data-theme="solari"] .qtitle, [data-theme="solari"] .ep-title, [data-theme="solari"] .svc-row { text-transform: uppercase; letter-spacing: .04em; }
 [data-theme="solari"] .qrow, [data-theme="solari"] .ep-row { border-bottom: 1px solid var(--line-soft); }
