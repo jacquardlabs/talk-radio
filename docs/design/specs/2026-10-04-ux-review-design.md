@@ -96,8 +96,8 @@ from each row to the section head, and the episodes the DJ can actually pick
 sit at the top.
 
 The episodes endpoint pages newest-first across all statuses
-(`db.py:656-668`), so page 2 would split a section. It needs a `status` filter,
-with each section paging on its own.
+(`db.py:656-668`), so page 2 would split a section. It needs to return each
+section at its own page, in one request so opening a sheet stays one call.
 
 ```
 UNPLAYED · 2
@@ -217,7 +217,7 @@ basement                                ┌ sheet: episodes first, Settings ▾ 
 ```
 
 Cost: medium. Touches `board.html`, `stations.html`, `base.html`; README
-screenshots retaken. Server changes: a `status` filter on the episodes
+screenshots retaken. Server changes: per-section pages on the episodes
 endpoint (F2), a show-page check in `web.py` add-feed (F10a), and Apple link
 resolution in `feeds.add_feed` (F10b). Linking from a show name to its sheet
 (F6) needs a `#feed-<id>` anchor that opens that sheet.
