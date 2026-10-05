@@ -655,6 +655,22 @@ class Database:
         with self._conn() as c:
             c.execute("UPDATE episodes SET status='archived' WHERE id=?", (episode_id,))
 
+    def set_rotation_depth(self, feed_id: int, keep: int | None) -> None:
+        """Put a station's `keep` newest episodes in rotation and the older
+        unplayed ones in the back catalog (None: every one in rotation).
+        Only 'new' and 'archived' move; a queued, played, or skipped episode
+        keeps its status but still counts toward the newest `keep`. One
+        statement, so a capped 2,000-episode feed costs one commit."""
+        with self._conn() as c:
+            c.execute(
+                "UPDATE episodes SET status = CASE WHEN id IN ("
+                "  SELECT id FROM episodes WHERE feed_id=?"
+                "  ORDER BY published_at DESC, id DESC LIMIT ?)"
+                " THEN 'new' ELSE 'archived' END"
+                " WHERE feed_id=? AND status IN ('new','archived')",
+                (feed_id, -1 if keep is None else keep, feed_id),
+            )
+
     def unarchive_feed(self, feed_id: int) -> int:
         with self._conn() as c:
             cur = c.execute(

@@ -368,12 +368,17 @@ def add_feed_from_parsed(db: Database, parsed, url: str, is_news: bool,
                           playback_mode=detect_playback_mode(parsed),
                           description=feed_description(parsed))
     ingest_entries(db, feed_id, parsed)
-    episodes = db.episodes_for_feed(feed_id)  # newest first
-    keep = {"new_only": 0, "latest": 1,
-            "last_n": max(1, int(last_n or 1)), "all": len(episodes)}[include]
-    for episode in episodes[keep:]:
-        db.archive_episode(episode["id"])
+    db.set_rotation_depth(feed_id, rotation_depth(include, last_n))
     return feed_id
+
+
+def rotation_depth(include: str, last_n: int | None) -> int | None:
+    """How many of a station's newest episodes an include mode puts in
+    rotation; None is all of them."""
+    if include not in INCLUDE_MODES:
+        raise ValueError(f"bad include mode: {include}")
+    return {"new_only": 0, "latest": 1,
+            "last_n": max(1, int(last_n or 1)), "all": None}[include]
 
 
 # Show pages people copy out of podcast apps instead of the feed. Apple's
