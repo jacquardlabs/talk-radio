@@ -14,10 +14,9 @@ services:
       - PORT=${PORT:-8080}
       # - SONOS_IP=192.168.1.50      # skip discovery entirely
       # - DOWNLOAD_MODE=1            # for CDNs Sonos won't stream from
-      # Both required to sync a phone podcast app (AntennaPod) over the
-      # gpodder API — see README "Phone sync". Neither set: no /api/2/*
-      # routes exist at all.
-      # - GPODDER_USER=you
-      # - GPODDER_PASSWORD=change-me
+      # Phone sync (AntennaPod, gpodder API) — see README "Phone sync".
+      # Read from .env; both empty means no /api/2/* routes exist at all.
+      - GPODDER_USER=${GPODDER_USER:-}
+      - GPODDER_PASSWORD=${GPODDER_PASSWORD:-}
     volumes:
       - ./data:/data

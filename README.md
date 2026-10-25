@@ -161,7 +161,9 @@ Store, nothing else to build. It speaks the
 which this appliance now speaks too.
 
 Set both `GPODDER_USER` and `GPODDER_PASSWORD` — unset, `/api/2/*` doesn't
-exist at all, and nothing else about the app changes. Then in AntennaPod:
+exist at all, and nothing else about the app changes. Compose reads them from
+`.env`; if they live in Doppler, `make sync-secrets DEPLOY_HOST=...` copies them
+into the server's `.env` (then `make deploy`). Then in AntennaPod:
 Settings → Synchronization → gpodder.net server, and enter the server address
 **with the scheme spelled out** — `http://192.168.1.222:8005`, not just the
 host — because omitting it makes AntennaPod assume HTTPS on port 443. Despite

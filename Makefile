@@ -10,8 +10,10 @@
 DEPLOY_HOST ?=
 DEPLOY_DIR  ?= ~/talk-radio
 DEPLOY_PORT ?= 8080
+DOPPLER_PROJECT ?= talk-radio
+DOPPLER_CONFIG  ?= dev
 
-.PHONY: deploy logs status test check-host
+.PHONY: deploy logs status test check-host sync-secrets
 
 check-host:
 	@if [ -z "$(DEPLOY_HOST)" ]; then \
@@ -32,6 +34,21 @@ deploy: check-host
 	@curl -sf --connect-timeout 5 http://$$(echo $(DEPLOY_HOST) | cut -d@ -f2):$(DEPLOY_PORT)/api/status > /dev/null \
 		&& echo "deployed: http://$$(echo $(DEPLOY_HOST) | cut -d@ -f2):$(DEPLOY_PORT)" \
 		|| echo "deployed, but status check failed — run 'make logs'"
+
+# Copy the gpodder credentials from Doppler into the server's .env (mode
+# 600), replacing any earlier copy. The server refuses anything but both
+# keys, so a Doppler or parse failure leaves .env untouched. Values travel over ssh stdin, never argv
+# or the terminal. Single-quoted so compose takes them literally — a value
+# containing a single quote is refused rather than mangled. Run it again
+# after rotating, then `make deploy` to recreate the container.
+sync-secrets: check-host
+	@doppler secrets download --no-file --format json \
+		--project $(DOPPLER_PROJECT) --config $(DOPPLER_CONFIG) \
+	| python3 -c 'import json,sys; s=json.load(sys.stdin); keys=("GPODDER_USER","GPODDER_PASSWORD"); missing=[k for k in keys if not s.get(k)]; bad=[k for k in keys if "\x27" in s.get(k,"")]; missing and sys.exit("missing in Doppler: "+", ".join(missing)); bad and sys.exit("single quote not supported in: "+", ".join(bad)); print("".join(f"{k}=\x27{s[k]}\x27\n" for k in keys), end="")' \
+	| ssh $(DEPLOY_HOST) 'set -e; umask 077; f=$(DEPLOY_DIR)/.env; new=$$(cat); \
+		[ "$$(printf "%s\n" "$$new" | grep -c "^GPODDER_")" = 2 ] || { echo "nothing valid received; .env unchanged" >&2; exit 1; }; \
+		touch "$$f"; { grep -v "^GPODDER_" "$$f" || true; printf "%s\n" "$$new"; } > "$$f.tmp"; mv "$$f.tmp" "$$f"; chmod 600 "$$f"'
+	@echo "synced GPODDER_USER, GPODDER_PASSWORD to $(DEPLOY_HOST):$(DEPLOY_DIR)/.env"
 
 logs: check-host
 	ssh $(DEPLOY_HOST) 'cd $(DEPLOY_DIR) && docker compose logs --tail 50 -f'
