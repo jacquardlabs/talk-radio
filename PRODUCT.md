@@ -100,9 +100,12 @@ queue verb's clothes.
 These are non-goals, not gaps. The README already records them as accepted trades
 [doc, README.md "Security"]; stating them as intent is the inferred part.
 
-- **No authentication, and none planned.** Every control is an unauthenticated
-  HTTP endpoint, so anyone who can reach the port owns the speakers. That is the
-  intended trade for a LAN appliance.
+- **No authentication, and none planned — with one narrow exception.**
+  `/api/2/*` (the gpodder phone-sync API, [code] gpodder.py) is gated on a
+  credential, because the protocol requires one, and exists at all only when
+  `GPODDER_USER`/`GPODDER_PASSWORD` are set. Every other control stays an
+  unauthenticated HTTP endpoint, so anyone who can reach the port still owns
+  the speakers. That remains the intended trade for a LAN appliance.
 - **No internet exposure.** Do not port-forward it. Remote access is somebody
   else's job — a VPN (Tailscale, WireGuard) in front, not a login page here.
 - **No production web server.** Flask's development server is fine for a few LAN
@@ -176,5 +179,12 @@ pointer here. [inferred]
    current behavior is defensible; it is just undocumented for the user.
 3. **Are the two personas above right,** and is there really no third — no
    "shares it with a housemate", no "runs it for a second house"?
+   **Answered:** no third persona. The household listener, off the LAN, on
+   headphones, is still the household listener — gpodder phone sync
+   (`gpodder.py`) carries the same one listener's played/resume state to and
+   from an app on their own phone. Nothing added a second household, a
+   second person, or a second Sonos system: `device_id` is accepted and
+   echoed, never a partition key, matching "nothing in the schema is
+   per-user" above.
 4. **Does the non-goal list match what you would actually refuse?** These were
    read off a Security section, which records trades, not refusals.

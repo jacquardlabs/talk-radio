@@ -8,6 +8,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Iterator, NamedTuple
+from urllib.parse import urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,17 @@ CREATE TABLE IF NOT EXISTS episodes (
     -- insert_episodes idempotent; an empty description must never be stored
     -- as '' or that row becomes permanently ineligible for backfill.
     description TEXT,
+    -- audio_url with query string/fragment stripped and scheme+host
+    -- lowercased. The gpodder sync API keys an episode by its raw enclosure
+    -- URL, which carries per-fetch tracking params that raw-string matching
+    -- would miss — computed once at ingest (media_key_of) rather than
+    -- normalized at every lookup.
+    media_key TEXT,
+    -- When resume_seconds was last written. Doubles as the gpodder sync
+    -- API's `since`/`timestamp` for an in-progress action: without it, a
+    -- position banked here reads as newer than a phone's more recent one on
+    -- every sync, and the phone's own place snaps backward.
+    resume_at TEXT,
     UNIQUE (feed_id, guid)
 );
 CREATE INDEX IF NOT EXISTS idx_episodes_feed_status ON episodes (feed_id, status);
@@ -104,6 +116,14 @@ CREATE INDEX IF NOT EXISTS idx_usage_events_at ON usage_events (at);
 
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def media_key_of(audio_url: str) -> str:
+    """Normalize an enclosure URL for gpodder identity matching: strip the
+    query string and fragment (per-fetch tracking params) and lowercase the
+    scheme and host. Computed once at ingest — see episodes.media_key."""
+    parts = urlsplit(audio_url)
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path, "", ""))
 
 
 class EpisodeSeed(NamedTuple):
@@ -203,6 +223,25 @@ class Database:
                 c.execute("UPDATE feeds SET etag=NULL, last_modified=NULL")
             if "description" not in cols:
                 c.execute("ALTER TABLE episodes ADD COLUMN description TEXT")
+            # gpodder sync: media_key is backfilled once for every existing
+            # row so the phone's first sync can already resolve history;
+            # insert_episodes() keeps it filled from here on. resume_at needs
+            # no backfill — a NULL resume_seconds pairs correctly with a NULL
+            # resume_at, and set_resume() keeps the two in lockstep from here.
+            if "media_key" not in cols:
+                c.execute("ALTER TABLE episodes ADD COLUMN media_key TEXT")
+                c.execute("SELECT id, audio_url FROM episodes")
+                rows = c.fetchall()
+                c.executemany(
+                    "UPDATE episodes SET media_key=? WHERE id=?",
+                    [(media_key_of(r["audio_url"]), r["id"]) for r in rows],
+                )
+            if "resume_at" not in cols:
+                c.execute("ALTER TABLE episodes ADD COLUMN resume_at TEXT")
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_episodes_media_key"
+                " ON episodes (media_key)"
+            )
 
     # ── feeds ─────────────────────────────────────────────────────────
     def add_feed(self, url: str, title: str, image_url: str | None, is_news: bool,
@@ -234,6 +273,10 @@ class Database:
     def get_feed(self, feed_id: int) -> sqlite3.Row | None:
         with self._conn() as c:
             return c.execute("SELECT * FROM feeds WHERE id=?", (feed_id,)).fetchone()
+
+    def get_feed_by_url(self, url: str) -> sqlite3.Row | None:
+        with self._conn() as c:
+            return c.execute("SELECT * FROM feeds WHERE url=?", (url,)).fetchone()
 
     def list_feeds(self) -> list[sqlite3.Row]:
         with self._conn() as c:
@@ -341,10 +384,11 @@ class Database:
             c.executemany(
                 "INSERT OR IGNORE INTO episodes"
                 " (feed_id, guid, title, audio_url, published_at,"
-                "  duration_seconds, description)"
-                " VALUES (?,?,?,?,?,?,?)",
+                "  duration_seconds, description, media_key)"
+                " VALUES (?,?,?,?,?,?,?,?)",
                 [(feed_id, e.guid, e.title, e.audio_url, e.published_at,
-                  e.duration_seconds, e.description) for e in episodes],
+                  e.duration_seconds, e.description, media_key_of(e.audio_url))
+                 for e in episodes],
             )
             inserted = c.total_changes - before
             c.executemany(
@@ -383,6 +427,53 @@ class Database:
             return c.execute(
                 "SELECT * FROM episodes WHERE status=? ORDER BY published_at ASC, id ASC",
                 (status,),
+            ).fetchall()
+
+    # ── gpodder sync ─────────────────────────────────────────────────
+    def find_episode_by_media_key(self, media_key: str,
+                                  feed_id: int | None = None) -> sqlite3.Row | None:
+        """feed_id, when known, scopes the match: media_key has no UNIQUE
+        constraint (two different shows could in principle share an
+        enclosure host+path), unlike (feed_id, guid)."""
+        with self._conn() as c:
+            if feed_id is not None:
+                return c.execute(
+                    "SELECT * FROM episodes WHERE feed_id=? AND media_key=? LIMIT 1",
+                    (feed_id, media_key),
+                ).fetchone()
+            return c.execute(
+                "SELECT * FROM episodes WHERE media_key=? LIMIT 1", (media_key,)
+            ).fetchone()
+
+    def find_episode_by_guid(self, feed_id: int, guid: str) -> sqlite3.Row | None:
+        """guid is only unique per (feed_id, guid) — UNIQUE(feed_id, guid) —
+        never globally, so this always needs the feed."""
+        with self._conn() as c:
+            return c.execute(
+                "SELECT * FROM episodes WHERE feed_id=? AND guid=?", (feed_id, guid)
+            ).fetchone()
+
+    def episodes_played_since(self, since_iso: str, limit: int = 5000) -> list[sqlite3.Row]:
+        """Rows to report as gpodder 'play' actions with position==total.
+        `>=` on played_at, not `>`: since is second-granularity, and an
+        episode played in the same second as a prior sync must not be lost."""
+        with self._conn() as c:
+            return c.execute(
+                "SELECT e.*, f.url AS feed_url FROM episodes e"
+                " JOIN feeds f ON f.id=e.feed_id"
+                " WHERE e.status='played' AND e.played_at>=?"
+                " ORDER BY e.played_at ASC LIMIT ?",
+                (since_iso, limit),
+            ).fetchall()
+
+    def episodes_with_resume_since(self, since_iso: str) -> list[sqlite3.Row]:
+        with self._conn() as c:
+            return c.execute(
+                "SELECT e.*, f.url AS feed_url FROM episodes e"
+                " JOIN feeds f ON f.id=e.feed_id"
+                " WHERE e.resume_seconds IS NOT NULL AND e.resume_at>=?"
+                " ORDER BY e.resume_at ASC",
+                (since_iso,),
             ).fetchall()
 
     @staticmethod
@@ -482,7 +573,8 @@ class Database:
             ).fetchone()
             c.execute(
                 "UPDATE episodes SET status='played', played_at=?, resume_seconds=NULL,"
-                " play_uri=NULL, local_path=NULL, observed_seconds=NULL WHERE id=?",
+                " resume_at=NULL, play_uri=NULL, local_path=NULL,"
+                " observed_seconds=NULL WHERE id=?",
                 (played_at, episode_id),
             )
             return row["local_path"] if row else None
@@ -496,6 +588,20 @@ class Database:
                 "UPDATE episodes SET observed_seconds=MAX(COALESCE(observed_seconds,0),?)"
                 " WHERE id=?",
                 (max(0, int(seconds)), episode_id),
+            )
+
+    def set_duration_if_unknown(self, episode_id: int, seconds: int) -> None:
+        """Fill duration_seconds from the speaker's own read when the feed
+        never supplied itunes:duration. Guarded on IS NULL, same convention
+        as the other feed backfills — this never overwrites a value the feed
+        did provide. Gpodder sync needs a valid `total` to report an episode
+        played at all; a show with no itunes:duration could otherwise never
+        get one."""
+        with self._conn() as c:
+            c.execute(
+                "UPDATE episodes SET duration_seconds=? WHERE id=?"
+                " AND duration_seconds IS NULL",
+                (seconds, episode_id),
             )
 
     def mark_failed(self, episode_id: int, failed_at: str, max_failures: int) -> bool:
@@ -516,7 +622,7 @@ class Database:
             c.execute(
                 "UPDATE episodes SET status=?, failure_count=?, last_failed_at=?,"
                 " play_uri=NULL, local_path=NULL, resume_seconds=NULL,"
-                " observed_seconds=NULL WHERE id=?",
+                " resume_at=NULL, observed_seconds=NULL WHERE id=?",
                 ("skipped" if spent else "new", count, failed_at, episode_id),
             )
             return spent
@@ -739,8 +845,15 @@ class Database:
             return cur.rowcount
 
     def set_resume(self, episode_id: int, seconds: int | None) -> None:
+        """resume_at tracks resume_seconds in lockstep — it is the gpodder
+        sync API's evidence of which of two conflicting positions (ours, the
+        phone's) is newer, so every writer of one writes the other."""
+        resume_at = utcnow_iso() if seconds is not None else None
         with self._conn() as c:
-            c.execute("UPDATE episodes SET resume_seconds=? WHERE id=?", (seconds, episode_id))
+            c.execute(
+                "UPDATE episodes SET resume_seconds=?, resume_at=? WHERE id=?",
+                (seconds, resume_at, episode_id),
+            )
 
     # ── kv ────────────────────────────────────────────────────────────
     def kv_get(self, key: str) -> str | None:

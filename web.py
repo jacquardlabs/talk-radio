@@ -17,6 +17,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 import audio
 import feeds as feeds_mod
+import gpodder
 import sonos_ctl
 from config import Config
 from db import Database
@@ -133,7 +134,8 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
         the body where there is one; the status code alone would count a
         feed that failed to add as an added feed."""
         rule = request.url_rule
-        if rule is None or g.get("cross_site"):
+        # gpodder sync is a phone app's background schedule, not a person.
+        if rule is None or g.get("cross_site") or request.blueprint == "gpodder":
             return response
         if not (request.method == "POST" or (request.method == "GET"
                                              and rule.rule in USAGE_GETS)):
@@ -579,5 +581,10 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
 
         return Response(stream_with_context(pump()), status=upstream.status_code,
                         headers=headers)
+
+    # gpodder phone sync — only when both credentials are configured, so a
+    # stock install has no /api/2/* routes at all.
+    if cfg.gpodder_user and cfg.gpodder_password:
+        app.register_blueprint(gpodder.create_blueprint(db, dj, cfg))
 
     return app
