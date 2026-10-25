@@ -284,3 +284,35 @@ def test_logout_revokes_the_cookie(gclient) -> None:
     c.post("/api/2/auth/radio/login.json", headers=basic_header())
     c.post("/api/2/auth/radio/logout.json")
     assert c.get("/api/2/episodes/radio.json").status_code == 401
+
+
+def test_init_backfills_media_key_on_an_existing_database(tmp_path) -> None:
+    """Every other test starts from a fresh schema, which never runs the
+    migration path; this one starts from a database that predates it."""
+    import sqlite3
+    path = str(tmp_path / "old.db")
+    Database(path).init()
+    with sqlite3.connect(path) as c:
+        c.execute("INSERT INTO feeds (url, title, added_at) VALUES ('https://f/rss', 'F', 'x')")
+        c.execute("INSERT INTO episodes (feed_id, guid, audio_url, published_at)"
+                  " VALUES (1, 'g', 'https://CDN/a.mp3?t=1', 'x')")
+        c.execute("DROP INDEX idx_episodes_media_key")
+        c.execute("ALTER TABLE episodes DROP COLUMN resume_at")
+        c.execute("ALTER TABLE episodes DROP COLUMN media_key")
+    Database(path).init()
+    row = Database(path).find_episode_by_media_key("https://cdn/a.mp3")
+    assert row is not None and row["guid"] == "g"
+
+
+def test_init_heals_a_half_applied_migration(tmp_path) -> None:
+    """The column exists but its backfill never ran — what a crash between
+    the ALTER and the UPDATE leaves behind."""
+    import sqlite3
+    path = str(tmp_path / "half.db")
+    Database(path).init()
+    with sqlite3.connect(path) as c:
+        c.execute("INSERT INTO feeds (url, title, added_at) VALUES ('https://f/rss', 'F', 'x')")
+        c.execute("INSERT INTO episodes (feed_id, guid, audio_url, published_at, media_key)"
+                  " VALUES (1, 'g', 'https://cdn/a.mp3', 'x', NULL)")
+    Database(path).init()
+    assert Database(path).find_episode_by_media_key("https://cdn/a.mp3") is not None

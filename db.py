@@ -223,24 +223,28 @@ class Database:
                 c.execute("UPDATE feeds SET etag=NULL, last_modified=NULL")
             if "description" not in cols:
                 c.execute("ALTER TABLE episodes ADD COLUMN description TEXT")
-            # gpodder sync: media_key is backfilled once for every existing
-            # row so the phone's first sync can already resolve history;
-            # insert_episodes() keeps it filled from here on. resume_at needs
-            # no backfill — a NULL resume_seconds pairs correctly with a NULL
-            # resume_at, and set_resume() keeps the two in lockstep from here.
+            # gpodder sync. resume_at needs no backfill — a NULL resume_seconds
+            # pairs correctly with a NULL resume_at, and set_resume() keeps the
+            # two in lockstep from here.
             if "media_key" not in cols:
                 c.execute("ALTER TABLE episodes ADD COLUMN media_key TEXT")
-                c.execute("SELECT id, audio_url FROM episodes")
-                rows = c.fetchall()
-                c.executemany(
-                    "UPDATE episodes SET media_key=? WHERE id=?",
-                    [(media_key_of(r["audio_url"]), r["id"]) for r in rows],
-                )
             if "resume_at" not in cols:
                 c.execute("ALTER TABLE episodes ADD COLUMN resume_at TEXT")
             c.execute(
                 "CREATE INDEX IF NOT EXISTS idx_episodes_media_key"
                 " ON episodes (media_key)"
+            )
+            # Keyed on the NULLs, not on the column guard: DDL commits on its
+            # own, so a backfill tied to "column just added" is lost for good
+            # if anything between the two fails. insert_episodes() fills new
+            # rows, so after the first pass this is an index probe that finds
+            # nothing.
+            pending = c.execute(
+                "SELECT id, audio_url FROM episodes WHERE media_key IS NULL"
+            ).fetchall()
+            c.executemany(
+                "UPDATE episodes SET media_key=? WHERE id=?",
+                [(media_key_of(r["audio_url"]), r["id"]) for r in pending],
             )
 
     # ── feeds ─────────────────────────────────────────────────────────
