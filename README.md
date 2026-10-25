@@ -175,7 +175,11 @@ station list arrives as subscriptions.
 What syncs: played/unplayed and playback position, both directions, for
 every enabled non-news feed. Subscriptions are one-way, station → phone — the
 phone can't add or remove stations here, since it knows nothing about a
-feed's category, rotation, or news flag.
+feed's category, rotation, or news flag. The phone mirrors the radio: turning
+a station off, deleting it, or flagging it as news unsubscribes the phone at
+its next sync — and AntennaPod deletes that podcast's downloads and progress
+when it does. Turning it back on re-subscribes. Unsubscribing on the phone
+sticks; the radio doesn't push it back.
 
 **Do not port-forward this app to sync from off the LAN** — every route
 outside `/api/2/*` is unauthenticated by design (see Security). If you run
