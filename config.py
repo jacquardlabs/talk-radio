@@ -24,6 +24,12 @@ class Config:
     user_agent: str
     grace_minutes: int
     warm_minutes: int
+    # Both must be set for the gpodder sync blueprint to register at all
+    # (web.py:create_app) — unset, a stock install is byte-for-byte what it
+    # is today. The gpodder API v2 protocol requires a credential; nothing
+    # else on this appliance gains one.
+    gpodder_user: str | None
+    gpodder_password: str | None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Config":
@@ -46,4 +52,6 @@ class Config:
             user_agent=e.get("USER_AGENT", "SonosTalkRadio/1.0"),
             grace_minutes=int(e.get("GRACE_MINUTES", "10")),
             warm_minutes=int(e.get("WARM_MINUTES", "5")),
+            gpodder_user=e.get("GPODDER_USER") or None,
+            gpodder_password=e.get("GPODDER_PASSWORD") or None,
         )

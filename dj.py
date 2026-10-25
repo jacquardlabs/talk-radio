@@ -629,6 +629,11 @@ class DJ:
                 here = matches[cur_idx] if cur_idx < len(matches) else None
                 if here is not None:
                     self.db.record_observed(here["id"], cur.position)
+                    # A show with no itunes:duration can never produce a
+                    # valid gpodder `total`, so backfill it from the one
+                    # place a length can still come from: Sonos's own read.
+                    if cur.duration:
+                        self.db.set_duration_if_unknown(here["id"], cur.duration)
             # everything before the current position has been listened past —
             # if it actually played; _retire() is what tells those apart
             for i in range(min(cur_idx, len(matches))):
@@ -1039,6 +1044,43 @@ class DJ:
                     self.db.remove_from_up_next(ep["id"])
                     return None
             return "That episode isn't in Up Next"
+
+    # How close to the end a remote 'play' action must land to count as
+    # finished. Matches the slack AntennaPod itself applies (its default
+    # "smart mark as played" is 30s) with room either side.
+    _REMOTE_DONE_SLACK = 60
+
+    def apply_remote_action(self, episode_id: int, position: int,
+                            total: int | None) -> None:
+        """Apply a playback report from an external client (the gpodder sync
+        API) through the same functions the DJ itself uses for a Sonos
+        listen, so rotation's no-repeat guard and the in_order/arc logic
+        honor it exactly as if it had played here.
+
+        Only a 'play' action reaches this — see gpodder.py, which maps
+        'new'/'download'/'delete' to nothing before calling in."""
+        with self._lock:
+            episode = self.db.get_episode(episode_id)
+            if episode is None or episode["status"] in ("played", "archived"):
+                return
+            if (self.db.kv_get("dj_state") == "playing"
+                    and self.db.kv_get("resume_episode_id") == str(episode_id)):
+                # The track on air is not droppable by anything but Skip and
+                # Play now (PRODUCT.md's Up Next ladder, rung 1) — a remote
+                # report is neither, so it is heard and discarded rather than
+                # fighting the live position tick() is already tracking.
+                logger.info("gpodder: ignoring remote action for the episode"
+                           " on air (%s)", episode_id)
+                return
+            finished = total is not None and total - position <= self._REMOTE_DONE_SLACK
+            if not finished:
+                self.db.set_resume(episode_id, max(0, position))
+                return
+            if episode["status"] == "queued":
+                player = self.get_player()
+                if player is not None and self.drop_from_queue(episode_id, "done") is None:
+                    return
+            self._finish(episode)
 
     def move_in_queue(self, episode_id: int, to_position: int) -> str | None:
         """Move an episode to `to_position` within Up Next.

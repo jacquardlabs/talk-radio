@@ -148,14 +148,52 @@ of the screen, thumb-height:
 | `WARM_MINUTES` | `5` | how far ahead of an alarm its URLs are resolved |
 | `TZ` | — | timezone wake alarms fire in (**set this in Docker**) |
 | `USER_AGENT` | `SonosTalkRadio/1.0` | for feed/audio requests |
+| `GPODDER_USER` / `GPODDER_PASSWORD` | — | phone sync credential (see below); both unset = feature off |
+
+## Phone sync
+
+A phone can carry its own played/in-progress state to and from the station,
+independent of Sonos — good for a commute or a walk, with nothing configured
+on the phone's end beyond a podcast app. The app is
+[AntennaPod](https://antennapod.org/) (Android): install it from the Play
+Store, nothing else to build. It speaks the
+[gpodder sync API](https://gpoddernet.readthedocs.io/en/latest/api/reference/),
+which this appliance now speaks too.
+
+Set both `GPODDER_USER` and `GPODDER_PASSWORD` — unset, `/api/2/*` doesn't
+exist at all, and nothing else about the app changes. Compose reads them from
+`.env`; if they live in Doppler, `make sync-secrets DEPLOY_HOST=...` copies them
+into the server's `.env` (then `make deploy`). Then in AntennaPod:
+Settings → Synchronization → gpodder.net server, and enter the server address
+**with the scheme spelled out** — `http://192.168.1.222:8005`, not just the
+host — because omitting it makes AntennaPod assume HTTPS on port 443. Despite
+what most third-party gpodder guides say, AntennaPod does not require HTTPS:
+its `HostnameParser` honors an explicit `http://` scheme, and its manifest
+sets `usesCleartextTraffic="true"`. Enter the credentials above, and the
+station list arrives as subscriptions.
+
+What syncs: played/unplayed and playback position, both directions, for
+every enabled non-news feed. Subscriptions are one-way, station → phone — the
+phone can't add or remove stations here, since it knows nothing about a
+feed's category, rotation, or news flag.
+
+**Do not port-forward this app to sync from off the LAN** — every route
+outside `/api/2/*` is unauthenticated by design (see Security). If you run
+[Tailscale](https://tailscale.com/), `tailscale serve --bg --https=443
+http://127.0.0.1:8005` gives a real cert and reaches the app from anywhere on
+your tailnet, with the gpodder server address becoming
+`https://<host>.<tailnet>.ts.net` — no code or config here changes.
 
 ## Security
 
-There is no authentication. The app binds `0.0.0.0` and every control is an
-unauthenticated HTTP endpoint, so anyone who can reach the port owns your
-speakers. That is the intended trade for a LAN appliance: **do not port-forward
-it or expose it to the internet.** For access from outside, put it behind a VPN
-(Tailscale, WireGuard) rather than opening the port.
+There is no authentication, with one exception. The app binds `0.0.0.0` and
+every control is an unauthenticated HTTP endpoint, so anyone who can reach the
+port owns your speakers. That is the intended trade for a LAN appliance:
+**do not port-forward it or expose it to the internet.** For access from
+outside, put it behind a VPN (Tailscale, WireGuard) rather than opening the
+port. The one exception is `/api/2/*` (see Phone sync above), gated on a
+credential because the gpodder protocol requires one — it protects nothing
+else, and only exists when `GPODDER_USER`/`GPODDER_PASSWORD` are set.
 
 It also runs Flask's development server — fine for a few LAN clients and one
 speaker, not for real traffic. Both `DOWNLOAD_MODE` and the automatic proxy
