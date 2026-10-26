@@ -316,3 +316,107 @@ def test_init_heals_a_half_applied_migration(tmp_path) -> None:
                   " VALUES (1, 'g', 'https://cdn/a.mp3', 'x', NULL)")
     Database(path).init()
     assert Database(path).find_episode_by_media_key("https://cdn/a.mp3") is not None
+
+
+# ── subscription ledger (#52) ─────────────────────────────────────────
+
+def test_ledger_seeds_from_added_at_on_first_sync() -> None:
+    led = gpodder.reconcile_ledger({"a": 100, "b": 200}, {}, now=5000)
+    assert led == {"a": (True, 100), "b": (True, 200)}
+
+
+def test_ledger_marks_departures_and_returns_now() -> None:
+    led = {"a": (True, 100), "b": (True, 200)}
+    led = gpodder.reconcile_ledger({"a": 100}, led, now=5000)
+    assert led["b"] == (False, 5000) and led["a"] == (True, 100)
+    led = gpodder.reconcile_ledger({"a": 100, "b": 200}, led, now=6000)
+    assert led["b"] == (True, 6000)
+
+
+def test_ledger_unknown_url_after_seed_is_new_now() -> None:
+    led = gpodder.reconcile_ledger({"a": 100, "c": 50}, {"a": (True, 100)}, now=5000)
+    assert led["c"] == (True, 5000)   # not its old added_at: e.g. re-enabled
+
+
+def test_ledger_departure_time_is_kept_while_still_out() -> None:
+    led = gpodder.reconcile_ledger({}, {"a": (False, 4000)}, now=5000)
+    assert led["a"] == (False, 4000)
+
+
+def test_changes_since_zero_never_removes() -> None:
+    led = {"a": (True, 100), "b": (False, 200)}
+    assert gpodder.subscription_changes(led, 0) == (["a"], [])
+    assert gpodder.subscription_changes(led, 150) == ([], ["b"])
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    t = {"now": 2_000_000_000}
+    monkeypatch.setattr(gpodder, "_now", lambda: t["now"])
+    return t
+
+
+def subs(c, since: int) -> dict:
+    return c.get(f"/api/2/subscriptions/radio/phone.json?since={since}",
+                 headers=basic_header()).get_json()
+
+
+def test_sync_does_not_resend_existing_stations(gclient, clock) -> None:
+    """Re-sending them is what re-subscribed a station the phone dropped."""
+    c, db, *_ = gclient
+    db.add_feed("https://a/rss", "A", None, False)
+    first = subs(c, 0)
+    assert first["add"] == ["https://a/rss"]
+    clock["now"] += 60
+    assert subs(c, first["timestamp"]) == {"add": [], "remove": [],
+                                           "timestamp": clock["now"]}
+
+
+def test_disable_delete_and_news_each_remove_and_reenable_adds(gclient, clock) -> None:
+    c, db, *_ = gclient
+    off = db.add_feed("https://off/rss", "Off", None, False)
+    gone = db.add_feed("https://gone/rss", "Gone", None, False)
+    news = db.add_feed("https://news/rss", "News", None, False)
+    ts = subs(c, 0)["timestamp"]
+    clock["now"] += 60
+    db.toggle_feed(off)
+    db.delete_feed(gone)
+    db.set_feed_news(news, True)
+    r = subs(c, ts)
+    assert r["add"] == [] and r["remove"] == ["https://gone/rss", "https://news/rss",
+                                              "https://off/rss"]
+    clock["now"] += 60
+    db.toggle_feed(off)
+    r = subs(c, r["timestamp"])
+    assert r["add"] == ["https://off/rss"]
+    # Stamped in the second the last response named, so sent once more by
+    # design (`>=`): removing a feed AntennaPod no longer has is a no-op.
+    assert "https://off/rss" not in r["remove"]
+    clock["now"] += 60
+    r = subs(c, r["timestamp"])          # the at-most-once boundary repeat
+    clock["now"] += 60
+    assert subs(c, r["timestamp"]) == {"add": [], "remove": [],
+                                       "timestamp": clock["now"]}
+
+
+def test_station_added_after_last_sync_is_sent(gclient, clock) -> None:
+    c, db, *_ = gclient
+    db.add_feed("https://a/rss", "A", None, False)
+    ts = subs(c, 0)["timestamp"]
+    clock["now"] += 60
+    db.add_feed("https://b/rss", "B", None, False)
+    assert subs(c, ts)["add"] == ["https://b/rss"]
+
+
+def test_second_device_catches_up_on_a_removal(gclient, clock) -> None:
+    """The ledger is shared; a device that last synced earlier still sees it."""
+    c, db, *_ = gclient
+    fid = db.add_feed("https://a/rss", "A", None, False)
+    early = subs(c, 0)["timestamp"]
+    clock["now"] += 60
+    late = subs(c, early)["timestamp"]
+    clock["now"] += 60
+    db.toggle_feed(fid)
+    subs(c, late)                       # the first device notices the removal
+    clock["now"] += 60
+    assert subs(c, early)["remove"] == ["https://a/rss"]

@@ -46,6 +46,17 @@ logger = logging.getLogger(__name__)
 _TS_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 
+def _now() -> int:
+    """Epoch seconds: the unit of gpodder's `since` and response `timestamp`."""
+    return int(datetime.now(timezone.utc).timestamp())
+
+
+def _epoch(iso_z: str) -> int:
+    """Our own stored '...Z' timestamps as epoch seconds."""
+    return int(datetime.strptime(iso_z, "%Y-%m-%dT%H:%M:%SZ")
+               .replace(tzinfo=timezone.utc).timestamp())
+
+
 def _fmt_ts(iso_z: str | None) -> str:
     """played_at/resume_at are stored as '...Z'; gpodder wants the same UTC
     instant with no zone suffix at all."""
@@ -114,6 +125,48 @@ def now_playing_action(now_playing: dict, feed_url: str, audio_url: str,
         "position": max(1, int(now_playing["position"])),
         "total": duration,
     }
+
+
+# ── pure: subscription ledger ───────────────────────────────────────────
+#
+# The phone mirrors "enabled, non-news stations". gpodder wants that as
+# changes since the device's last sync, and AntennaPod re-subscribes to
+# anything in `add` it doesn't have — so re-sending the full list every sync
+# undoes an unsubscribe made on the phone, and never sending `remove` leaves
+# a station deleted here subscribed there.
+#
+# Rather than hook every path that changes membership (delete, toggle, the
+# news flag, and whichever comes next), each sync compares what it would
+# serve now with the ledger from last time: url -> (in the set, when that
+# last changed). One comparison point catches every cause.
+
+Ledger = dict[str, tuple[bool, int]]
+
+
+def reconcile_ledger(current: dict[str, int], ledger: Ledger, now: int) -> Ledger:
+    """`current` maps each served URL to its feed's added_at, in epoch
+    seconds. An empty ledger is the first sync since this shipped: seed from
+    added_at so existing stations don't read as just-added. After that, a URL
+    the ledger has never seen is new or re-enabled, and both happened now."""
+    seed = not ledger
+    out: Ledger = {url: (False, now if inside else at)
+                   for url, (inside, at) in ledger.items() if url not in current}
+    for url, added_at in current.items():
+        prev = ledger.get(url)
+        out[url] = prev if prev and prev[0] else (True, added_at if seed else now)
+    return out
+
+
+def subscription_changes(ledger: Ledger, since: int) -> tuple[list[str], list[str]]:
+    """(add, remove) since `since`. `>=` because both sides are whole
+    seconds; a repeat is harmless, a miss is permanent. A device that has
+    never synced (since=0) gets no removals: there is nothing on it yet that
+    came from here, and a removal would delete a podcast it subscribed to on
+    its own."""
+    add = sorted(u for u, (inside, at) in ledger.items() if inside and at >= since)
+    remove = sorted(u for u, (inside, at) in ledger.items()
+                    if not inside and at >= since) if since > 0 else []
+    return add, remove
 
 
 # ── the blueprint ────────────────────────────────────────────────────────
@@ -204,21 +257,30 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
         db.kv_set("gpodder_devices", json.dumps(devices))
         return Response(status=200)
 
-    def _subscription_payload(since: str | None):
-        feeds = _feeds_for_subscriptions()
-        # No removal tracking exists (feeds don't record when they were
-        # disabled/deleted), so every sync after the first re-offers the
-        # full add list. AntennaPod treats a re-add of an existing
-        # subscription as a no-op — see SyncService — so this is inert
-        # rather than wrong; a since-aware remove list is future work if a
-        # feed churns often enough to matter.
-        return {"add": [f["url"] for f in feeds], "remove": [],
-                "timestamp": int(datetime.now(timezone.utc).timestamp())}
+    def _since_arg() -> int:
+        """gpodder's `since` is epoch seconds; missing or junk means never."""
+        try:
+            return max(0, int(request.args.get("since") or 0))
+        except ValueError:
+            return 0
+
+    def _subscription_payload(since: int) -> dict:
+        now = _now()
+        raw = db.kv_get("gpodder_subscriptions")
+        ledger: Ledger = {u: (bool(i), int(a)) for u, (i, a) in
+                          (json.loads(raw) if raw else {}).items()}
+        current = {f["url"]: _epoch(f["added_at"]) for f in _feeds_for_subscriptions()}
+        updated = reconcile_ledger(current, ledger, now)
+        if updated != ledger:
+            db.kv_set("gpodder_subscriptions",
+                      json.dumps({u: [i, a] for u, (i, a) in updated.items()}))
+        add, remove = subscription_changes(updated, since)
+        return {"add": add, "remove": remove, "timestamp": now}
 
     @bp.get("/api/2/subscriptions/<username>/<device_id>.json")
     @require_auth
     def get_subscriptions(username: str, device_id: str):
-        return jsonify(_subscription_payload(request.args.get("since")))
+        return jsonify(_subscription_payload(_since_arg()))
 
     @bp.post("/api/2/subscriptions/<username>/<device_id>.json")
     @require_auth
@@ -227,7 +289,7 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
         # (PRODUCT.md — the phone knows nothing about enabled/category_id/
         # rotation_enabled), so there is nothing to apply. AntennaPod still
         # expects a well-formed response to a POST it made.
-        return jsonify({"timestamp": int(datetime.now(timezone.utc).timestamp()),
+        return jsonify({"timestamp": _now(),
                         "update_urls": []})
 
     @bp.get("/subscriptions/<username>/<device_id>.json")
@@ -238,14 +300,7 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
     @bp.get("/api/2/episodes/<username>.json")
     @require_auth
     def get_episode_actions(username: str):
-        # gpodder's `since` is an epoch integer (seconds), unlike the
-        # bare-UTC strings the action payloads themselves carry.
-        raw = request.args.get("since")
-        try:
-            since_epoch = int(raw) if raw else 0
-        except ValueError:
-            since_epoch = 0
-        floor = datetime.fromtimestamp(max(0, since_epoch), tz=timezone.utc) \
+        floor = datetime.fromtimestamp(_since_arg(), tz=timezone.utc) \
             .strftime("%Y-%m-%dT%H:%M:%SZ")
         actions: list[dict] = []
         for row in db.episodes_played_since(floor):
@@ -267,7 +322,7 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
                 if a is not None:
                     actions.append(a)
         return jsonify({"actions": actions,
-                        "timestamp": int(datetime.now(timezone.utc).timestamp())})
+                        "timestamp": _now()})
 
     @bp.post("/api/2/episodes/<username>.json")
     @require_auth
@@ -293,7 +348,7 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
                 continue
             dj.apply_remote_action(episode["id"], position,
                                    total if isinstance(total, int) and total > 0 else None)
-        return jsonify({"timestamp": int(datetime.now(timezone.utc).timestamp()),
+        return jsonify({"timestamp": _now(),
                         "update_urls": []})
 
     return bp
