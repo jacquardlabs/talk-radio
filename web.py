@@ -427,6 +427,14 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
         db.release_episode(episode_id)
         return result()
 
+    @app.post("/episodes/<int:episode_id>/unrelease")
+    def unrelease_episode(episode_id: int):
+        if db.get_episode(episode_id) is None:
+            return result("no such episode"), 404
+        if not db.unrelease_episode(episode_id):
+            return result("only an unplayed episode can go back to the back catalog")
+        return result()
+
     @app.post("/episodes/release")
     def release_episodes_bulk():
         body = request.get_json(silent=True) or {}

@@ -288,6 +288,22 @@ def test_release_episode_route(client) -> None:
     assert c.post("/episodes/999/release").status_code == 404
 
 
+def test_unrelease_episode_route(client) -> None:
+    """Only an unplayed episode goes back: one in Up Next or already heard
+    keeps its status rather than vanishing into the back catalog."""
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    eid = _add_episode(db, fid, 1)
+    assert c.post(f"/episodes/{eid}/unrelease").get_json()["ok"] is True
+    assert db.get_episode(eid)["status"] == "archived"
+    heard = _add_episode(db, fid, 2)
+    db.mark_played(heard, "2026-01-09T00:00:00Z")
+    data = c.post(f"/episodes/{heard}/unrelease").get_json()
+    assert data["ok"] is False and "unplayed" in data["error"]
+    assert db.get_episode(heard)["status"] == "played"
+    assert c.post("/episodes/999/unrelease").status_code == 404
+
+
 def test_drop_route_validates_disposition(client) -> None:
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X", None, False)
