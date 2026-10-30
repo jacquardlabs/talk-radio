@@ -113,7 +113,8 @@ of the screen, thumb-height:
    catalog* (it won't until you add it) is dimmed; a *Heard* one is struck
    through, and plays again with one tap. The back catalog stays hidden
    until *Show back catalog (N)*, so episodes you've added from it are
-   easy to find; the choice holds for every station. Station settings
+   easy to find, with *Heard* ones sunk to the bottom; the choice holds
+   for every station. Station settings
    (category, order, news, off, remove) sit behind *Settings*. A caret on an
    episode row opens that episode's notes; descriptions come from the feed,
    so a show that publishes none shows none. Add back-catalog episodes to
