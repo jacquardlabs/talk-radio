@@ -103,6 +103,7 @@
 <script>
 "use strict";
 let lastCats = "";
+let lastSchedSig = "";
 let lastArtUrl = "";
 // server truth we extrapolate from between polls: the position the speaker
 // last reported, plus when we heard it, so a 1-second ticker can advance the
@@ -365,14 +366,23 @@ function renderPage(s) {
   $("wake-line").textContent = wakeSummary +
     (s.next_start ? ` · next start ${s.next_start}` : "") +
     ($("wake-editor").hidden ? " ▾" : " ▴");
-  $("schedules").innerHTML = s.schedules.map((a) =>
-    `<div class="svc-row"><span class="sched-time glow">${esc(a.time)}</span>` +
-    `<span class="chips">` + DAYS.map((d, i) =>
-      `<span class="chip mini${a.days.includes(i) ? " on" : ""}">${d[0]}</span>`).join("") +
-    `</span><span class="spacer"></span>` +
-    `<button type="button" class="tab small" data-sched="${a.id}/toggle">${a.enabled ? "On" : "Off"}</button>` +
-    `<button type="button" class="tab small red" data-sched="${a.id}/delete">Delete</button></div>`
-  ).join("") || '<div class="empty">NO ALARMS</div>';
+  const schedSig = JSON.stringify(s.schedules);
+  if (schedSig !== lastSchedSig) {   // a repaint would disarm Delete mid-confirm
+    lastSchedSig = schedSig;
+    // a slide switch, not a labelled button: a bare "On" read as "turn on",
+    // and one tap right after adding an alarm switched it off
+    $("schedules").innerHTML = s.schedules.map((a) =>
+      `<div class="svc-row${a.enabled ? "" : " off"}"><span class="sched-time glow">${esc(a.time)}</span>` +
+      `<span class="chips">` + DAYS.map((d, i) =>
+        `<span class="chip mini${a.days.includes(i) ? " on" : ""}">${d[0]}</span>`).join("") +
+      `</span><span class="spacer"></span>` +
+      `<button type="button" class="sw${a.enabled ? " on" : ""}" role="switch" aria-checked="${!!a.enabled}" ` +
+      `aria-label="Alarm ${esc(a.time)}" ` +
+      `title="${a.enabled ? "will ring; click to switch off" : "won't ring; click to switch on"}" ` +
+      `data-sched="${a.id}/toggle"><span class="knob"></span></button>` +
+      `<button type="button" class="tab small red" data-sched="${a.id}/delete">Delete</button></div>`
+    ).join("") || '<div class="empty">NO ALARMS</div>';
+  }
 
   const recent = s.recently_played;
   $("earlier-line").hidden = !recent.length;
@@ -687,7 +697,10 @@ document.addEventListener("click", (ev) => {
     if (btn.dataset.player === "stop" && !armed(btn)) return;
     return void post(`/player/${btn.dataset.player}`, {}, btn);
   }
-  if (btn.dataset.sched) return void post(`/schedules/${btn.dataset.sched}`, {}, btn);
+  if (btn.dataset.sched) {
+    if (btn.dataset.sched.endsWith("/delete") && !armed(btn)) return;
+    return void post(`/schedules/${btn.dataset.sched}`, {}, btn);
+  }
   if (btn.dataset.category) return void post(`/categories/${btn.dataset.category}`, {}, btn);
   if (btn.dataset.episode) {
     const [id, action] = btn.dataset.episode.split("/");
