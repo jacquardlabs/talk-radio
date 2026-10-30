@@ -80,6 +80,10 @@ const globalSearch = { q: "", page: 1 };
 const stationSearch = {};   // feedId -> { q, page }
 const selectMode = {};      // feedId -> bool
 const selectedIds = {};     // feedId -> Set<number>
+// Hidden by default, like Pocket Casts' archived episodes: a show with a
+// deep back catalog opens on what the DJ can actually pick, and one
+// choice holds for every station until changed.
+let hideBackCatalog = localStorage.getItem("hideBackCatalog") !== "0";
 
 function episodeState(feedId) {
   return stationSearch[feedId] || (stationSearch[feedId] = { q: "", page: 1 });
@@ -350,7 +354,8 @@ async function renderEpisodePanel(feedId) {
   const browser = panel.querySelector(".ep-browser");
   const st = episodeState(feedId);
   const data = await (await fetch(
-    `/api/feeds/${feedId}/episodes?page=${st.page}&q=${encodeURIComponent(st.q)}`
+    `/api/feeds/${feedId}/episodes?page=${st.page}&q=${encodeURIComponent(st.q)}` +
+    (hideBackCatalog ? "&back_catalog=hide" : "")
   )).json();
   const sel = !!selectMode[feedId];
   const selected = selectedIds[feedId] || (selectedIds[feedId] = new Set());
@@ -361,9 +366,15 @@ async function renderEpisodePanel(feedId) {
   browser.innerHTML =
     `<div class="ep-toolbar">` +
     `<input type="search" placeholder="Filter this station's episodes" value="${esc(st.q)}" data-station-search="${feedId}">` +
-    // the back catalog's verbs, only while it has something in it
-    (backCatalog
-      ? (sel ? `<button type="button" class="tab small" data-release-selected="${feedId}">Add selected (${selected.size})</button>` : "") +
+    // the back catalog's toggle and verbs, only while it has something in
+    // it; the verbs only while it shows, so they never act on unseen rows
+    (backCatalog && hideBackCatalog
+      ? `<button type="button" class="tab small" data-back-catalog="${feedId}">` +
+        `Show back catalog (${backCatalog.toLocaleString()})</button>`
+      : "") +
+    (backCatalog && !hideBackCatalog
+      ? `<button type="button" class="tab small" data-back-catalog="${feedId}">Hide back catalog</button>` +
+        (sel ? `<button type="button" class="tab small" data-release-selected="${feedId}">Add selected (${selected.size})</button>` : "") +
         `<button type="button" class="tab small" data-select-toggle="${feedId}">${sel ? "Done" : "Select"}</button>` +
         (sel ? "" : `<button type="button" class="tab small" data-feed="${feedId}/unarchive" data-confirm="1" ` +
                     `title="The DJ can pick any of these">Add all to rotation</button>`)
@@ -371,7 +382,8 @@ async function renderEpisodePanel(feedId) {
     `</div>` +
     (data.episodes.map((e) => episodeRow(e, {
       plain: "new", checkbox: sel && e.status === "archived", selected: selected.has(e.id),
-    })).join("") || '<div class="empty">No episodes match</div>') +
+    })).join("") ||
+      `<div class="empty">No episodes match${backCatalog && hideBackCatalog ? " outside the back catalog" : ""}</div>`) +
     paginationHTML(data.page, data.page_size, data.total, "station", feedId);
   if (hadFocus) {   // the rebuild replaced the input mid-typing
     const input = browser.querySelector("[data-station-search]");
@@ -556,6 +568,15 @@ document.addEventListener("click", (ev) => {
     if (kind === "global") { globalSearch.page = p; renderGlobalSearch(); }
     else if (kind === "station") { episodeState(Number(key)).page = p; renderEpisodePanel(Number(key)); }
     return;
+  }
+  if (btn.dataset.backCatalog) {
+    const id = Number(btn.dataset.backCatalog);
+    hideBackCatalog = !hideBackCatalog;
+    localStorage.setItem("hideBackCatalog", hideBackCatalog ? "1" : "0");
+    episodeState(id).page = 1;
+    selectMode[id] = false;
+    if (selectedIds[id]) selectedIds[id].clear();
+    return void renderEpisodePanel(id);
   }
   if (btn.dataset.selectToggle) {
     const id = Number(btn.dataset.selectToggle);
