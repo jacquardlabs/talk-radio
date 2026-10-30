@@ -779,33 +779,33 @@ class Database:
             )
             return cur.rowcount
 
-    def count_episodes_for_feed(self, feed_id: int, q: str | None = None) -> int:
+    @staticmethod
+    def _feed_episode_filter(feed_id: int, q: str | None,
+                             hide_back_catalog: bool) -> tuple[str, list]:
+        """The WHERE a station's episode page and its count share, so the
+        pager never counts rows the page can't show."""
+        clauses = ["feed_id=?"] + (["title LIKE ?"] if q else []) + (
+            ["status!='archived'"] if hide_back_catalog else [])
+        return " AND ".join(clauses), [feed_id] + ([f"%{q}%"] if q else [])
+
+    def count_episodes_for_feed(self, feed_id: int, q: str | None = None,
+                                hide_back_catalog: bool = False) -> int:
+        where, params = self._feed_episode_filter(feed_id, q, hide_back_catalog)
         with self._conn() as c:
-            if q:
-                row = c.execute(
-                    "SELECT COUNT(*) AS n FROM episodes WHERE feed_id=? AND title LIKE ?",
-                    (feed_id, f"%{q}%"),
-                ).fetchone()
-            else:
-                row = c.execute(
-                    "SELECT COUNT(*) AS n FROM episodes WHERE feed_id=?", (feed_id,)
-                ).fetchone()
-            return row["n"]
+            return c.execute(
+                f"SELECT COUNT(*) AS n FROM episodes WHERE {where}", params
+            ).fetchone()["n"]
 
     def episodes_for_feed_page(self, feed_id: int, page: int, page_size: int,
-                               q: str | None = None) -> list[sqlite3.Row]:
+                               q: str | None = None,
+                               hide_back_catalog: bool = False) -> list[sqlite3.Row]:
         offset = max(0, page - 1) * page_size
+        where, params = self._feed_episode_filter(feed_id, q, hide_back_catalog)
         with self._conn() as c:
-            if q:
-                return c.execute(
-                    "SELECT * FROM episodes WHERE feed_id=? AND title LIKE ?"
-                    " ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?",
-                    (feed_id, f"%{q}%", page_size, offset),
-                ).fetchall()
             return c.execute(
-                "SELECT * FROM episodes WHERE feed_id=?"
+                f"SELECT * FROM episodes WHERE {where}"
                 " ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?",
-                (feed_id, page_size, offset),
+                [*params, page_size, offset],
             ).fetchall()
 
     def count_search_episodes(self, q: str) -> int:

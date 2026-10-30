@@ -238,6 +238,25 @@ def test_feed_episodes_list_every_status_newest_first(client) -> None:
         ("Ep 3", "played"), ("Ep 2", "new"), ("Ep 1", "archived")]
 
 
+
+def test_feed_episodes_hide_back_catalog(client) -> None:
+    """Back-catalog episodes added to rotation are findable among hundreds
+    still in it: hiding the back catalog leaves only what the DJ can pick,
+    plus what has been heard, and the total pages the same rows."""
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X Show", None, False)
+    for i in range(1, 6):
+        _add_episode(db, fid, i, status="archived")
+    released = _add_episode(db, fid, 6, status="archived")
+    db.release_episodes([released])
+    db.mark_played(_add_episode(db, fid, 7), "2026-01-09T00:00:00Z")
+    data = c.get(f"/api/feeds/{fid}/episodes?back_catalog=hide").get_json()
+    assert data["total"] == 2
+    assert [(e["title"], e["status"]) for e in data["episodes"]] == [
+        ("Ep 7", "played"), ("Ep 6", "new")]
+    assert c.get(f"/api/feeds/{fid}/episodes?back_catalog=hide&q=Ep 3").get_json()["total"] == 0
+    assert c.get(f"/api/feeds/{fid}/episodes?back_catalog=show").get_json()["total"] == 7
+
 def test_feed_episodes_unknown_feed_404s(no_sonos_client) -> None:
     c, _ = no_sonos_client
     assert c.get("/api/feeds/999/episodes").status_code == 404

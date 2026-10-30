@@ -170,6 +170,13 @@ def test_episodes_for_feed_page_paginates_and_filters(db: Database) -> None:
     assert page1[0]["guid"] == f"guid-{fid}-7"  # newest first
     assert db.count_episodes_for_feed(fid, q="Ep 3") == 1
     assert db.episodes_for_feed_page(fid, 1, 5, q="Ep 3")[0]["guid"] == f"guid-{fid}-3"
+    archived = [e["id"] for e in db.episodes_for_feed(fid)][:4]  # Ep 7..4
+    for eid in archived:
+        db.archive_episode(eid)
+    assert db.count_episodes_for_feed(fid, hide_back_catalog=True) == 3
+    assert [e["guid"] for e in db.episodes_for_feed_page(fid, 1, 2, hide_back_catalog=True)] == [
+        f"guid-{fid}-3", f"guid-{fid}-2"]
+    assert db.count_episodes_for_feed(fid, q="Ep 5", hide_back_catalog=True) == 0
 
 
 def test_search_episodes_matches_title_or_feed_title(db: Database) -> None:

@@ -398,8 +398,9 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             return jsonify({"error": "no such feed"}), 404
         q = (request.args.get("q") or "").strip() or None
         page = _page_arg()
-        total = db.count_episodes_for_feed(feed_id, q)
-        episodes = db.episodes_for_feed_page(feed_id, page, EPISODES_PAGE_SIZE, q)
+        hide = request.args.get("back_catalog") == "hide"
+        total = db.count_episodes_for_feed(feed_id, q, hide)
+        episodes = db.episodes_for_feed_page(feed_id, page, EPISODES_PAGE_SIZE, q, hide)
         return jsonify({
             "episodes": [_episode_json(e, feed["title"]) for e in episodes],
             "page": page, "page_size": EPISODES_PAGE_SIZE, "total": total,
