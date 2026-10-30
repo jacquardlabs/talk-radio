@@ -119,6 +119,8 @@ function epMenu(e) {
       ? `<button type="button" data-episode="${e.id}/queue_arc">Queue series <i>every part, in order</i></button>` : "") +
     (e.status === "archived"
       ? `<button type="button" data-episode="${e.id}/release">Add to rotation <i>the DJ can pick it</i></button>` : "") +
+    (e.status === "new"
+      ? `<button type="button" data-episode="${e.id}/unrelease">Move to back catalog <i>the DJ won't pick it</i></button>` : "") +
     `</div></div>`;
 }
 

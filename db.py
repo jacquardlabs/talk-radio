@@ -840,6 +840,17 @@ class Database:
             )
             return cur.rowcount == 1
 
+    def unrelease_episode(self, episode_id: int) -> bool:
+        """Send an unplayed episode back to the back catalog. Only 'new'
+        moves: one in Up Next is the queue's to drop, and a heard one would
+        lose its history."""
+        with self._conn() as c:
+            cur = c.execute(
+                "UPDATE episodes SET status='archived' WHERE id=? AND status='new'",
+                (episode_id,),
+            )
+            return cur.rowcount == 1
+
     def release_episodes(self, episode_ids: list[int]) -> int:
         if not episode_ids:
             return 0

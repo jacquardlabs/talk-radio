@@ -120,7 +120,8 @@ of the screen, thumb-height:
    so a show that publishes none shows none. Add back-catalog episodes to
    rotation singly (*Add to rotation* in the row's menu), in batches
    (*Select*, then *Add selected (N)*), or all at once (*Add all to
-   rotation*). *Play next* queues an
+   rotation*). *Move to back catalog*, in an unplayed episode's menu, sends
+   one back out of rotation. *Play next* queues an
    episode after the current track, *Play now* interrupts, and *Add to Up
    Next* queues it at the end of the line; all three work on any episode
    regardless of status, and turn the station on air if it is off. An episode
