@@ -89,6 +89,11 @@ def next_queued_episode(db: Database, player: FakeSonosPlayer):
     return next(e for e in db.episodes_with_status("queued") if e["play_uri"] == uri)
 
 
+def rf(feed_id: int) -> str:
+    """A station's rotation-feed URL as the test client's requests see it."""
+    return f"http://localhost/gpodder/feeds/{feed_id}.xml"
+
+
 def basic_header(user: str = "radio", pw: str = "secret") -> dict[str, str]:
     token = base64.b64encode(f"{user}:{pw}".encode()).decode()
     return {"Authorization": f"Basic {token}"}
@@ -149,13 +154,13 @@ def test_cookie_accepted_after_login(gclient) -> None:
 
 def test_subscriptions_lists_enabled_non_news_feeds(gclient) -> None:
     c, db, *_ = gclient
-    db.add_feed("https://a/rss", "A", None, False)
+    a = db.add_feed("https://a/rss", "A", None, False)
     db.add_feed("https://b/rss", "B news", None, True)
     off = db.add_feed("https://c/rss", "C", None, False)
     db.toggle_feed(off)
     resp = c.get("/api/2/subscriptions/radio/phone1.json", headers=basic_header())
     body = resp.get_json()
-    assert body["add"] == ["https://a/rss"]
+    assert body["add"] == [rf(a)]
 
 
 def test_since_filters_out_earlier_plays(gclient) -> None:
@@ -364,9 +369,9 @@ def subs(c, since: int) -> dict:
 def test_sync_does_not_resend_existing_stations(gclient, clock) -> None:
     """Re-sending them is what re-subscribed a station the phone dropped."""
     c, db, *_ = gclient
-    db.add_feed("https://a/rss", "A", None, False)
+    a = db.add_feed("https://a/rss", "A", None, False)
     first = subs(c, 0)
-    assert first["add"] == ["https://a/rss"]
+    assert first["add"] == [rf(a)]
     clock["now"] += 60
     assert subs(c, first["timestamp"]) == {"add": [], "remove": [],
                                            "timestamp": clock["now"]}
@@ -383,15 +388,14 @@ def test_disable_delete_and_news_each_remove_and_reenable_adds(gclient, clock) -
     db.delete_feed(gone)
     db.set_feed_news(news, True)
     r = subs(c, ts)
-    assert r["add"] == [] and r["remove"] == ["https://gone/rss", "https://news/rss",
-                                              "https://off/rss"]
+    assert r["add"] == [] and r["remove"] == sorted([rf(gone), rf(news), rf(off)])
     clock["now"] += 60
     db.toggle_feed(off)
     r = subs(c, r["timestamp"])
-    assert r["add"] == ["https://off/rss"]
+    assert r["add"] == [rf(off)]
     # Stamped in the second the last response named, so sent once more by
     # design (`>=`): removing a feed AntennaPod no longer has is a no-op.
-    assert "https://off/rss" not in r["remove"]
+    assert rf(off) not in r["remove"]
     clock["now"] += 60
     r = subs(c, r["timestamp"])          # the at-most-once boundary repeat
     clock["now"] += 60
@@ -404,8 +408,8 @@ def test_station_added_after_last_sync_is_sent(gclient, clock) -> None:
     db.add_feed("https://a/rss", "A", None, False)
     ts = subs(c, 0)["timestamp"]
     clock["now"] += 60
-    db.add_feed("https://b/rss", "B", None, False)
-    assert subs(c, ts)["add"] == ["https://b/rss"]
+    b = db.add_feed("https://b/rss", "B", None, False)
+    assert subs(c, ts)["add"] == [rf(b)]
 
 
 def test_second_device_catches_up_on_a_removal(gclient, clock) -> None:
@@ -419,4 +423,86 @@ def test_second_device_catches_up_on_a_removal(gclient, clock) -> None:
     db.toggle_feed(fid)
     subs(c, late)                       # the first device notices the removal
     clock["now"] += 60
-    assert subs(c, early)["remove"] == ["https://a/rss"]
+    assert subs(c, early)["remove"] == [rf(fid)]
+
+
+# ── rotation feeds: the phone sees only what the station would play ──
+
+def test_rotation_feed_holds_only_new_and_queued(gclient) -> None:
+    import xml.etree.ElementTree as ET
+    c, db, *_ = gclient
+    fid = make_feed(db, "pel", 5, duration=1800)
+    eps = db.episodes_for_feed(fid)
+    db.archive_episode(eps[0]["id"])
+    db.mark_played(eps[1]["id"], NOW_STR)
+    db.mark_skipped(eps[2]["id"])
+    db.mark_queued(eps[3]["id"], "x-sonos://staged")
+    resp = c.get(f"/gpodder/feeds/{fid}.xml")        # no credentials: by design
+    assert resp.status_code == 200 and resp.mimetype == "application/rss+xml"
+    root = ET.fromstring(resp.data)
+    items = root.findall("./channel/item")
+    assert sorted(i.findtext("guid") for i in items) == sorted([eps[3]["guid"], eps[4]["guid"]])
+    item = next(i for i in items if i.findtext("guid") == eps[4]["guid"])
+    assert item.find("enclosure").get("url") == eps[4]["audio_url"]   # the show's CDN
+    assert item.findtext("{http://www.itunes.com/dtds/podcast-1.0.dtd}duration") == "1800"
+    assert root.findtext("./channel/title") == "pel"
+
+
+def test_rotation_feed_unknown_station_is_404(gclient) -> None:
+    c, *_ = gclient
+    assert c.get("/gpodder/feeds/999.xml").status_code == 404
+
+
+def test_rotation_feed_escapes_markup_in_titles(gclient) -> None:
+    import xml.etree.ElementTree as ET
+    c, db, *_ = gclient
+    fid = db.add_feed("https://x/rss", "Tom & Jerry <Live>", None, False)
+    db.insert_episode(fid, "g", "Q&A: <b>bold</b>", "https://cdn/x/1.mp3", NOW_STR)
+    root = ET.fromstring(c.get(f"/gpodder/feeds/{fid}.xml").data)
+    assert root.findtext("./channel/title") == "Tom & Jerry <Live>"
+    assert root.findtext("./channel/item/title") == "Q&A: <b>bold</b>"
+
+
+def test_feed_urls_follow_the_forwarded_scheme(gclient) -> None:
+    """Behind `tailscale serve` the app sees plain HTTP; the phone must be
+    handed https URLs or its feed fetches go to a port nothing listens on."""
+    c, db, *_ = gclient
+    fid = db.add_feed("https://a/rss", "A", None, False)
+    body = c.get("/api/2/subscriptions/radio/phone.json?since=0",
+                 headers={**basic_header(), "X-Forwarded-Proto": "https",
+                          "Host": "mothership.example.ts.net"}).get_json()
+    assert body["add"] == [f"https://mothership.example.ts.net/gpodder/feeds/{fid}.xml"]
+
+
+def test_existing_ledger_moves_phone_from_show_feeds_to_rotation_feeds(gclient, clock) -> None:
+    """A ledger written before rotation feeds holds the shows' own URLs.
+    The next sync must drop those from the phone and add the station feeds."""
+    import json
+    c, db, *_ = gclient
+    fid = db.add_feed("https://show/rss", "Show", None, False)
+    db.kv_set("gpodder_subscriptions",
+              json.dumps({"https://show/rss": [True, clock["now"] - 3600]}))
+    r = subs(c, clock["now"] - 60)
+    assert r["add"] == [rf(fid)]
+    assert r["remove"] == ["https://show/rss"]
+
+
+def test_inbound_action_resolves_through_the_rotation_feed_url(gclient) -> None:
+    c, db, *_ = gclient
+    fid = make_feed(db, "pel", 1)
+    ep = db.episodes_for_feed(fid)[0]
+    body = [{"podcast": rf(fid), "episode": ep["audio_url"], "guid": ep["guid"],
+             "action": "play", "timestamp": "2026-10-29T11:00:00",
+             "started": 0, "position": 300, "total": 1800}]
+    c.post("/api/2/episodes/radio.json", json=body, headers=basic_header())
+    assert db.get_episode(ep["id"])["resume_seconds"] == 300
+
+
+def test_outbound_actions_name_the_rotation_feed(gclient) -> None:
+    c, db, *_ = gclient
+    fid = make_feed(db, "pel", 1, duration=1800)
+    ep = db.episodes_for_feed(fid)[0]
+    db.mark_played(ep["id"], "2026-10-29T11:00:00Z")
+    actions = c.get("/api/2/episodes/radio.json?since=0", headers=basic_header()).get_json()["actions"]
+    assert [a["podcast"] for a in actions] == [rf(fid)]
+    assert actions[0]["episode"] == ep["audio_url"] and actions[0]["guid"] == ep["guid"]

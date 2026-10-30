@@ -185,6 +185,15 @@ its next sync — and AntennaPod deletes that podcast's downloads and progress
 when it does. Turning it back on re-subscribes. Unsubscribing on the phone
 sticks; the radio doesn't push it back.
 
+Each station reaches the phone as a feed this server builds,
+`/gpodder/feeds/<id>.xml`, not the show's own RSS. It holds only what the
+station would play — episodes in rotation and in Up Next — so a show with a
+900-episode back catalog and 11 released episodes shows those 11. Release
+more from *Stations* and they appear at AntennaPod's next feed refresh (or
+pull to refresh); heard ones drop off. Audio still comes from the show's own
+servers. The feed URLs are unauthenticated like the rest of the app, since
+AntennaPod fetches feeds without the sync credential.
+
 **Do not port-forward this app to sync from off the LAN** — every route
 outside `/api/2/*` is unauthenticated by design (see Security). If you run
 [Tailscale](https://tailscale.com/), `tailscale serve --bg --https=443
