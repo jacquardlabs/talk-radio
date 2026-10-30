@@ -426,6 +426,16 @@ class Database:
                 (feed_id,),
             ).fetchall()
 
+    def rotation_episodes_for_feed(self, feed_id: int) -> list[sqlite3.Row]:
+        """What the station would play: in rotation or already staged. The
+        back catalog (archived), the heard, and the given-up are not."""
+        with self._conn() as c:
+            return c.execute(
+                "SELECT * FROM episodes WHERE feed_id=? AND status IN ('new','queued')"
+                " ORDER BY published_at DESC, id DESC",
+                (feed_id,),
+            ).fetchall()
+
     def episodes_with_status(self, status: str) -> list[sqlite3.Row]:
         with self._conn() as c:
             return c.execute(

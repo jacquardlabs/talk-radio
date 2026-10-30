@@ -29,10 +29,15 @@ from __future__ import annotations
 
 import json
 import logging
+import mimetypes
+import re
 import secrets
 from collections import deque
 from datetime import datetime, timezone
+from email.utils import format_datetime
 from functools import wraps
+from urllib.parse import urlsplit
+from xml.etree import ElementTree as ET
 
 from flask import Blueprint, Response, jsonify, request
 
@@ -127,6 +132,53 @@ def now_playing_action(now_playing: dict, feed_url: str, audio_url: str,
     }
 
 
+# ── pure: the rotation feed each station is served as ───────────────────
+#
+# The phone subscribes to these, not to the shows' own RSS: a show's feed
+# carries its whole back catalog (906 of Partially Examined Life's 920
+# episodes), with nothing marking the few in rotation. Served here, a
+# station holds only what the radio would play. Enclosures stay the show's
+# own URLs, so the phone streams and downloads from the CDN, not from here.
+
+_ITUNES = "http://www.itunes.com/dtds/podcast-1.0.dtd"
+ET.register_namespace("itunes", _ITUNES)
+_FEED_PATH = re.compile(r"/gpodder/feeds/(\d+)\.xml$")
+
+
+def feed_path(feed_id: int) -> str:
+    """Host-relative, so the subscription ledger is keyed the same however a
+    device reaches the server; the absolute URL is built per request."""
+    return f"/gpodder/feeds/{feed_id}.xml"
+
+
+def feed_id_of(url: str) -> int | None:
+    m = _FEED_PATH.search(urlsplit(url).path)
+    return int(m.group(1)) if m else None
+
+
+def rotation_feed_xml(feed, episodes) -> bytes:
+    rss = ET.Element("rss", version="2.0")
+    ch = ET.SubElement(rss, "channel")
+    ET.SubElement(ch, "title").text = feed["title"]
+    ET.SubElement(ch, "description").text = feed["description"] or ""
+    if feed["image_url"]:
+        ET.SubElement(ch, f"{{{_ITUNES}}}image", href=feed["image_url"])
+    for e in episodes:
+        it = ET.SubElement(ch, "item")
+        ET.SubElement(it, "title").text = e["title"]
+        ET.SubElement(it, "guid", isPermaLink="false").text = e["guid"]
+        ET.SubElement(it, "pubDate").text = format_datetime(
+            datetime.strptime(e["published_at"], "%Y-%m-%dT%H:%M:%SZ")
+            .replace(tzinfo=timezone.utc))
+        kind = mimetypes.guess_type(urlsplit(e["audio_url"]).path)[0] or "audio/mpeg"
+        ET.SubElement(it, "enclosure", url=e["audio_url"], type=kind, length="0")
+        if e["duration_seconds"]:
+            ET.SubElement(it, f"{{{_ITUNES}}}duration").text = str(e["duration_seconds"])
+        if e["description"]:
+            ET.SubElement(it, "description").text = e["description"]
+    return ET.tostring(rss, encoding="utf-8", xml_declaration=True)
+
+
 # ── pure: subscription ledger ───────────────────────────────────────────
 #
 # The phone mirrors "enabled, non-news stations". gpodder wants that as
@@ -206,12 +258,24 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
         excluded."""
         return [f for f in db.list_feeds() if f["enabled"] and not f["is_news"]]
 
+    def _url(key: str) -> str:
+        """A ledger key as the requesting device should see it. Keys are
+        feed paths, except the shows' own URLs a pre-rotation-feed ledger
+        still holds. Behind `tailscale serve` the request arrives as plain
+        HTTP with X-Forwarded-Proto: https and the tailnet Host."""
+        if key.startswith(("http://", "https://")):
+            return key
+        scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+        return f"{scheme}://{request.host}{key}"
+
     def _resolve_episode(podcast: str, episode: str, guid: str | None):
         """guid is only unique within a feed (UNIQUE(feed_id, guid)), so a
         podcast URL that doesn't resolve to a known feed can't use it —
         fall straight to the unscoped media_key match."""
-        feed = db.get_feed_by_url(podcast) if podcast else None
-        feed_id = feed["id"] if feed else None
+        feed_id = feed_id_of(podcast) if podcast else None
+        if feed_id is None and podcast:
+            feed = db.get_feed_by_url(podcast)
+            feed_id = feed["id"] if feed else None
         if guid and feed_id is not None:
             row = db.find_episode_by_guid(feed_id, guid)
             if row is not None:
@@ -269,13 +333,14 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
         raw = db.kv_get("gpodder_subscriptions")
         ledger: Ledger = {u: (bool(i), int(a)) for u, (i, a) in
                           (json.loads(raw) if raw else {}).items()}
-        current = {f["url"]: _epoch(f["added_at"]) for f in _feeds_for_subscriptions()}
+        current = {feed_path(f["id"]): _epoch(f["added_at"]) for f in _feeds_for_subscriptions()}
         updated = reconcile_ledger(current, ledger, now)
         if updated != ledger:
             db.kv_set("gpodder_subscriptions",
                       json.dumps({u: [i, a] for u, (i, a) in updated.items()}))
         add, remove = subscription_changes(updated, since)
-        return {"add": add, "remove": remove, "timestamp": now}
+        return {"add": [_url(k) for k in add], "remove": [_url(k) for k in remove],
+                "timestamp": now}
 
     @bp.get("/api/2/subscriptions/<username>/<device_id>.json")
     @require_auth
@@ -295,7 +360,18 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
     @bp.get("/subscriptions/<username>/<device_id>.json")
     @require_auth
     def simple_subscriptions(username: str, device_id: str):
-        return jsonify([f["url"] for f in _feeds_for_subscriptions()])
+        return jsonify([_url(feed_path(f["id"])) for f in _feeds_for_subscriptions()])
+
+    @bp.get("/gpodder/feeds/<int:feed_id>.xml")
+    def rotation_feed(feed_id: int):
+        """Unauthenticated, like the rest of the app: AntennaPod fetches feed
+        URLs without the sync credential. It discloses nothing the show's
+        own public feed doesn't, plus which episodes are in rotation."""
+        feed = db.get_feed(feed_id)
+        if feed is None:
+            return Response(status=404)
+        return Response(rotation_feed_xml(feed, db.rotation_episodes_for_feed(feed_id)),
+                        mimetype="application/rss+xml")
 
     @bp.get("/api/2/episodes/<username>.json")
     @require_auth
@@ -304,11 +380,11 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
             .strftime("%Y-%m-%dT%H:%M:%SZ")
         actions: list[dict] = []
         for row in db.episodes_played_since(floor):
-            a = played_action(row, row["feed_url"])
+            a = played_action(row, _url(feed_path(row["feed_id"])))
             if a is not None:
                 actions.append(a)
         for row in db.episodes_with_resume_since(floor):
-            a = resume_action(row, row["feed_url"])
+            a = resume_action(row, _url(feed_path(row["feed_id"])))
             if a is not None:
                 actions.append(a)
         status = dj.status()
@@ -317,7 +393,7 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
             episode = db.get_episode(now_playing["episode_id"])
             feed = db.get_feed(episode["feed_id"]) if episode else None
             if episode is not None and feed is not None:
-                a = now_playing_action(now_playing, feed["url"],
+                a = now_playing_action(now_playing, _url(feed_path(feed["id"])),
                                        episode["audio_url"], episode["guid"])
                 if a is not None:
                     actions.append(a)
