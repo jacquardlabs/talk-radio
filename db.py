@@ -801,10 +801,14 @@ class Database:
                                hide_back_catalog: bool = False) -> list[sqlite3.Row]:
         offset = max(0, page - 1) * page_size
         where, params = self._feed_episode_filter(feed_id, q, hide_back_catalog)
+        # Without the back catalog the list is what's left to hear, so the
+        # heard pile sinks rather than pushing it onto later pages. With it,
+        # heard would sink below hundreds of back-catalog rows: date only.
+        heard_last = "status='played', " if hide_back_catalog else ""
         with self._conn() as c:
             return c.execute(
                 f"SELECT * FROM episodes WHERE {where}"
-                " ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?",
+                f" ORDER BY {heard_last}published_at DESC, id DESC LIMIT ? OFFSET ?",
                 [*params, page_size, offset],
             ).fetchall()
 
