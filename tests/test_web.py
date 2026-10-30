@@ -564,6 +564,22 @@ def test_skip_flap_offers_defer_first(no_sonos_client) -> None:
     assert body.index(b'data-player="defer"') < body.index(b'data-player="skip_later"')
 
 
+
+def test_alarm_toggle_is_a_switch(no_sonos_client) -> None:
+    """A bare "On" read as "turn on": one tap right after adding an alarm
+    switched it off. The state now reads by the knob's position."""
+    body = no_sonos_client[0].get("/").data
+    assert b'class="sw${a.enabled ? " on" : ""}" role="switch"' in body
+    assert b'? "On" : "Off"' not in body
+
+
+def test_alarm_delete_arms_first(no_sonos_client) -> None:
+    """Delete goes through armed() like every other destructive button, and
+    the schedule list is signature-guarded so a poll can't disarm it."""
+    body = no_sonos_client[0].get("/").data
+    assert b'btn.dataset.sched.endsWith("/delete") && !armed(btn)' in body
+    assert b"schedSig !== lastSchedSig" in body
+
 # ── /stream proxy ─────────────────────────────────────────────────────
 
 class FakeUpstream:
