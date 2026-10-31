@@ -57,8 +57,9 @@ prompt is history — see *Superseded* below.
 
 ## Up Next: what outranks what
 
-Eight verbs act on one queue — Play next, Play now, Play last, Pin, Drop,
-reorder, Queue series, Refresh all — plus *Defer* on the Skip menu, which also
+Eight verbs act on one queue — Play next, Play now, Play last, Pin, Drop
+(*Back to rotation* or *Never play* in a row's menu), reorder, Queue series,
+Refresh all — plus *Defer* (*Back to Up next*) on the Skip menu, which also
 writes into it [code, dj.py:810-813]. The precedence they resolve by, strongest
 first:
 
@@ -115,7 +116,7 @@ These are non-goals, not gaps. The README already records them as accepted trade
   Next. [inferred]
 - **No frontend build step.** Three Jinja templates, one hand-written
   stylesheet, and static assets served as they sit; a clone runs with
-  `pip install -r requirements.txt` and nothing else. The theme fonts are
+  `pip install -r requirements.txt` and nothing else. The fonts are
   committed woff2 files rather than a CDN link, so the appliance still looks
   right on a LAN with no route to the internet.
   [inferred, from the absence of any manifest or bundler in the tree]
