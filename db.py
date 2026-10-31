@@ -795,9 +795,10 @@ class Database:
     def _feed_episode_filter(feed_id: int, q: str | None,
                              hide_back_catalog: bool) -> tuple[str, list]:
         """The WHERE a station's episode page and its count share, so the
-        pager never counts rows the page can't show."""
+        pager never counts rows the page can't show. Hiding the back catalog
+        leaves only what's left to hear: heard and missed go with it."""
         clauses = ["feed_id=?"] + (["title LIKE ?"] if q else []) + (
-            ["status!='archived'"] if hide_back_catalog else [])
+            ["status IN ('new','queued')"] if hide_back_catalog else [])
         return " AND ".join(clauses), [feed_id] + ([f"%{q}%"] if q else [])
 
     def count_episodes_for_feed(self, feed_id: int, q: str | None = None,
@@ -813,14 +814,10 @@ class Database:
                                hide_back_catalog: bool = False) -> list[sqlite3.Row]:
         offset = max(0, page - 1) * page_size
         where, params = self._feed_episode_filter(feed_id, q, hide_back_catalog)
-        # Without the back catalog the list is what's left to hear, so the
-        # heard pile sinks rather than pushing it onto later pages. With it,
-        # heard would sink below hundreds of back-catalog rows: date only.
-        heard_last = "status='played', " if hide_back_catalog else ""
         with self._conn() as c:
             return c.execute(
                 f"SELECT * FROM episodes WHERE {where}"
-                f" ORDER BY {heard_last}published_at DESC, id DESC LIMIT ? OFFSET ?",
+                " ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?",
                 [*params, page_size, offset],
             ).fetchall()
 

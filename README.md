@@ -111,10 +111,9 @@ of the screen, thumb-height:
    treatment — *Tinted* duotones the artwork into whichever theme is on. Tap a tile for its station sheet: the show's description, then its
    episodes newest first. An episode the DJ can pick is lit; one in the *Back
    catalog* (it won't until you add it) is dimmed; a *Heard* one is struck
-   through, and plays again with one tap. The back catalog stays hidden
-   until *Show back catalog (N)*, so episodes you've added from it are
-   easy to find, with *Heard* ones sunk to the bottom; the choice holds
-   for every station. Station settings
+   through, and plays again with one tap. The back catalog, *Heard* and
+   *Missed* episodes stay hidden until *Show back catalog (N)*, so the
+   sheet opens on what's left to hear; the choice holds for every station. Station settings
    (category, order, news, off, remove) sit behind *Settings*. A caret on an
    episode row opens that episode's notes; descriptions come from the feed,
    so a show that publishes none shows none. Add back-catalog episodes to
