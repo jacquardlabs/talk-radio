@@ -51,8 +51,8 @@ prompt is history — see *Superseded* below.
    that collapses every "SYMHC Classics: …" into one arc [code, dj.py:1140-1143].
 3. **News plays first, unconditionally.** Every tick — 15s by default — if fresh
    news exists and the slot after the needle is not already news, the news is
-   inserted there, oldest first [code, dj.py:654-666]. News older than
-   `NEWS_MAX_AGE_HOURS` is never fresh [code, db.py:420-427]. "Unconditionally"
+   inserted there, oldest first [code, dj.py:654-666]. News never expires: it
+   waits until played, dropped for good, or moved down. "Unconditionally"
    is load-bearing: no user action exempts a row from it. See the ladder below.
 
 ## Up Next: what outranks what

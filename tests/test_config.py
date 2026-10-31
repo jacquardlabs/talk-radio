@@ -13,7 +13,6 @@ def test_defaults() -> None:
     assert cfg.tick_seconds == 15
     assert cfg.refresh_minutes == 30
     assert cfg.queue_ahead == 10
-    assert cfg.news_max_age_hours == 24
     assert cfg.download_mode is False
     assert cfg.base_url is None
     assert cfg.user_agent == "SonosTalkRadio/1.0"

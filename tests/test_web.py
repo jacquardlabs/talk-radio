@@ -304,6 +304,16 @@ def test_unrelease_episode_route(client) -> None:
     assert c.post("/episodes/999/unrelease").status_code == 404
 
 
+def test_done_episode_route(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    eid = _add_episode(db, fid, 1)
+    assert c.post(f"/episodes/{eid}/done").get_json()["ok"] is True
+    assert db.get_episode(eid)["status"] == "played"
+    assert c.post(f"/episodes/{eid}/done").get_json()["ok"] is False  # already heard
+    assert c.post("/episodes/999/done").status_code == 404
+
+
 def test_drop_route_validates_disposition(client) -> None:
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X", None, False)

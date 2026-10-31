@@ -98,11 +98,13 @@ class TestStart:
         assert db.kv_get("dj_state") == "playing"
         assert len(db.episodes_with_status("queued")) == len(q)
 
-    def test_stale_news_not_queued(self, db, cfg, player, dj) -> None:
+    def test_old_news_still_leads(self, db, cfg, player, dj) -> None:
+        """News waits for the listener: a weekly show published two days
+        ago, never played, still goes first."""
         make_feed(db, "news", 1, is_news=True, hours_old=48)
         make_feed(db, "showa", 3)
         dj.start()
-        assert "https://cdn/news/1.mp3" not in uris_of(player)
+        assert uris_of(player)[0] == "https://cdn/news/1.mp3"
 
     def test_failed_episode_is_skipped_and_topped_up_next_tick(
             self, db, cfg, player, dj, monkeypatch) -> None:
@@ -1257,6 +1259,21 @@ class TestRemovalLeavesTheList:
         rows = dj.status()["up_next"]
         assert [e["episode_id"] for e in rows] == saved
         assert all("pinned" in e and "published_at" in e for e in rows)
+
+    def test_news_arriving_off_air_leads_up_next(self, db, cfg, player, dj) -> None:
+        """News shows at the top as soon as it lands, not only once the
+        station goes back on air and stages it."""
+        make_feed(db, "showa", 40)
+        dj.start()
+        dj.tick()
+        saved = db.up_next_order()
+        dj.stop_off_air()
+
+        news = make_feed(db, "news", 2, is_news=True, hours_old=72)
+
+        rows = [e["episode_id"] for e in dj.status()["up_next"]]
+        headlines = [e["id"] for e in reversed(db.episodes_for_feed(news))]
+        assert rows == headlines + saved   # oldest first, then the list
 
 
 class TestDeadRowPruning:

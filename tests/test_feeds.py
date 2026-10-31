@@ -7,7 +7,7 @@ import pytest
 from config import Config
 from db import Database
 from feeds import (FeedFetch, add_feed_from_parsed, detect_playback_mode,
-                   ingest_entries, news_cutoff_iso, refresh_all, refresh_news)
+                   ingest_entries, refresh_all, refresh_news)
 from rss_fixtures import rss
 
 NOW = datetime.now(timezone.utc)
@@ -193,17 +193,6 @@ def test_a_feed_that_fails_keeps_its_old_validators(
     assert db.get_feed(fid)["etag"] == 'W/"good"'
 
 
-def test_refresh_all_prunes_stale_news(db: Database, cfg: Config, monkeypatch) -> None:
-    stale = NOW - timedelta(hours=48)
-    parsed = feedparser.parse(rss("News", [("Old news", stale), ("Fresh news", NOW)]))
-    fid = add_feed_from_parsed(db, parsed, "https://n/rss", True, include="all")
-    import feeds as feeds_mod
-    monkeypatch.setattr(feeds_mod, "fetch_feed", lambda *a, **kw: FeedFetch(parsed))
-    refresh_all(db, cfg)
-    st = _statuses(db, fid)
-    assert st["guid-old-news"] == "skipped" and st["guid-fresh-news"] == "new"
-
-
 def test_refresh_all_survives_a_broken_feed(db: Database, cfg: Config, monkeypatch) -> None:
     good = feedparser.parse(rss("Good", _items(1)))
     add_feed_from_parsed(db, good, "https://good/rss", False, include="new_only")
@@ -241,15 +230,16 @@ def test_refresh_news_fetches_only_news_feeds(db: Database, cfg: Config, monkeyp
     assert calls == ["https://news/rss"]
 
 
-def test_refresh_news_still_prunes_stale_news(db: Database, cfg: Config, monkeypatch) -> None:
-    stale = NOW - timedelta(hours=48)
+def test_refresh_news_keeps_old_news_unplayed(db: Database, cfg: Config, monkeypatch) -> None:
+    """News waits for the listener rather than expiring after a day."""
+    stale = NOW - timedelta(days=5)
     parsed = feedparser.parse(rss("News", [("Old news", stale), ("Fresh news", NOW)]))
     fid = add_feed_from_parsed(db, parsed, "https://n/rss", True, include="all")
     import feeds as feeds_mod
     monkeypatch.setattr(feeds_mod, "fetch_feed", lambda *a, **kw: FeedFetch(parsed))
     refresh_news(db, cfg)
     st = _statuses(db, fid)
-    assert st["guid-old-news"] == "skipped" and st["guid-fresh-news"] == "new"
+    assert st["guid-old-news"] == "new" and st["guid-fresh-news"] == "new"
 
 
 def test_refresh_news_skips_disabled_feeds(db: Database, cfg: Config, monkeypatch) -> None:
@@ -263,37 +253,6 @@ def test_refresh_news_skips_disabled_feeds(db: Database, cfg: Config, monkeypatc
                             feedparser.parse(rss("N", _items(1)))))
     refresh_news(db, cfg)
     assert calls == []
-
-
-def test_fresh_and_stale_news_never_overlap(db: Database, cfg: Config) -> None:
-    """The DJ stages news on one thread while the refresh thread prunes. The
-    only thing keeping that safe is that the two sides of the cutoff are
-    disjoint — otherwise the pruner could bin an episode fresh_news just
-    handed over, in the window before mark_queued claims it."""
-    fid = db.add_feed("https://n/rss", "News", None, True)
-    cutoff = news_cutoff_iso(cfg)  # one cutoff, used for every call below
-    # an episode sitting exactly on the line is what tells the two predicates
-    # apart — anything else lands clear of both and proves nothing
-    db.insert_episode(fid, "g-on-the-line", "On the line", "https://cdn/l.mp3", cutoff)
-    db.insert_episode(fid, "g-fresh", "Fresh", "https://cdn/f.mp3",
-                      (NOW + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"))
-    db.insert_episode(fid, "g-stale", "Stale", "https://cdn/s.mp3",
-                      (NOW - timedelta(hours=72)).strftime("%Y-%m-%dT%H:%M:%SZ"))
-
-    handed_out = {e["id"] for e in db.fresh_news(cutoff)}
-    assert len(handed_out) == 2, "the boundary episode counts as playable news"
-
-    db.prune_stale_news(cutoff)
-
-    statuses = {e["id"]: e["status"] for e in db.episodes_for_feed(fid)}
-    assert all(statuses[eid] == "new" for eid in handed_out), \
-        "prune binned an episode fresh_news had already handed over"
-    assert sum(s == "skipped" for s in statuses.values()) == 1  # only the stale one
-
-
-def test_news_cutoff_format(cfg: Config) -> None:
-    cutoff = news_cutoff_iso(cfg)
-    assert len(cutoff) == 20 and cutoff.endswith("Z")
 
 
 def test_duration_parsed_from_itunes_tag(db: Database) -> None:

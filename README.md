@@ -23,8 +23,8 @@ speakers like a personal talk-radio station — forever.
    add — declared serials and heavily numbered feeds start *In order* — and
    any show can be flipped from its station sheet's *Settings*.
 3. **News always plays first.** Feeds flagged "news" jump to the front of
-   Up Next, oldest first. News older than 24 h (configurable) is dropped, so
-   you never hear Tuesday's headlines on Thursday.
+   Up Next as they arrive, oldest first, and wait there until you play them,
+   drop them, or move them down.
 
 ## What you need
 
@@ -121,7 +121,8 @@ of the screen, thumb-height:
    rotation singly (*Add to rotation* in the row's menu), in batches
    (*Select*, then *Add selected (N)*), or all at once (*Add all to
    rotation*). *Move to back catalog*, in an unplayed episode's menu, sends
-   one back out of rotation. *Play next* queues an
+   one back out of rotation; *Drop for good*, there or on a *Missed* one,
+   marks it heard. *Play next* queues an
    episode after the current track, *Play now* interrupts, and *Add to Up
    Next* queues it at the end of the line; all three work on any episode
    regardless of status, and turn the station on air if it is off. An episode
@@ -145,7 +146,6 @@ of the screen, thumb-height:
 | `TICK_SECONDS` | `15` | reconcile loop interval |
 | `REFRESH_MINUTES` | `30` | feed refresh interval |
 | `QUEUE_AHEAD` | `10` | tracks kept queued ahead of the needle |
-| `NEWS_MAX_AGE_HOURS` | `24` | news older than this is skipped |
 | `DOWNLOAD_MODE` | `0` | `1` = download & serve locally (see below) |
 | `BASE_URL` | auto | how the speaker reaches this server |
 | `GRACE_MINUTES` | `10` | wake-alarm catch-up window after downtime |

@@ -271,6 +271,8 @@ function renderPage(s) {
     // interpolation drift to at most one poll interval
     npAnchor = { pos: np.position, dur: np.duration, at: performance.now(), playing };
     paintNowPlaying(np, np.position, playing, paused);
+    // news back in rotation would only lead Up Next again
+    document.querySelector('[data-player="skip_later"]').hidden = np.is_news;
   } else {
     npAnchor = null;
     art.hidden = true;
@@ -488,7 +490,8 @@ function rowMenu(e) {
     `<button type="button" data-episode="${id}/play_now">Play now <i>interrupt</i></button>` +
     `<button type="button" data-episode="${id}/pin">${e.pinned ? "Unpin" : "Pin"} ` +
     `<i>${e.pinned ? "Refresh all may replace it" : "Refresh all keeps it"}</i></button>` +
-    `<button type="button" data-drop="${id}/later">Drop for later <i>back in rotation</i></button>` +
+    (e.is_news ? "" :
+      `<button type="button" data-drop="${id}/later">Drop for later <i>back in rotation</i></button>`) +
     `<button type="button" class="danger" data-drop="${id}/done">Drop for good <i>never play again</i></button>` +
     `</div></div>`;
 }
