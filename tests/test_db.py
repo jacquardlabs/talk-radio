@@ -194,6 +194,9 @@ def test_episodes_for_feed_page_paginates_and_filters(db: Database) -> None:
     assert [e["guid"] for e in db.episodes_for_feed_page(fid, 1, 2, hide_back_catalog=True)] == [
         f"guid-{fid}-3", f"guid-{fid}-2"]
     assert db.count_episodes_for_feed(fid, q="Ep 5", hide_back_catalog=True) == 0
+    db.mark_played(db.episodes_for_feed_page(fid, 1, 1, hide_back_catalog=True)[0]["id"],
+                   "2026-01-09T00:00:00Z")   # heard leaves with the back catalog
+    assert db.count_episodes_for_feed(fid, hide_back_catalog=True) == 2
 
 
 def test_search_episodes_matches_title_or_feed_title(db: Database) -> None:
