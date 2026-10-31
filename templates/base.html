@@ -44,8 +44,7 @@ try {
   --hair: #d5d9e0;       /* rules, tracks, button outlines */
   --tally: #c8261b;      /* on air: the live light, the second hand, news */
   --ok: #1d7a3d;
-  --arc-a: #9aa3b2;      /* the dial's schedule, alternating so neighbours part */
-  --arc-b: #c4cad4;
+  --arc: #767f90;        /* the dial's still-to-play arc: 3:1 on --paper, apart from --ink */
   --focus: #1f4fd1;
   --hover: rgb(23 26 33 / .06);
   --shadow: 0 1px 2px rgb(23 26 33 / .06), 0 10px 30px rgb(23 26 33 / .12);
@@ -57,8 +56,8 @@ try {
 @media (prefers-color-scheme: dark) {
   :root:not([data-mode="light"]) {
     --paper: #11151d; --panel: #1a1f29; --ink: #eaedf2; --slate: #9ba3b2;
-    --hair: #2b313d; --tally: #ff5a4a; --ok: #5ccf7e; --arc-a: #5d6676;
-    --arc-b: #3c4350; --focus: #8aa4ff; --hover: rgb(234 237 242 / .07);
+    --hair: #2b313d; --tally: #ff5a4a; --ok: #5ccf7e; --arc: #6b7485;
+    --focus: #8aa4ff; --hover: rgb(234 237 242 / .07);
     --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .4);
     --scrim: rgb(0 0 0 / .55);
     color-scheme: dark;
@@ -66,8 +65,8 @@ try {
 }
 :root[data-mode="dark"] {
   --paper: #11151d; --panel: #1a1f29; --ink: #eaedf2; --slate: #9ba3b2;
-  --hair: #2b313d; --tally: #ff5a4a; --ok: #5ccf7e; --arc-a: #5d6676;
-  --arc-b: #3c4350; --focus: #8aa4ff; --hover: rgb(234 237 242 / .07);
+  --hair: #2b313d; --tally: #ff5a4a; --ok: #5ccf7e; --arc: #6b7485;
+  --focus: #8aa4ff; --hover: rgb(234 237 242 / .07);
   --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .4);
   --scrim: rgb(0 0 0 / .55);
   color-scheme: dark;

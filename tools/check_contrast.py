@@ -24,6 +24,7 @@ CHECKS: list[tuple[str, str, float, str]] = [
     ("--paper", "--ink", 4.5, "the label on a filled button: Play, a lit chip"),
     ("--paper", "--tally", 4.5, "Sure? on an armed destructive button"),
     ("--slate", "--paper", 3.0, "a switch that is off, a drag handle"),
+    ("--arc", "--paper", 3.0, "the rest of the playing episode, on the dial"),
 ]
 
 def parse_hex(value: str) -> tuple[int, int, int] | None:

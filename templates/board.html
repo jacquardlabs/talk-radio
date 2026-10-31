@@ -3,18 +3,16 @@
 {% block style %}
 /* ── on air: the program clock and what's playing ─────────────────── */
 .stage { display: grid; grid-template-columns: 340px 1fr; gap: 56px; align-items: center; padding: 44px 0 8px; }
-.dial { width: 340px; aspect-ratio: 1; }
-.dial svg { width: 100%; height: 100%; overflow: visible; display: block; }
+.dial { width: 340px; }
+.dial svg { width: 100%; aspect-ratio: 1; overflow: visible; display: block; }
 .dial .face { fill: var(--panel); }
 .dial .tick { stroke: var(--slate); stroke-width: 1.2; }
 .dial .tick.hr { stroke: var(--ink); stroke-width: 2.2; }
 .dial .num { fill: var(--slate); font: 500 14px var(--figures); text-anchor: middle; dominant-baseline: central; }
 .dial .seg { fill: none; stroke-width: 16; }
-.dial .seg.a { stroke: var(--arc-a); }
-.dial .seg.b { stroke: var(--arc-b); }
-.dial .seg.news { stroke: var(--tally); }
-.dial .seg.now { stroke: var(--ink); }
-.dial .seg.done { stroke: var(--ink); opacity: .2; }
+.dial .seg.left { stroke: var(--arc); }
+.dial .seg.done { stroke: var(--ink); }
+.dial .seg.done.news { stroke: var(--tally); }
 .dial .hand { stroke: var(--ink); stroke-linecap: round; }
 .dial .hand.h { stroke-width: 6; }
 .dial .hand.m { stroke-width: 4; }
@@ -42,10 +40,11 @@
 /* off air there is no episode to seek through */
 .now.idle .track, .now.idle .times { display: none; }
 .np-meta b { font-weight: 600; }
-.np-desc-row { display: flex; align-items: center; gap: 2px; margin-top: 6px; color: var(--slate); font-size: 15px; }
-.np-desc-row[hidden] { display: none; }
-.np-desc-row .disc { margin: 0; }
-.npdesc { margin-top: 6px; }
+/* the episode's summary: three lines at rest, all of it on More */
+.npdesc { margin-top: 10px; }
+.npdesc.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.more-link { min-height: 44px; padding: 0; border: 0; background: none; color: var(--ink); font: 600 15px var(--font);
+  cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 /* the visible bar is 6px; padding grows the touch target to 44px */
 .track { position: relative; height: 44px; margin: 14px 0 -8px; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
 .track::before { content: ""; position: absolute; left: 0; right: 0; top: 19px; height: 6px; border-radius: 3px; background: var(--hair); }
@@ -188,12 +187,8 @@ form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; ma
     </div>
     <h1 class="np-title" id="np-title">Press Play to go on air</h1>
     <div class="np-meta" id="np-meta"></div>
-    <div class="np-desc-row" id="np-desc-row" hidden>
-      <button type="button" class="disc" id="np-disc" aria-expanded="false"
-              aria-controls="np-desc" aria-label="Show episode notes"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
-      <span>Episode notes</span>
-    </div>
-    <div class="npdesc" id="np-desc" hidden></div>
+    <div class="npdesc clamp" id="np-desc" hidden></div>
+    <button type="button" class="more-link" id="np-more" aria-expanded="false" aria-controls="np-desc" hidden>More</button>
     <div class="track" id="track" title="Drag to seek">
       <div class="fill" id="track-fill"></div>
       <div class="mark" id="track-mark"></div>
@@ -330,10 +325,12 @@ function setDeckTitle(text) {
 
 // ── the program clock ──────────────────────────────────────────────
 // A working 12-hour clock, on air or off. On air, the rim carries the
-// running order: each episode is an arc where it will actually air, the
-// playing one solid, news in red. Wake alarms and a sleep timer are pins on
-// the rim. The face is built once; the arcs repaint with the poll and the
-// hands every second.
+// episode playing, from where it started to where it ends: solid up to the
+// hand, grey after, red for news. Up Next is not drawn — the DJ tops it up
+// and Refresh all re-rolls it, so it is a glimpse, not a schedule. Wake
+// alarms and a sleep timer, moments the listener set, are pins on the rim.
+// The face is built once; the arc repaints with the poll, the hands every
+// second.
 const DIAL = { C: 170, R: 150 };
 const dialPt = (a, r) => [DIAL.C + r * Math.sin(a), DIAL.C - r * Math.cos(a)];
 const clockAngle = (d) => ((d.getHours() % 12) * 60 + d.getMinutes() + d.getSeconds() / 60) / 720 * 2 * Math.PI;
@@ -387,21 +384,18 @@ function renderDial(s) {
   const { R } = DIAL;
   const plan = schedule(s);
   const now = new Date();
-  // Angles run on from the hand by elapsed time, never by clock position:
-  // a queue longer than twelve hours must stop at the hand, not lap it.
-  const a0 = clockAngle(now), limit = a0 + 2 * Math.PI - 0.1;
+  // Angles run from the hand by elapsed time, never by clock position, and
+  // the arc never laps itself: an episode longer than the face is clipped.
+  const a0 = clockAngle(now);
   const ahead = (t) => a0 + (t - now) / 43200000 * 2 * Math.PI;
   let arcs = "";
   if (plan) {
-    const np = s.now_playing;
-    arcs += `<path class="seg done" d="${dialArc(Math.max(ahead(plan.started), a0 - Math.PI), a0, R)}"/>`;
-    arcs += `<path class="seg ${np.is_news ? "news" : "now"}" d="${dialArc(a0, Math.min(ahead(plan.ends), limit), R)}"/>`;
-    plan.slots.forEach(({ e, at }, k) => {
-      if (!e.duration) return;
-      const from = ahead(at), to = Math.min(from + e.duration / 43200 * 2 * Math.PI, limit);
-      if (from >= limit) return;
-      arcs += `<path class="seg ${e.is_news ? "news" : k % 2 ? "b" : "a"}" d="${dialArc(from + 0.016, to - 0.016, R)}"/>`;
-    });
+    const np = s.now_playing, news = np.is_news ? " news" : "";
+    const end = Math.min(ahead(plan.ends), a0 + 2 * Math.PI - 0.1);
+    const start = Math.max(ahead(plan.started), end - 2 * Math.PI + 0.1);
+    const tip = `<title>${esc(`${np.show}: started ${hm(new Date(plan.started))}, ends ${hm(new Date(plan.ends))}`)}</title>`;
+    arcs = `<path class="seg done${news}" d="${dialArc(start, a0, R)}">${tip}</path>` +
+      `<path class="seg left" d="${dialArc(a0, end, R)}">${tip}</path>`;
   }
   $("dial-arcs").innerHTML = arcs;
   // pins on the rim: each distinct wake time, and when a sleep timer ends
@@ -435,42 +429,35 @@ const PIN_SVG =
   '<path d="M9 2h6a1 1 0 0 1 0 2h-.5v5.2l2.9 3.1a1 1 0 0 1-.73 1.7H13v6.5a1 1 0 0 1-2 0V14H7.33' +
   'a1 1 0 0 1-.73-1.7l2.9-3.1V4H9a1 1 0 0 1 0-2z"/></svg>';
 
-// The deck writes into fixed elements instead of re-rendering markup, so its
-// disclosure is wired by hand. It still keys on episode_id through the shared
-// expandedEpisodes set, and its panel takes the same desc-<id> element id, so
-// the one click handler in base.html drives it with no special case.
+// The summary of what's playing: three lines at rest, so it is read without
+// being asked for, and More for the rest. Open or not is kept per episode in
+// the shared expandedEpisodes set, so a track change starts closed.
 let deckDescId = null;
 function setDeckDescription(np) {
-  const row = $("np-desc-row");
-  const panel = document.querySelector(".npdesc");
-  if (!row || !panel) return;
+  const panel = $("np-desc"), more = $("np-more");
   const text = np && np.description;
   if (!text) {
-    row.hidden = true;
-    panel.hidden = true;
+    panel.hidden = more.hidden = true;
     panel.textContent = "";
     deckDescId = null;
     return;
   }
   const id = String(np.episode_id);
-  if (id !== deckDescId) {
-    // New track: rewrite the text and re-point the ids. Nothing collapses
-    // here — expandedEpisodes is keyed per episode, so a track change simply
-    // asks about a different key and answers "closed" on its own.
-    deckDescId = id;
-    panel.textContent = text;
-    panel.id = `desc-${id}`;
-  }
+  if (id !== deckDescId) { deckDescId = id; panel.textContent = text; }
   const open = expandedEpisodes.has(id);
-  const btn = $("np-disc");
-  btn.dataset.disc = id;
-  btn.setAttribute("aria-controls", `desc-${id}`);
-  btn.setAttribute("aria-expanded", String(open));
-  btn.setAttribute("aria-label",
-                   `${open ? "Hide" : "Show"} episode description`);
-  row.hidden = false;
-  panel.hidden = !open;
+  panel.hidden = false;
+  panel.classList.toggle("clamp", !open);
+  // only offer More when three lines did not hold it all
+  more.hidden = !open && panel.scrollHeight <= panel.clientHeight + 1;
+  more.textContent = open ? "Less" : "More";
+  more.setAttribute("aria-expanded", String(open));
 }
+$("np-more").addEventListener("click", () => {
+  if (!deckDescId) return;
+  if (expandedEpisodes.has(deckDescId)) expandedEpisodes.delete(deckDescId);
+  else { expandedEpisodes.add(deckDescId); track("description"); }
+  setDeckDescription(status && status.now_playing);
+});
 
 function renderPage(s) {
   const np = s.now_playing;
