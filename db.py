@@ -246,6 +246,16 @@ class Database:
                 "UPDATE episodes SET media_key=? WHERE id=?",
                 [(media_key_of(r["audio_url"]), r["id"]) for r in pending],
             )
+            # News stopped expiring. What the old 24h prune left Missed is
+            # dropped for good, once: a later Missed news row is a dead link
+            # and keeps its label. played_at takes the publish date so the
+            # batch doesn't bury Recently played.
+            if c.execute("SELECT 1 FROM kv WHERE key='stale_news_dropped'").fetchone() is None:
+                c.execute(
+                    "UPDATE episodes SET status='played', played_at=published_at"
+                    " WHERE status='skipped'"
+                    " AND feed_id IN (SELECT id FROM feeds WHERE is_news=1)")
+                c.execute("INSERT INTO kv (key, value) VALUES ('stale_news_dropped', '1')")
 
     # ── feeds ─────────────────────────────────────────────────────────
     def add_feed(self, url: str, title: str, image_url: str | None, is_news: bool,
@@ -535,23 +545,15 @@ class Database:
                 params,
             ).fetchall()
 
-    def fresh_news(self, cutoff_iso: str) -> list[sqlite3.Row]:
+    def fresh_news(self) -> list[sqlite3.Row]:
+        """Unplayed news, however old: it waits at the top of Up Next until
+        the listener plays it, drops it, or moves it down."""
         with self._conn() as c:
             return c.execute(
                 "SELECT e.* FROM episodes e JOIN feeds f ON f.id=e.feed_id"
-                " WHERE f.is_news=1 AND f.enabled=1 AND e.status='new' AND e.published_at>=?"
+                " WHERE f.is_news=1 AND f.enabled=1 AND e.status='new'"
                 " ORDER BY e.published_at ASC, e.id ASC",
-                (cutoff_iso,),
             ).fetchall()
-
-    def prune_stale_news(self, cutoff_iso: str) -> int:
-        with self._conn() as c:
-            cur = c.execute(
-                "UPDATE episodes SET status='skipped' WHERE status='new' AND published_at<?"
-                " AND feed_id IN (SELECT id FROM feeds WHERE is_news=1)",
-                (cutoff_iso,),
-            )
-            return cur.rowcount
 
     def recently_played(self, limit: int = 10) -> list[sqlite3.Row]:
         with self._conn() as c:

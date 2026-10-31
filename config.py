@@ -18,7 +18,6 @@ class Config:
     tick_seconds: int
     refresh_minutes: int
     queue_ahead: int
-    news_max_age_hours: int
     download_mode: bool
     base_url: str | None
     user_agent: str
@@ -46,7 +45,6 @@ class Config:
             tick_seconds=int(e.get("TICK_SECONDS", "15")),
             refresh_minutes=int(e.get("REFRESH_MINUTES", "30")),
             queue_ahead=int(e.get("QUEUE_AHEAD", "10")),
-            news_max_age_hours=int(e.get("NEWS_MAX_AGE_HOURS", "24")),
             download_mode=e.get("DOWNLOAD_MODE", "0") == "1",
             base_url=e.get("BASE_URL") or None,
             user_agent=e.get("USER_AGENT", "SonosTalkRadio/1.0"),

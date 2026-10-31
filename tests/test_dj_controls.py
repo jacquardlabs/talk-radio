@@ -376,6 +376,36 @@ def test_drop_from_queue_refuses_unqueued_episode(db, cfg, player, dj) -> None:
     assert dj.drop_from_queue(unqueued["id"]) == "That episode isn't in Up Next"
 
 
+def test_drop_for_good_off_air_takes_news_off_the_list(db, cfg, player, dj) -> None:
+    """Off air, news leads Up Next before it is on the speaker, so the
+    board's Drop for good has to land without a Sonos queue slot."""
+    make_feed(db, "showa", 5)
+    dj.start()
+    dj.stop_off_air()
+    news = make_feed(db, "news", 1, is_news=True)
+    headline = db.episodes_for_feed(news)[0]
+    assert dj.drop_from_queue(headline["id"], "done") is None
+    assert db.get_episode(headline["id"])["status"] == "played"
+    assert headline["id"] not in [e["episode_id"] for e in dj.status()["up_next"]]
+
+
+def test_drop_for_good_from_rotation_or_missed(db, cfg, dj) -> None:
+    """The station sheet's Drop for good: undoes an accidental Add to
+    rotation, or settles a missed episode. Up Next and heard ones refuse."""
+    fid = make_feed(db, "showa", 3)
+    added, missed, heard = db.episodes_for_feed(fid)
+    db.mark_skipped(missed["id"])
+    db.mark_played(heard["id"], "2026-01-09T00:00:00Z")
+    assert dj.drop_for_good(added["id"]) is None
+    assert dj.drop_for_good(missed["id"]) is None
+    assert db.get_episode(added["id"])["status"] == "played"
+    assert db.get_episode(missed["id"])["status"] == "played"
+    assert "unplayed" in dj.drop_for_good(heard["id"])
+    db.mark_queued(added["id"], "x-file:///a.mp3", None)
+    assert "unplayed" in dj.drop_for_good(added["id"])
+    assert db.get_episode(added["id"])["status"] == "queued"
+
+
 def test_group_all(db, cfg, player, dj) -> None:
     assert dj.group_all() is None
     assert player.grouped is True

@@ -516,7 +516,7 @@ class DJ:
         offers unstaged ones — but a news episode put back to 'new' by a
         failed playback can be in both, and staging it twice would play it
         twice."""
-        news = self.db.fresh_news(feeds.news_cutoff_iso(self.cfg))
+        news = self.db.fresh_news()
         room = max(0, self.cfg.queue_ahead - len(news))
         leading = {ep["id"] for ep in news}
         restored = [ep for ep in self.db.episodes_by_ids(self.db.up_next_order())
@@ -667,7 +667,7 @@ class DJ:
             # reorder, a drop or a play-now can land between any two of them.
             self._bank_order(matches, cur_idx)
             # news insertion: fresh news exists and the next track isn't news
-            news = self.db.fresh_news(feeds.news_cutoff_iso(self.cfg))
+            news = self.db.fresh_news()
             if news:
                 nxt = matches[cur_idx + 1] if cur_idx + 1 < len(matches) else None
                 next_is_news = False
@@ -1043,7 +1043,21 @@ class DJ:
                         self.db.revert_to_new(ep["id"])
                     self.db.remove_from_up_next(ep["id"])
                     return None
+            if disposition == "done":  # news listed off air, not yet staged
+                return self.drop_for_good(episode_id)
             return "That episode isn't in Up Next"
+
+    def drop_for_good(self, episode_id: int) -> str | None:
+        """Mark an episode heard without it being on the speaker: one added
+        to rotation by mistake, missed news, or news waiting off air. One on
+        the speaker goes through drop_from_queue, which also unqueues it."""
+        with self._lock:
+            episode = self.db.get_episode(episode_id)
+            if episode is None or episode["status"] not in ("new", "skipped"):
+                return "Only an unplayed or missed episode can be dropped here"
+            self._finish(episode)
+            self.db.remove_from_up_next(episode_id)
+            return None
 
     # How close to the end a remote 'play' action must land to count as
     # finished. Matches the slack AntennaPod itself applies (its default
@@ -1584,10 +1598,13 @@ class DJ:
         # Off air Up Next still exists — it just isn't on the speaker. Show it
         # from the saved order so the queue can be read and rearranged before
         # going on, rather than looking empty until something is playing.
+        # Unplayed news leads it, as going on air will stage it.
         if data["dj_state"] != "playing":
-            data["up_next"] = [entry(ep) for ep
-                               in self.db.episodes_by_ids(self.db.up_next_order())
-                               if ep["status"] in ("new", "queued")]
+            news = self.db.fresh_news()
+            leading = {ep["id"] for ep in news}
+            data["up_next"] = [entry(ep) for ep in news] + [
+                entry(ep) for ep in self.db.episodes_by_ids(self.db.up_next_order())
+                if ep["status"] in ("new", "queued") and ep["id"] not in leading]
         try:
             player = self.get_player()
         except Exception:

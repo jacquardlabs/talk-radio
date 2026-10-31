@@ -103,20 +103,37 @@ def test_rotation_feeds_excludes_news_disabled_and_empty(db: Database) -> None:
     assert empty not in [f["id"] for f in db.rotation_feeds_with_new()]
 
 
-def test_fresh_news_ordering_and_prune(db: Database) -> None:
+def test_fresh_news_oldest_first_however_old(db: Database) -> None:
+    """Unplayed news never expires: a weekly show published days ago still
+    leads Up Next until the listener deals with it."""
     news = db.add_feed("https://b/rss", "News", None, True)
     _ep(db, news, 2)
     _ep(db, news, 1)
-    fresh = db.fresh_news("2026-01-01T00:00:00Z")
-    assert [e["guid"] for e in fresh] == [f"guid-{news}-1", f"guid-{news}-2"]
-    assert db.prune_stale_news("2026-01-02T00:00:00Z") == 1
-    assert db.get_episode(fresh[0]["id"])["status"] == "skipped"
-
-
-def test_prune_ignores_non_news(db: Database) -> None:
     plain = db.add_feed("https://a/rss", "A", None, False)
     _ep(db, plain, 1)
-    assert db.prune_stale_news("2027-01-01T00:00:00Z") == 0
+    assert [e["guid"] for e in db.fresh_news()] == [f"guid-{news}-1", f"guid-{news}-2"]
+
+
+def test_init_drops_news_the_old_prune_left_missed_once(db: Database) -> None:
+    """News stopped expiring; what the 24h prune marked Missed becomes
+    Heard on the first start after the upgrade, and only then — a news
+    row Missed later is a dead link and keeps its label."""
+    news = db.add_feed("https://n/rss", "News", None, True)
+    plain = db.add_feed("https://p/rss", "Show", None, False)
+    stale, dead = _ep(db, news, 1), _ep(db, plain, 1)
+    for eid in (stale, dead):
+        db.mark_skipped(eid)
+    db.kv_del("stale_news_dropped")   # a database from before the upgrade
+
+    db.init()
+
+    row = db.get_episode(stale)
+    assert row["status"] == "played" and row["played_at"] == row["published_at"]
+    assert db.get_episode(dead)["status"] == "skipped"
+    later = _ep(db, news, 2)
+    db.mark_skipped(later)
+    db.init()
+    assert db.get_episode(later)["status"] == "skipped"
 
 
 def test_counts_by_feed(db: Database) -> None:

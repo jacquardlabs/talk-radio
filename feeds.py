@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 from typing import NamedTuple
 from urllib.parse import urlparse
@@ -416,24 +416,10 @@ def add_feed(db: Database, cfg: Config, url: str, is_news: bool,
                                 url, is_news, include, last_n)
 
 
-def news_cutoff_iso(cfg: Config) -> str:
-    """The one line between news worth playing and news to bin.
-
-    Both sides of it must stay complementary — `fresh_news` takes
-    published_at >= cutoff, `prune_stale_news` takes < cutoff. They now run
-    on different threads (the DJ stages news while the refresh thread
-    prunes), and there is a window between `fresh_news` handing an episode
-    over and `mark_queued` claiming it where the episode is still 'new'.
-    Disjointness is what keeps that window harmless; widen either side and
-    the pruner can bin an episode the DJ is in the middle of enqueueing."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=cfg.news_max_age_hours)
-    return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _refresh(db: Database, cfg: Config, feeds_to_fetch) -> None:
-    """Fetch each feed in turn, then prune news that has aged out. One dead
-    feed never stops the rest — a station whose host is down is a station
-    with no new episodes, not a failed refresh."""
+    """Fetch each feed in turn. One dead feed never stops the rest — a
+    station whose host is down is a station with no new episodes, not a
+    failed refresh."""
     for feed in feeds_to_fetch:
         if not feed["enabled"]:
             continue
@@ -456,9 +442,6 @@ def _refresh(db: Database, cfg: Config, feeds_to_fetch) -> None:
             db.set_feed_validators(feed["id"], fetched.etag, fetched.last_modified)
         except Exception:
             logger.exception("refresh failed for feed %s (%s)", feed["id"], feed["url"])
-    pruned = db.prune_stale_news(news_cutoff_iso(cfg))
-    if pruned:
-        logger.info("pruned %d stale news episodes", pruned)
 
 
 def refresh_all(db: Database, cfg: Config) -> None:
