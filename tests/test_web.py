@@ -30,7 +30,7 @@ def test_dashboard_loads_without_sonos(no_sonos_client) -> None:
     resp = c.get("/")
     assert resp.status_code == 200
     assert b"Sonos Talk Radio" in resp.data
-    assert b"cat-toggles" in resp.data
+    assert b'id="dial"' in resp.data
 
 
 def test_pwa_manifest_served(no_sonos_client) -> None:
@@ -46,6 +46,8 @@ def test_stations_page_loads_without_sonos(no_sonos_client) -> None:
     resp = c.get("/stations")
     assert resp.status_code == 200
     assert b"station-groups" in resp.data
+    # whether the DJ picks from a category is switched on its shelf
+    assert b'class="rotsw" role="switch"' in resp.data
 
 
 def test_status_degrades_without_sonos(no_sonos_client) -> None:
@@ -548,11 +550,13 @@ def test_stations_page_offers_add_to_up_next(no_sonos_client) -> None:
 
 def test_stations_page_names_the_back_catalog_one_way(no_sonos_client) -> None:
     """"archived" was also "in the vault", "Release", and "Add back catalog";
-    a show added with its latest episode read as 162 dead ones."""
+    a show added with its latest episode read as 162 dead ones. The verbs
+    are one set across both pages: Back to rotation, Never play."""
     c, _ = no_sonos_client
     page = c.get("/stations").data
-    assert b"Back catalog" in page and b"Add to rotation" in page
-    for old in (b"vault", b"Release selected", b"Add back catalog", b">Held<"):
+    assert b"Back catalog" in page and b"Back to rotation" in page and b"Never play" in page
+    for old in (b"vault", b"Release selected", b"Add back catalog", b">Held<",
+                b"Drop for good", b"Add to Up Next", b"Add to rotation <"):
         assert old not in page
 
 
@@ -563,6 +567,14 @@ def test_board_renders_reorder_grips(no_sonos_client) -> None:
     assert b'data-grip=' in body
     assert b'/queue/reorder' in body
     assert b'data-episode-id=' in body
+
+
+def test_board_uses_the_one_verb_set(no_sonos_client) -> None:
+    """Skip's Done and a row's Drop for good were two names for one act."""
+    body = no_sonos_client[0].get("/").data
+    assert body.count(b"Never play <i>") == 2 and b"Back to rotation <i>" in body
+    for old in (b"Drop for good", b"Drop for later", b">Done <i>", b">Later <i>", b">Defer <i>"):
+        assert old not in body
 
 
 def test_skip_flap_offers_defer_first(no_sonos_client) -> None:

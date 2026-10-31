@@ -4,15 +4,14 @@ A self-hosted podcast DJ for your Sonos system. Add your science, history, and
 philosophy shows plus 2–3 news feeds, press **On air**, and it programs the
 speakers like a personal talk-radio station — forever.
 
-![The On air page — now-playing deck, transport, and Up Next](docs/screenshots/on-air.jpg)
+![The On air page — the program clock, what's playing, and Up Next as a program guide](docs/screenshots/on-air.jpg)
 
 ## The three DJ rules
 
 1. **Random show rotation.** The DJ picks a random *show*, not a random
    episode, and won't repeat a show while another has unplayed episodes.
-   Switch a whole category's rotation off — from the *In rotation* row on
-   *On air*; its shelf on *Stations* says so — without pausing or
-   removing its stations. Force-play (*Play next*, *Play now*) ignores
+   Switch a whole category's rotation off — the *In rotation* switch on its
+   shelf on *Stations* — without pausing or removing its stations. Force-play (*Play next*, *Play now*) ignores
    rotation settings, and an episode already queued when you switch a
    category off still plays out.
 2. **Multi-part episodes stay in order.** Shows set to *In order* play their
@@ -53,32 +52,34 @@ catalog).
 
 ![The Stations page — category shelves of artwork tiles with unplayed counts](docs/screenshots/stations.jpg)
 
-On-air controls: **Play/Pause**, −15/+30 seek, **Skip ▾** (*Defer* parks the
-episode in Up Next and resumes it where it stopped, *Later* returns it to
-rotation, *Done* retires it), volume, and a power switch that goes off air
-now — or later: its caret, or a long press on the switch, opens the sleep
-timer (end of episode, or a 15/30/60-minute fade). **Refresh all**
-re-rolls the DJ's picks: pinned rows and the track on air stay, everything
-else goes back in the pool. Up Next rows act too: drag the grip to reorder —
-arrow keys move a focused grip, so it works without a pointer — and each
-row's menu offers *Play now* (interrupts immediately), *Pin* (spares the row
-from that re-roll; pinned rows show a pin), and *Drop* for later or for good.
-A caret on the deck and on each Up
-Next row opens that episode's notes when the feed publishes them.
+On air opens on a **program clock**: a working 12-hour clock, on air or off,
+with a red seconds hand. On air, its rim carries the running order — each
+episode an arc where it will actually air, the playing one solid, news in
+red — and pins mark the wake alarms and when a sleep timer ends. Up Next
+below reads like a program guide: the time each episode starts, then the
+episode and its show.
 
-**Themes.** The board ships eight looks, each drawn from radio's own hardware:
-**Amber** (the dot-matrix VFD, default), **Solari** (a split-flap departures
-board, which sets the now-playing title in tiles), **Ceefax** (teletext, with
-the transport as the Fastext red/green/yellow/cyan row), **J-Card** (a cassette
-inlay, light, progress as a tape window), **Rams** (Braun hi-fi, light, volume
-as a pointer knob), **Quiet Storm** (late-night FM, a Bodoni clock), **Console**
-(a mixing desk, with a working VU meter) and **Longwave** (a shortwave dial with
-kHz ticks). The picker sits in the header on both pages; the choice is stored
-per device, so the wall tablet and the bedside phone can differ. Fonts are
-self-hosted — the appliance never calls out to a font CDN — and only the active
-theme's face downloads.
+Controls: **Play/Pause**, back 15 and forward 30 seconds, **Skip** (*Back to
+Up next* parks the episode and resumes it where it stopped, *Back to
+rotation* returns it to the pool, *Never play* marks it heard), volume, and a
+power switch that goes off air now — or later: *Sleep*, or a long press on
+*Off air*, sets the sleep timer (end of episode, or a 15/30/60-minute fade).
+**Refresh all** re-rolls the DJ's picks: pinned rows and the track on air
+stay, everything else goes back in the pool. Up Next rows act too: drag the
+handle to reorder — arrow keys move a focused handle, so it works without a
+pointer — and each row's menu offers *Play now* (interrupts immediately),
+*Pin* (spares the row from that re-roll; pinned rows show a pin), *Back to
+rotation* and *Never play*. A chevron on the episode playing and on each Up
+Next row opens that episode's notes when the feed publishes them. On a phone
+every menu rises from the bottom, above the controls.
 
-![The On air deck and transport in all eight themes](docs/screenshots/themes.jpg)
+**Light and dark.** The page follows the device's setting; the button in the
+header steps through *match this device*, light and dark, and the choice is
+stored per device, so the wall tablet and the bedside phone can differ. The
+two fonts, Radio Canada Big and its sibling Radio Canada for times and
+counts, are self-hosted: the appliance never calls out to a font CDN.
+
+![The On air page in dark mode](docs/screenshots/on-air-dark.jpg)
 
 The dashboard is an installable PWA — on a phone, *Add to Home Screen* opens it
 standalone like a remote control. Under 760px the transport docks to the bottom
@@ -86,44 +87,45 @@ of the screen, thumb-height:
 
 <img src="docs/screenshots/on-air-narrow.jpg" alt="The On air page at phone width, transport docked to the bottom" width="420">
 
-1. **Pick a speaker** — on *On air*, open the rooms chip beside *Now playing*
-   and hit *Scan for speakers*. Tap a room's name to make it
+1. **Pick a speaker** — on *On air*, open the rooms button beside what's
+   playing and choose *Scan for speakers*. Tap a room's name to make it
    the one the DJ plays through. Each room's checkbox adds it to the group or
    drops it out; the room holding the queue is fixed on — switch rooms rather
    than unticking it. *Group all* adds every speaker.
-2. **Add stations** — on *Stations*, press *Manage*, then search by podcast
-   name, or toggle to *Paste URL* for feeds a directory search won't find (an
+2. **Add stations** — on *Stations*, press *Add station*, then search by
+   podcast name, or switch to *Paste a link* for feeds a directory search won't find (an
    Apple Podcasts show link works too). Check *news* for news
    feeds. Pick how much back catalog to include:
    - *New episodes only* — nothing until the next episode drops
    - *Latest episode* (default) — start from the newest
-   - *Last N episodes* — the newest N
-   - *Entire back catalog* — starts the show at episode 1
+   - *Last few episodes* — the newest N
+   - *Every episode* — starts the show at episode 1
 
    The rest waits in the station's *Back catalog*, out of rotation until
    you add it.
 3. **Set wake times** — alarm-style rows (time + day chips), e.g. 08:00
    Mon–Fri and 10:00 Sat–Sun.
-4. Press **ON AIR**.
+4. Press **Play**.
 5. **Manage episodes** — *Stations* is a record crate: category shelves of
-   artwork tiles, badges showing unplayed counts, *Manage* for adding
-   stations and editing categories, and a *Tinted/Color* switch for the artwork
-   treatment — *Tinted* duotones the artwork into whichever theme is on. Tap a tile for its station sheet: the show's description, then its
-   episodes newest first. An episode the DJ can pick is lit; one in the *Back
-   catalog* (it won't until you add it) is dimmed; a *Heard* one is struck
-   through, and plays again with one tap. The back catalog, *Heard* and
-   *Missed* episodes stay hidden until *Show back catalog (N)*, so the
-   sheet opens on what's left to hear; the choice holds for every station. Station settings
+   artwork tiles in full color so a show is recognisable at a glance, badges
+   counting what's left to hear, each shelf's *In rotation* switch, and a
+   menu beside it to rename or remove the category. Tap a tile for its
+   station sheet: the show's description, then its episodes newest first. An
+   episode in the *Back catalog* (the DJ won't pick it until you add it) is
+   dimmed; a *Heard* one is struck through, and plays again with one tap. The
+   back catalog, *Heard* and *Missed* episodes stay hidden until you switch on
+   *Heard and back catalog*, so the sheet opens on what's left to hear; the
+   choice holds for every station. Station settings
    (category, order, news, off, remove) sit behind *Settings*. A caret on an
    episode row opens that episode's notes; descriptions come from the feed,
    so a show that publishes none shows none. Add back-catalog episodes to
-   rotation singly (*Add to rotation* in the row's menu), in batches
+   rotation singly (*Back to rotation* in the row's menu), in batches
    (*Select*, then *Add selected (N)*), or all at once (*Add all to
-   rotation*). *Move to back catalog*, in an unplayed episode's menu, sends
-   one back out of rotation; *Drop for good*, there or on a *Missed* one,
-   marks it heard. *Play next* queues an
-   episode after the current track, *Play now* interrupts, and *Add to Up
-   Next* queues it at the end of the line; all three work on any episode
+   rotation*). *Send to back catalog*, in an unplayed episode's menu, takes
+   one back out of rotation; *Never play*, there or on a *Missed* one, marks
+   it heard. *Play next* queues an
+   episode after the current track, *Play now* interrupts, and *Play last*
+   queues it at the end of Up Next; all three work on any episode
    regardless of status, and turn the station on air if it is off. An episode
    whose title carries a part marker also offers *Queue series* — every
    unheard part of that story, appended in order. The search box above the
@@ -297,10 +299,10 @@ the ones above have no page. To see the last 30 days, most frequent first:
 448 tests, no network and no speaker required: Sonos is faked at the
 `sonos_ctl` seam (`tests/fake_player.py`) and feeds come from fixtures.
 
-`python tools/check_contrast.py` holds every theme to the contrast ratios the
-default one owes — text that is meant to be read clears 4.5:1 on its own
-ground. It reads the palettes out of the stylesheets, so a new theme is
-checked by adding it, not by remembering to.
+`python tools/check_contrast.py` holds light and dark to the contrast the
+page needs — text that is meant to be read clears 4.5:1 on its own ground.
+It reads the palettes out of `templates/base.html`, so a token change is
+checked by making it, not by remembering to.
 
 `uv run tools/screenshot.py http://<server>:8080/api/status` recaptures the
 images in `docs/screenshots/`: this checkout's templates, one status snapshot
@@ -313,10 +315,9 @@ Flask. `dj.py` holds the programming rules, `db.py` all SQLite access,
 adapter, `web.py` the routes. Design notes for each feature live in
 `docs/design/`.
 
-The look is one token contract: the `:root` block in `templates/base.html` is
-both the default theme and the list of everything a theme may set, and
-`static/themes.css` redefines that set seven more times. A new theme is a
-token block plus, where it earns one, a component rule — no template changes.
+The look is one token set: the `:root` block in `templates/base.html` is
+light, and dark restates every token, once for the system setting and once
+for the header button's choice.
 
 `make deploy DEPLOY_HOST=you@server` ships the committed tree to a home server
 over SSH and rebuilds the container there.

@@ -1,82 +1,247 @@
 {% extends "base.html" %}
 
+{% block style %}
+/* ── on air: the program clock and what's playing ─────────────────── */
+.stage { display: grid; grid-template-columns: 340px 1fr; gap: 56px; align-items: center; padding: 44px 0 8px; }
+.dial { width: 340px; aspect-ratio: 1; }
+.dial svg { width: 100%; height: 100%; overflow: visible; display: block; }
+.dial .face { fill: var(--panel); }
+.dial .tick { stroke: var(--slate); stroke-width: 1.2; }
+.dial .tick.hr { stroke: var(--ink); stroke-width: 2.2; }
+.dial .num { fill: var(--slate); font: 500 14px var(--figures); text-anchor: middle; dominant-baseline: central; }
+.dial .seg { fill: none; stroke-width: 16; }
+.dial .seg.a { stroke: var(--arc-a); }
+.dial .seg.b { stroke: var(--arc-b); }
+.dial .seg.news { stroke: var(--tally); }
+.dial .seg.now { stroke: var(--ink); }
+.dial .seg.done { stroke: var(--ink); opacity: .2; }
+.dial .hand { stroke: var(--ink); stroke-linecap: round; }
+.dial .hand.h { stroke-width: 6; }
+.dial .hand.m { stroke-width: 4; }
+.dial .hand.s { stroke: var(--tally); stroke-width: 1.8; }
+.dial .hub { fill: var(--tally); }
+.dial .hub-in { fill: var(--panel); }
+.dial .pin { fill: var(--ink); }
+.dial .pinl { fill: var(--ink); font: 600 12px var(--font); text-anchor: middle; dominant-baseline: central; }
+.dial .pinl.sleep { fill: var(--slate); }
+
+.now { min-width: 0; }
+.now-head { display: flex; align-items: center; gap: 14px; }
+.deck-art { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; flex: none; background: var(--hair); }
+.np-eyebrow { min-width: 0; display: grid; gap: 2px; }
+.np-show { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-date { color: var(--slate); font-size: 14px; }
+.roomswrap { margin-left: auto; flex: none; }
+.rooms-flap { min-width: 300px; }
+.np-title {
+  font-size: clamp(28px, 3.4vw, 42px); line-height: 1.08; font-weight: 600; letter-spacing: -.02em;
+  margin: 18px 0 12px; text-wrap: balance; max-width: 20ch;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.np-meta { font-size: 17px; }
+/* off air there is no episode to seek through */
+.now.idle .track, .now.idle .times { display: none; }
+.np-meta b { font-weight: 600; }
+.np-desc-row { display: flex; align-items: center; gap: 2px; margin-top: 6px; color: var(--slate); font-size: 15px; }
+.np-desc-row[hidden] { display: none; }
+.np-desc-row .disc { margin: 0; }
+.npdesc { margin-top: 6px; }
+/* the visible bar is 6px; padding grows the touch target to 44px */
+.track { position: relative; height: 44px; margin: 14px 0 -8px; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+.track::before { content: ""; position: absolute; left: 0; right: 0; top: 19px; height: 6px; border-radius: 3px; background: var(--hair); }
+.track .fill { position: absolute; left: 0; top: 19px; height: 6px; width: 0; border-radius: 3px; background: var(--ink); }
+.track .mark { position: absolute; top: 14px; left: 0; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%;
+  background: var(--ink); box-shadow: 0 0 0 3px var(--paper); }
+.times { display: flex; justify-content: space-between; font-size: 13px; color: var(--slate); }
+
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 22px; }
+.transport .break { flex-basis: 100%; height: 6px; }
+.transport button.tab { min-height: 56px; }
+.transport button.round { width: 56px; padding: 0; }
+button.tab.tplay { min-width: 148px; background: var(--ink); color: var(--paper); border-color: var(--ink); font-size: 17px; font-weight: 600; }
+button.tab.tplay svg { fill: currentColor; stroke: none; }
+button.tab.tplay:hover { background: color-mix(in srgb, var(--ink) 88%, var(--paper)); }
+.vol { display: flex; align-items: center; gap: 12px; min-height: 56px; color: var(--slate); cursor: pointer;
+  touch-action: none; user-select: none; -webkit-user-select: none; border-radius: 999px; }
+.vol .meter { position: relative; width: 200px; height: 4px; border-radius: 2px; background: var(--hair); }
+.vol .meter .fill { position: absolute; inset: 0 auto 0 0; width: calc(var(--vol, 0) * 1%); border-radius: 2px; background: var(--slate); }
+.vol .meter .fill::after { content: ""; position: absolute; right: -8px; top: -6px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); }
+.vol .val { min-width: 2ch; font-size: 15px; }
+.powerwrap { display: flex; margin-left: auto; }
+.powerwrap > button.tab:first-child { border-radius: 999px 0 0 999px; padding: 0 16px 0 14px;
+  -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.powerwrap > button.tab.sleepcaret { border-radius: 0 999px 999px 0; margin-left: -1px; color: var(--slate); padding: 0 14px; }
+.powerwrap > button.tab.sleepcaret.timing { color: var(--ink); font-weight: 600; }
+.powerwrap .flap { left: auto; right: 0; }
+
+/* rooms: the checkbox is membership, the name chooses which room is the station */
+.spk-list { display: grid; gap: 2px; padding: 4px; }
+.spk { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 10px; border-radius: 10px; }
+.spk input[type="checkbox"] { accent-color: var(--ink); width: 20px; height: 20px; }
+.spk input[type="checkbox"]:disabled { opacity: .5; cursor: not-allowed; }
+.spk-name { background: none; border: 0; padding: 8px 0; color: var(--slate); font: 500 16px var(--font); cursor: pointer; text-align: left; }
+.spk-name:hover, .spk-name.on { color: var(--ink); }
+.spk-name.on::after { content: "Station"; margin-left: 10px; font-size: 13px; font-weight: 400; color: var(--slate); }
+.spk-empty { color: var(--slate); padding: 8px 10px; }
+.rooms-flap .spk-list + button { border-top: 1px solid var(--hair); border-radius: 0 0 10px 10px; margin-top: 4px; }
+
+/* ── up next: a program guide ──────────────────────────────────────── */
+#departures { border-top: 1px solid var(--hair); }
+.qrow {
+  display: grid; grid-template-columns: 24px 56px 48px 1fr auto 44px; gap: 0 16px; align-items: center;
+  padding: 12px 0; border-bottom: 1px solid var(--hair);
+}
+.grip { width: 24px; height: 44px; border: 0; background: none; color: var(--slate); cursor: grab; touch-action: none; display: grid; place-items: center; }
+.grip:hover { color: var(--ink); }
+.qrow.dragging { cursor: grabbing; user-select: none; position: relative; z-index: 2; background: var(--panel);
+  box-shadow: var(--shadow); border-radius: 12px; }
+.qrow.dragging .grip { cursor: grabbing; color: var(--ink); }
+.at { font-size: 17px; font-weight: 600; }
+.at.news { color: var(--tally); }
+.qrow img, .qrow .noart { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; background: var(--hair); }
+.qmain { min-width: 0; }
+.qtitle { font-size: 17px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qtitle .news { color: var(--tally); font-weight: 600; margin-right: 8px; }
+.qmeta { display: flex; align-items: center; gap: 0; color: var(--slate); font-size: 14px; white-space: nowrap; overflow: hidden; }
+.qmeta .pd::before { content: ""; display: inline-block; width: 1.2em; }
+.qpin { display: inline-flex; margin-right: 6px; color: var(--ink); }
+.qpin svg { width: 13px; height: 13px; fill: currentColor; }
+.dur { color: var(--slate); font-size: 15px; text-align: right; }
+.qact .tab.more, .ep-actions .tab.more { width: 44px; padding: 0; border-color: transparent; color: var(--slate); }
+.qact .tab.more:hover, .ep-actions .tab.more:hover { color: var(--ink); }
+.qdesc { grid-column: 4 / -1; margin: 6px 0 2px; }
+.empty-queue { padding: 22px 0; color: var(--slate); border-bottom: 1px solid var(--hair); }
+
+/* ── the log: wake, earlier, wouldn't play ─────────────────────────── */
+.basement { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 32px; margin-top: 44px; }
+.basement > button {
+  display: grid; gap: 4px; align-content: start; text-align: left; padding: 12px 0; min-height: 44px;
+  background: none; border: 0; border-top: 2px solid var(--ink); color: var(--slate); font: 400 15px/1.45 var(--font); cursor: pointer;
+}
+.basement > button[hidden] { display: none; }
+.basement > button b { color: var(--ink); font-weight: 600; display: flex; align-items: center; gap: 4px; }
+.basement > button b svg { width: 16px; height: 16px; transition: transform .15s; }
+.basement > button[aria-expanded="true"] b svg { transform: rotate(180deg); }
+.basement > button:hover b { text-decoration: underline; text-underline-offset: 3px; }
+.bpanel { margin-top: 18px; padding: 8px 20px 18px; border-radius: 16px; background: var(--panel); }
+.svc-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--hair); }
+.svc-row:last-child { border-bottom: 0; }
+.svc-row .m { color: var(--slate); font-size: 14px; }
+.svc-row .spacer { flex: 1; }
+.svc-row .pri { color: var(--tally); font-weight: 500; }
+.sched-time { font: 600 24px var(--figures); }
+.svc-row.off .sched-time, .svc-row.off .chips { opacity: .45; }
+.chips { display: flex; gap: 4px; }
+.chip { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--hair); background: none;
+  color: var(--slate); font: 600 14px var(--font); cursor: pointer; }
+.chip.on { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.chip.mini { display: grid; place-items: center; width: 24px; height: 24px; font-size: 11px; cursor: default; }
+form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+
+@media (max-width: 760px) {
+  .stage { grid-template-columns: 1fr; gap: 20px; padding-top: 20px; justify-items: center; }
+  .dial { width: min(300px, 80vw); }
+  .now { width: 100%; }
+  .np-title { font-size: 26px; max-width: none; }
+  #btn-rooms .lbl { display: none; }
+  #btn-rooms { width: 44px; padding: 0; }
+  .qmeta .pd { display: none; }
+  /* the transport docks like a remote: verbs, then level and power */
+  body { padding-bottom: 190px; }
+  .transport {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; margin: 0; gap: 8px;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); background: var(--panel);
+    border-top: 1px solid var(--hair); box-shadow: 0 -8px 24px rgb(0 0 0 / .08);
+  }
+  .transport button.tab { min-height: 52px; }
+  .transport button.round { width: 52px; }
+  button.tab.tplay { flex: 1; min-width: 0; }
+  .transport .break { height: 0; }
+  .vol { flex: 1; min-height: 48px; }
+  .vol .meter { flex: 1; width: auto; }
+  .qrow { grid-template-columns: 20px 46px 1fr 44px; gap: 0 10px; }
+  .qrow img, .qrow .noart, .dur { display: none; }
+  .qtitle { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 16px; }
+  .at { font-size: 15px; }
+  .qdesc { grid-column: 3 / -1; }
+  .basement { grid-template-columns: 1fr; }
+}
+{% endblock %}
+
 {% block content %}
-<div class="deck">
-  <img class="deck-art" id="np-art" alt="" hidden>
-  <div class="deck-info">
-    <div class="np-eyebrow"><span id="np-label">Off air</span>
-      <span class="np-right"><span id="np-departs"></span>
-      <!-- Rooms change weekly; they sat above the deck as its first row.
-           Now one chip says where it's playing and opens the list. -->
+<section class="stage">
+  <div class="dial" id="dial"></div>
+  <div class="now">
+    <div class="now-head">
+      <img class="deck-art" id="np-art" alt="" hidden>
+      <div class="np-eyebrow" id="np-label"><span class="np-show">Off air</span></div>
+      <!-- One chip says where it's playing and opens the list of rooms. -->
       <span class="flapwrap roomswrap">
         <button type="button" class="tab small" id="btn-rooms" data-flap="rooms-flap"
-                aria-haspopup="true" aria-expanded="false">Rooms &#9662;</button>
-        <div class="flap rooms-flap" id="rooms-flap" data-flap-keep hidden>
+                aria-haspopup="true" aria-expanded="false">Rooms</button>
+        <div class="flap right rooms-flap" id="rooms-flap" data-flap-keep hidden>
           <div class="spk-list" id="speakers" role="group" aria-label="Speakers"></div>
           <button type="button" id="btn-scan">Scan for speakers <i>takes a few seconds</i></button>
           <button type="button" data-player="group_all">Group all <i>every room plays</i></button>
         </div>
-      </span></span></div>
-    <h1 class="np-title glow" id="np-title">Press Play to go on air</h1>
+      </span>
+    </div>
+    <h1 class="np-title" id="np-title">Press Play to go on air</h1>
     <div class="np-meta" id="np-meta"></div>
     <div class="np-desc-row" id="np-desc-row" hidden>
       <button type="button" class="disc" id="np-disc" aria-expanded="false"
-              aria-controls="np-desc" aria-label="Show episode description">&#9662;</button>
-      <span class="np-desc-cue">Description</span>
+              aria-controls="np-desc" aria-label="Show episode notes"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <span>Episode notes</span>
     </div>
     <div class="npdesc" id="np-desc" hidden></div>
-  </div>
-</div>
-<div class="track" id="track" title="Drag to seek">
-  <div class="fill" id="track-fill"></div>
-  <div class="mark" id="track-mark"></div>
-</div>
-<div class="times"><span id="t-pos">0:00</span><span id="t-dur">0:00</span></div>
+    <div class="track" id="track" title="Drag to seek">
+      <div class="fill" id="track-fill"></div>
+      <div class="mark" id="track-mark"></div>
+    </div>
+    <div class="times"><span id="t-pos">0:00</span><span id="t-dur">0:00</span></div>
 
-<div class="transport">
-  <button type="button" class="tab" data-player="back_15" title="Back 15 seconds">&minus;15</button>
-  <button type="button" class="tab tplay paused" id="btn-playpause">&#9654;&ensp;Play</button>
-  <button type="button" class="tab" data-player="fwd_30" title="Forward 30 seconds">+30</button>
-  <div class="flapwrap">
-    <button type="button" class="tab" id="btn-skip" data-flap="skip-flap"
-            aria-haspopup="true" aria-expanded="false">Skip &#9662;</button>
-    <div class="flap" id="skip-flap" hidden>
-      <button type="button" data-player="defer">Defer <i>back to up next</i></button>
-      <button type="button" data-player="skip_later">Later <i>back in rotation</i></button>
-      <button type="button" class="danger" data-player="skip_done">Done <i>never play again</i></button>
+    <div class="transport">
+      <button type="button" class="tab round" data-player="back_15" title="Back 15 seconds" aria-label="Back 15 seconds"><svg class="i" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/></svg></button>
+      <button type="button" class="tab tplay paused" id="btn-playpause"></button>
+      <button type="button" class="tab round" data-player="fwd_30" title="Forward 30 seconds" aria-label="Forward 30 seconds"><svg class="i" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4h-4"/></svg></button>
+      <div class="flapwrap">
+        <button type="button" class="tab" id="btn-skip" data-flap="skip-flap"
+                aria-haspopup="true" aria-expanded="false">Skip <svg class="i sm" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <div class="flap" id="skip-flap" hidden>
+          <button type="button" data-player="defer">Back to Up next <i>keeps its place</i></button>
+          <button type="button" data-player="skip_later">Back to rotation <i>plays another day</i></button>
+          <button type="button" class="danger" data-player="skip_done">Never play <i>marks it heard</i></button>
+        </div>
+      </div>
+      <span class="break"></span>
+      <div class="vol" id="vol" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0" title="Volume">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 9a4 4 0 0 1 0 6"/></svg>
+        <span class="meter"><span class="fill"></span></span>
+        <span class="val" id="vol-val">--</span>
+      </div>
+      <!-- Power is a split switch: the switch goes off air now, the caret (or a
+           long press on the switch) goes off air later. -->
+      <div class="flapwrap powerwrap">
+        <button type="button" class="tab power" id="btn-power" data-player="stop"
+                title="Stop and put the queue back. Hold for the sleep timer"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>Off air</button>
+        <button type="button" class="tab power sleepcaret" id="btn-sleep" data-flap="sleep-flap"
+                aria-haspopup="true" aria-expanded="false" aria-label="Sleep timer" title="Sleep timer">Sleep</button>
+        <div class="flap" id="sleep-flap" hidden>
+          <button type="button" data-sleep="episode">End of episode <i>off air when this one ends</i></button>
+          <button type="button" data-sleep="15">15 minutes <i>fades out, then off air</i></button>
+          <button type="button" data-sleep="30">30 minutes <i>fades out, then off air</i></button>
+          <button type="button" data-sleep="60">60 minutes <i>fades out, then off air</i></button>
+          <button type="button" id="sleep-cancel" data-player="sleep_cancel" hidden>Stay on air <i>cancels the timer</i></button>
+        </div>
+      </div>
     </div>
   </div>
-  <div class="vol" id="vol" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0" title="Volume">
-    <span class="lbl">VOL</span>
-    <span class="meter"><span class="fill"></span></span>
-    <span class="val glow" id="vol-val">--</span>
-  </div>
-  <!-- Power is a split switch: the switch goes off air now, the caret (or a
-       long press on the switch) goes off air later. -->
-  <div class="flapwrap powerwrap">
-    <button type="button" class="tab power" id="btn-power" data-player="stop"
-            title="Off air — stop and revert the queue. Hold for the sleep timer">&#9211;</button>
-    <button type="button" class="tab power sleepcaret" id="btn-sleep" data-flap="sleep-flap"
-            aria-haspopup="true" aria-expanded="false" aria-label="Sleep timer" title="Sleep timer">&#9662;</button>
-    <div class="flap" id="sleep-flap" hidden>
-      <button type="button" data-sleep="episode">End of episode <i>off air when this one finishes</i></button>
-      <button type="button" data-sleep="15">15 minutes <i>fade out, then off air</i></button>
-      <button type="button" data-sleep="30">30 minutes <i>fade out, then off air</i></button>
-      <button type="button" data-sleep="60">60 minutes <i>fade out, then off air</i></button>
-      <button type="button" id="sleep-cancel" data-player="sleep_cancel" hidden>Stay on air <i>cancel the timer</i></button>
-    </div>
-  </div>
-</div>
+</section>
 
-<div class="eyebrow"><span>Up next</span>
-  <span><button type="button" class="tab small" id="btn-refresh"
+<div class="sect"><h2>Up next</h2><span class="aside" id="until"></span>
+  <span class="end"><button type="button" class="tab small" id="btn-refresh"
     title="Re-roll everything the DJ picked; pinned rows stay">Refresh all</button></span></div>
 <div id="departures"></div>
-
-<div id="rotation-block" style="display:none">
-  <div class="eyebrow"><span>In rotation</span><span>Unplayed per category</span></div>
-  <div class="rotrow" id="cat-toggles"></div>
-</div>
 
 <div class="basement">
   <button type="button" id="wake-line" aria-expanded="false" aria-controls="wake-editor"></button>
@@ -102,7 +267,6 @@
 {% block script %}
 <script>
 "use strict";
-let lastCats = "";
 let lastSchedSig = "";
 let lastArtUrl = "";
 // server truth we extrapolate from between polls: the position the speaker
@@ -114,7 +278,7 @@ function daysLabel(days) {
   const key = days.join(",");
   if (key === "0,1,2,3,4") return "Mon–Fri";
   if (key === "5,6") return "Sat–Sun";
-  if (key === "0,1,2,3,4,5,6") return "daily";
+  if (key === "0,1,2,3,4,5,6") return "every day";
   return days.map((i) => DAYS[i]).join(" ");
 }
 
@@ -122,15 +286,8 @@ function daysLabel(days) {
 // goes quiet — so both read as minutes. An episode timer whose track has no
 // length can only name the end it is waiting for.
 function sleepLabel(sleep) {
-  if (sleep.remaining == null) return "End";
-  return `${Math.max(1, Math.round(sleep.remaining / 60))}m`;
-}
-
-function relStart(sec) {
-  if (sec == null) return "";
-  const m = Math.round(sec / 60);
-  if (m < 1) return " &middot; up next";
-  return m < 60 ? ` &middot; in ~${m} min` : ` &middot; in ~${(m / 60) | 0} h ${String(m % 60).padStart(2, "0")}`;
+  if (sleep.remaining == null) return "at the end";
+  return `in ${Math.max(1, Math.round(sleep.remaining / 60))} min`;
 }
 
 // paints every position-driven readout (departs, min-left, progress bar,
@@ -141,16 +298,15 @@ function paintNowPlaying(np, pos, playing, paused) {
   const dur = np.duration;
   const remain = dur ? dur - pos : 0;
   if (playing) {
-    $("np-departs").textContent = dur ? `Departs ${hm(new Date(Date.now() + remain * 1000))}` : "";
-    $("np-meta").innerHTML = `<b class="glow">${Math.max(1, Math.round(remain / 60))} min left</b>` +
-      ` &nbsp;&middot;&nbsp; ${fmt(pos)} / ${fmt(dur)}`;
+    $("np-meta").innerHTML = dur
+      ? `<b>${fmtMins(Math.max(60, remain))} left</b>, ends at <span class="fig">${hm(new Date(Date.now() + remain * 1000))}</span>`
+      : "";
   } else {
-    $("np-departs").textContent = paused ? "Held" : "";
-    $("np-meta").innerHTML = `<b>Held at ${fmt(pos)}</b> &nbsp;&middot;&nbsp; of ${fmt(dur)}`;
+    $("np-meta").innerHTML = `<b>${paused ? "Paused" : "Stopped"}</b> at <span class="fig">${fmt(pos)}</span>`;
   }
   const pct = dur ? Math.min(100, 100 * pos / dur) : 0;
   $("track-fill").style.width = `${pct}%`;
-  $("track-mark").style.left = `calc(${pct}% - 1px)`;
+  $("track-mark").style.left = `${pct}%`;
   $("t-pos").textContent = fmt(pos);
   $("t-dur").textContent = fmt(dur);
 }
@@ -165,46 +321,115 @@ function livePos() {
 }
 
 // ── the deck title ─────────────────────────────────────────────────
-// Plain text, except under Solari, which sets it in split-flap tiles and
-// so needs one element per glyph. Guarded on the text having changed
-// because the deck repaints every five seconds.
-let lastDeckTitle = null;
-let lastDeckSplit = null;
+// Guarded on the text having changed because the deck repaints every five
+// seconds, and a rewrite would drop a text selection on it.
 function setDeckTitle(text) {
   const el = $("np-title");
-  const split = currentTheme() === "solari";
-  if (text === lastDeckTitle && split === lastDeckSplit) return;
-  lastDeckTitle = text;
-  lastDeckSplit = split;
-  if (!split) { el.textContent = text; return; }
-  el.textContent = "";
-  const words = text.split(" ");
-  words.forEach((word, i) => {
-    const w = document.createElement("span");
-    w.className = "word";
-    for (const ch of word) {
-      const f = document.createElement("span");
-      f.className = "flip";
-      f.textContent = ch;
-      w.appendChild(f);
-    }
-    el.appendChild(w);
-    // A real space between words, not a layout gap: the title still has
-    // to read as a sentence when it is copied, searched, or spoken.
-    if (i < words.length - 1) el.appendChild(document.createTextNode(" "));
-  });
+  if (el.textContent !== text) el.textContent = text;
 }
-// A theme change has to re-split (or un-split) the title that is already
-// on the deck, not wait for the next track.
-document.addEventListener("themechange", () => {
-  const t = lastDeckTitle;
-  lastDeckTitle = null;
-  if (t !== null) setDeckTitle(t);
-});
+
+// ── the program clock ──────────────────────────────────────────────
+// A working 12-hour clock, on air or off. On air, the rim carries the
+// running order: each episode is an arc where it will actually air, the
+// playing one solid, news in red. Wake alarms and a sleep timer are pins on
+// the rim. The face is built once; the arcs repaint with the poll and the
+// hands every second.
+const DIAL = { C: 170, R: 150 };
+const dialPt = (a, r) => [DIAL.C + r * Math.sin(a), DIAL.C - r * Math.cos(a)];
+const clockAngle = (d) => ((d.getHours() % 12) * 60 + d.getMinutes() + d.getSeconds() / 60) / 720 * 2 * Math.PI;
+function dialArc(a0, a1, r) {
+  const [x0, y0] = dialPt(a0, r), [x1, y1] = dialPt(a1, r);
+  return `M${x0.toFixed(1)} ${y0.toFixed(1)}A${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+}
+(function buildDial() {
+  const { C } = DIAL;
+  const ticks = Array.from({ length: 60 }, (_, i) => {
+    const a = i / 60 * 2 * Math.PI, hr = i % 5 === 0;
+    const [x0, y0] = dialPt(a, hr ? 112 : 118), [x1, y1] = dialPt(a, 125);
+    return `<line class="tick${hr ? " hr" : ""}" x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}"/>`;
+  }).join("");
+  const nums = [12, 3, 6, 9].map((h, i) => {
+    const [x, y] = dialPt(i * Math.PI / 2, 96);
+    return `<text class="num" x="${x}" y="${y}">${h}</text>`;
+  }).join("");
+  $("dial").innerHTML = `<svg viewBox="0 0 340 340" role="img" aria-labelledby="dial-label">
+    <title id="dial-label">Clock</title>
+    <circle class="face" cx="${C}" cy="${C}" r="132"/>${ticks}${nums}<g id="dial-arcs"></g><g id="dial-pins"></g>
+    <line class="hand h" id="hand-h" x1="${C}" y1="${C + 12}" x2="${C}" y2="${C - 62}"/>
+    <line class="hand m" id="hand-m" x1="${C}" y1="${C + 14}" x2="${C}" y2="${C - 100}"/>
+    <line class="hand s" id="hand-s" x1="${C}" y1="${C + 22}" x2="${C}" y2="${C - 114}"/>
+    <circle class="hub" cx="${C}" cy="${C}" r="5"/><circle class="hub-in" cx="${C}" cy="${C}" r="1.6"/></svg>`;
+})();
+function tickDial() {
+  const d = new Date(), { C } = DIAL;
+  const sec = d.getSeconds();
+  const min = d.getMinutes() + sec / 60;
+  const hr = (d.getHours() % 12) + min / 60;
+  $("hand-h").setAttribute("transform", `rotate(${hr * 30} ${C} ${C})`);
+  $("hand-m").setAttribute("transform", `rotate(${min * 6} ${C} ${C})`);
+  $("hand-s").setAttribute("transform", `rotate(${sec * 6} ${C} ${C})`);
+}
+// The running order as wall-clock starts: the playing episode's end, then
+// each episode in turn. Null when off air — nothing is scheduled to start.
+function schedule(s) {
+  const np = s.now_playing;
+  if (!np || !np.duration || !isPlaying(s)) return null;
+  const now = Date.now();
+  let t = now + (np.duration - livePos()) * 1000;
+  const slots = s.up_next.map((e) => {
+    const at = t;
+    t = e.duration ? t + e.duration * 1000 : t;
+    return { e, at };
+  });
+  return { started: now - livePos() * 1000, ends: now + (np.duration - livePos()) * 1000, slots, until: t };
+}
+function renderDial(s) {
+  const { R } = DIAL;
+  const plan = schedule(s);
+  const now = new Date();
+  // Angles run on from the hand by elapsed time, never by clock position:
+  // a queue longer than twelve hours must stop at the hand, not lap it.
+  const a0 = clockAngle(now), limit = a0 + 2 * Math.PI - 0.1;
+  const ahead = (t) => a0 + (t - now) / 43200000 * 2 * Math.PI;
+  let arcs = "";
+  if (plan) {
+    const np = s.now_playing;
+    arcs += `<path class="seg done" d="${dialArc(Math.max(ahead(plan.started), a0 - Math.PI), a0, R)}"/>`;
+    arcs += `<path class="seg ${np.is_news ? "news" : "now"}" d="${dialArc(a0, Math.min(ahead(plan.ends), limit), R)}"/>`;
+    plan.slots.forEach(({ e, at }, k) => {
+      if (!e.duration) return;
+      const from = ahead(at), to = Math.min(from + e.duration / 43200 * 2 * Math.PI, limit);
+      if (from >= limit) return;
+      arcs += `<path class="seg ${e.is_news ? "news" : k % 2 ? "b" : "a"}" d="${dialArc(from + 0.016, to - 0.016, R)}"/>`;
+    });
+  }
+  $("dial-arcs").innerHTML = arcs;
+  // pins on the rim: each distinct wake time, and when a sleep timer ends
+  const pins = [...new Set(s.schedules.filter((a) => a.enabled).map((a) => a.time))]
+    .map((t) => { const [h, m] = t.split(":").map(Number); return { a: (h % 12 * 60 + m) / 720 * 2 * Math.PI, label: "Wake" }; });
+  if (s.sleep && s.sleep.remaining != null) pins.push({ a: clockAngle(new Date(Date.now() + s.sleep.remaining * 1000)), label: "Sleep", cls: " sleep" });
+  $("dial-pins").innerHTML = pins.map(({ a, label, cls }) => {
+    const [x, y] = dialPt(a, 166), [lx, ly] = dialPt(a, 186);
+    return `<circle class="pin" cx="${x}" cy="${y}" r="3.5"/><text class="pinl${cls || ""}" x="${lx}" y="${ly}">${label}</text>`;
+  }).join("");
+  const np = s.now_playing;
+  $("dial-label").textContent = `${hm(now)}` + (plan
+    ? `. ${np.show} until ${hm(new Date(plan.ends))}, Up next until ${hm(new Date(plan.until))}.`
+    : ". Off air.");
+}
+tickDial();
+setInterval(tickDial, 1000);
 
 // ── render ─────────────────────────────────────────────────────────
 // A thumbtack, drawn: the only monochrome pushpin in Unicode (U+1F588) has
-// no glyph in this font stack, and the emoji one can't be tinted amber.
+// no glyph in this font stack, and the emoji one ignores the ink colour.
+const GRIP_SVG = '<svg class="i sm" viewBox="0 0 24 24"><path d="M5 8h14M5 12h14M5 16h14"/></svg>';
+const MORE_SVG = '<svg class="i" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/></svg>';
+const SPEAKER_SVG = '<svg class="i sm" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="14" r="3"/></svg>';
+function fmtMins(sec) {
+  const m = Math.round(sec / 60);
+  return m >= 60 ? `${(m / 60) | 0} h ${m % 60} min` : `${m} min`;
+}
 const PIN_SVG =
   '<svg viewBox="0 0 24 24" aria-hidden="true">' +
   '<path d="M9 2h6a1 1 0 0 1 0 2h-.5v5.2l2.9 3.1a1 1 0 0 1-.73 1.7H13v6.5a1 1 0 0 1-2 0V14H7.33' +
@@ -254,6 +479,7 @@ function renderPage(s) {
 
   // the deck: static display, no crawl
   const art = $("np-art");
+  document.querySelector(".now").classList.toggle("idle", !np);
   if (np) {
     if (np.image_url && lastArtUrl !== np.image_url) {
       lastArtUrl = np.image_url;
@@ -263,7 +489,8 @@ function renderPage(s) {
     const npDate = pubDate(np.published_at);
     // rewritten only on change: the 5s poll would otherwise replace the
     // link under a finger or a keyboard focus
-    const label = `Now playing — ${showLink(np.feed_id, np.show)}` + (npDate ? ` · ${npDate}` : "");
+    const label = `<span class="np-show">${showLink(np.feed_id, np.show)}</span>` +
+      (npDate ? `<span class="np-date">${np.is_news ? '<span class="pri">News</span>, ' : ""}${npDate}</span>` : "");
     if ($("np-label").innerHTML !== label) $("np-label").innerHTML = label;
     setDeckTitle(np.title);
     setDeckDescription(np);
@@ -278,27 +505,32 @@ function renderPage(s) {
     art.hidden = true;
     lastArtUrl = "";
     setDeckDescription(null);
-    $("np-label").textContent = "Off air";
-    $("np-departs").textContent = "";
-    setDeckTitle(s.dj_state === "playing" ? "Stand by — tuning" : "Press Play to go on air");
+    $("np-label").innerHTML = '<span class="np-show">Off air</span>' +
+      (s.next_start ? `<span class="np-date">Next on air ${esc(s.next_start)}</span>` : "");
+    setDeckTitle(s.dj_state === "playing" ? "Tuning in" : "Press Play to go on air");
     $("np-meta").textContent = "";
     $("track-fill").style.width = "0%";
-    $("track-mark").style.left = "calc(0% - 1px)";
+    $("track-mark").style.left = "0%";
     $("t-pos").textContent = "0:00";
     $("t-dur").textContent = "0:00";
   }
 
+  // after the anchor above: the dial reads the interpolated position
+  renderDial(s);
+
   // one primary control: Play when anything but playing, Pause while playing
   const pp = $("btn-playpause");
   pp.classList.toggle("paused", !playing);
-  pp.innerHTML = playing ? "&#10074;&#10074;&ensp;Pause" : "&#9654;&ensp;Play";
+  pp.innerHTML = playing
+    ? '<svg class="i" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>Pause'
+    : '<svg class="i" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg>Play';
 
   // The sleep timer states itself on the power switch's caret — the
   // countdown belongs where the control is, not in a readout elsewhere.
   const sleepBtn = $("btn-sleep");
-  const sleepText = s.sleep ? `Sleep timer: ${sleepLabel(s.sleep)}` : "Sleep timer";
+  const sleepText = s.sleep ? `Off air ${sleepLabel(s.sleep)}` : "Sleep timer";
   sleepBtn.classList.toggle("timing", !!s.sleep);
-  sleepBtn.innerHTML = (s.sleep ? sleepLabel(s.sleep) + " " : "") + "&#9662;";
+  sleepBtn.innerHTML = (s.sleep ? `Sleep ${sleepLabel(s.sleep)}` : "Sleep") + ` ${CHEVRON.replace('class="i"', 'class="i sm"')}`;
   sleepBtn.title = sleepText;
   sleepBtn.setAttribute("aria-label", sleepText);
   $("sleep-cancel").hidden = !s.sleep;
@@ -306,31 +538,33 @@ function renderPage(s) {
   // volume (skip while the user is dragging)
   if (!volDrag) setVol(s.volume);
 
-  // up next: artwork rows with honest relative starts.
+  // up next: a program guide — the wall-clock start of each episode while
+  // on air, then the episode and its show.
   // Skipped entirely mid-drag — this poll rewrites the container wholesale
   // and would tear the row out from under the pointer, the same reason the
   // volume slider skips its own repaint while volDrag is set.
+  const plan = schedule(s);
+  $("until").innerHTML = plan && s.up_next.length ? `Until <span class="fig">${hm(new Date(plan.until))}</span>` : "";
   if (!dragState) {
-    let t = np && np.duration ? np.duration - np.position : null;
-    $("departures").innerHTML = s.up_next.map((e) => {
-      const mine = t;
-      t = (t != null && e.duration) ? t + e.duration : null;
-      const mins = e.duration ? `${Math.round(e.duration / 60)} min` : "";
+    $("departures").innerHTML = s.up_next.map((e, i) => {
+      const at = plan ? hm(new Date(plan.slots[i].at)) : "";
       const when = pubDate(e.published_at);
       const img = e.image_url ? `<img src="${esc(e.image_url)}" alt="" loading="lazy">` : '<span class="noart"></span>';
       return `<div class="qrow" data-episode-id="${e.episode_id}">` +
         `<button type="button" class="grip" data-grip="${e.episode_id}" ` +
         `title="Drag to reorder, or use the arrow keys" ` +
-        `aria-label="Reorder ${esc(e.title)}">&#8801;</button>` +
+        `aria-label="Reorder ${esc(e.title)}">${GRIP_SVG}</button>` +
+        `<span class="at${e.is_news ? " news" : ""}">${at}</span>` +
         `${img}<div class="qmain">` +
-        `<div class="qtitle">${e.is_news ? '<span class="news">NEWS</span>' : ""}${esc(e.title)}</div>` +
+        `<div class="qtitle">${e.is_news ? '<span class="news">News</span>' : ""}${esc(e.title)}</div>` +
         `<div class="qmeta">` +
-        (e.pinned ? `<span class="qpin" title="Pinned — Refresh all leaves this alone">${PIN_SVG}</span>` : "") +
-        `${showLink(e.feed_id, e.show)}${when ? " &middot; " + when : ""}${mins ? " &middot; " + mins : ""}${playing ? relStart(mine) : ""}</div></div>` +
-        discToggle(e.episode_id, e.description, e.title) +
+        (e.pinned ? `<span class="qpin" title="Pinned: Refresh all leaves this alone">${PIN_SVG}</span>` : "") +
+        `${showLink(e.feed_id, e.show)}${when ? `<span class="pd">${when}</span>` : ""}` +
+        `${discToggle(e.episode_id, e.description, e.title)}</div></div>` +
+        `<span class="dur">${e.duration ? fmtMins(e.duration) : ""}</span>` +
         `<div class="qact">${rowMenu(e)}</div>` +
         discPanel(e.episode_id, e.description) + `</div>`;
-    }).join("") || '<div class="empty">QUEUE EMPTY</div>';
+    }).join("") || '<div class="empty-queue">Nothing queued. Press Play and the DJ picks from your stations.</div>';
     // a keyboard reorder re-renders through this path, so put focus back on
     // the handle the user is still holding down the arrow key on
     if (focusGripId != null) {
@@ -340,42 +574,20 @@ function renderPage(s) {
     }
   }
 
-  // rotation switches with the unplayed pool per category
-  const cats = s.categories || [];
-  $("rotation-block").style.display = cats.length ? "" : "none";
-  const unplayedByCat = {};
-  for (const f of s.stations) {
-    const k = f.category_id == null ? "un" : f.category_id;
-    unplayedByCat[k] = (unplayedByCat[k] || 0) + f.counts.new + f.counts.queued;
-  }
-  const catSig = JSON.stringify([cats, unplayedByCat]);
-  if (catSig !== lastCats) {   // don't stomp button press state on every poll
-    lastCats = catSig;
-    $("cat-toggles").innerHTML = cats.map((c) => {
-      const n = (unplayedByCat[c.id] || 0).toLocaleString();
-      return `<button type="button" class="rots ${c.rotation_enabled ? "on" : "off"}" data-category="${c.id}/toggle" ` +
-        `title="${esc(c.name)} — ${c.rotation_enabled ? "in rotation; click to switch off" : "off; click to switch on"}">` +
-        `<span class="n">${esc(c.name)}</span><span class="u">${c.rotation_enabled ? n : "&mdash;"}</span>` +
-        `<span class="st">${rotationLabel(c.rotation_enabled)}</span></button>`;
-    }).join("");
-  }
-
   // basement: one quiet line each for wake + earlier, editors behind a tap
   const alarms = s.schedules.filter((a) => a.enabled);
-  const wakeSummary = !s.schedules.length ? "Wake — no alarms"
-    : !alarms.length ? "Wake — alarms off"
-    : "Wake " + alarms.map((a) => `${a.time} ${daysLabel(a.days)}`).join(" · ");
-  $("wake-line").textContent = wakeSummary +
-    (s.next_start ? ` · next start ${s.next_start}` : "") +
-    ($("wake-editor").hidden ? " ▾" : " ▴");
+  const wakeSummary = !s.schedules.length ? "No alarms set"
+    : !alarms.length ? "Alarms are off"
+    : alarms.map((a) => `${a.time} ${daysLabel(a.days)}`).join(", ");
+  $("wake-line").innerHTML = `<b>Wake ${CHEVRON}</b><span>${esc(wakeSummary)}</span>`;
   const schedSig = JSON.stringify(s.schedules);
   if (schedSig !== lastSchedSig) {   // a repaint would disarm Delete mid-confirm
     lastSchedSig = schedSig;
     // a slide switch, not a labelled button: a bare "On" read as "turn on",
     // and one tap right after adding an alarm switched it off
     $("schedules").innerHTML = s.schedules.map((a) =>
-      `<div class="svc-row${a.enabled ? "" : " off"}"><span class="sched-time glow">${esc(a.time)}</span>` +
-      `<span class="chips">` + DAYS.map((d, i) =>
+      `<div class="svc-row${a.enabled ? "" : " off"}"><span class="sched-time">${esc(a.time)}</span>` +
+      `<span class="chips" aria-label="${esc(daysLabel(a.days))}">` + DAYS.map((d, i) =>
         `<span class="chip mini${a.days.includes(i) ? " on" : ""}">${d[0]}</span>`).join("") +
       `</span><span class="spacer"></span>` +
       `<button type="button" class="sw${a.enabled ? " on" : ""}" role="switch" aria-checked="${!!a.enabled}" ` +
@@ -383,35 +595,33 @@ function renderPage(s) {
       `title="${a.enabled ? "will ring; click to switch off" : "won't ring; click to switch on"}" ` +
       `data-sched="${a.id}/toggle"><span class="knob"></span></button>` +
       `<button type="button" class="tab small red" data-sched="${a.id}/delete">Delete</button></div>`
-    ).join("") || '<div class="empty">NO ALARMS</div>';
+    ).join("") || '<div class="empty">No alarms yet. Add one below.</div>';
   }
 
   const recent = s.recently_played;
   $("earlier-line").hidden = !recent.length;
   if (recent.length) {
-    $("earlier-line").textContent = "Earlier: " + recent.slice(0, 2).map((e) =>
-      e.show + (e.played_at ? " " + hm(new Date(e.played_at)) : "")).join(" · ") +
-      ($("recent-editor").hidden ? " ▾" : " ▴");
+    $("earlier-line").innerHTML = `<b>Earlier ${CHEVRON}</b>` + recent.slice(0, 2).map((e) =>
+      `<span>${e.played_at ? `<span class="fig">${hm(new Date(e.played_at))}</span> ` : ""}${esc(e.show)}</span>`).join("");
   }
   $("recent").innerHTML = recent.map((e) =>
-    `<div class="svc-row"><span class="glow">${esc(e.title)}</span>` +
-    `<span class="m">${showLink(e.feed_id, e.show)}${e.played_at ? " &middot; " + hm(new Date(e.played_at)) : ""}</span></div>`
-  ).join("") || '<div class="empty">NOTHING YET</div>';
+    `<div class="svc-row">${e.played_at ? `<span class="fig m">${hm(new Date(e.played_at))}</span>` : ""}<span>${esc(e.title)}</span>` +
+    `<span class="m">${showLink(e.feed_id, e.show)}</span></div>`
+  ).join("") || '<div class="empty">Nothing played yet today.</div>';
 
   // Episodes the speaker took and then made no sound on. Without this the
   // only symptom is the episode you asked for not being the one you hear.
   const trouble = s.recent_failures || [];
   $("trouble-line").hidden = !trouble.length;
   if (trouble.length) {
-    $("trouble-line").textContent =
-      `Wouldn't play: ${trouble.length}` +
-      ($("trouble-editor").hidden ? " ▾" : " ▴");
+    $("trouble-line").innerHTML = `<b>Wouldn't play ${CHEVRON}</b>` +
+      `<span>${trouble.length} episode${trouble.length === 1 ? "" : "s"} made no sound</span>`;
   }
   $("trouble").innerHTML = trouble.map((e) =>
     `<div class="svc-row"><span class="pri">${esc(e.title)}</span>` +
-    `<span class="m">${showLink(e.feed_id, e.show)} &middot; ${e.attempts}&times;` +
-    `${e.given_up ? " &middot; given up" : " &middot; will retry"}</span></div>`
-  ).join("") || '<div class="empty">ALL CLEAR</div>';
+    `<span class="m">${showLink(e.feed_id, e.show)}, tried ${e.attempts}&times;, ` +
+    `${e.given_up ? "given up" : "will try again"}</span></div>`
+  ).join("") || '<div class="empty">Everything played.</div>';
 
   renderSpeakers(s);
 }
@@ -451,9 +661,11 @@ function renderSpeakers(s) {
 
   const station = s.speaker ? s.speaker.ip : null;
   const hearing = rows.filter(([, r]) => r.member).length;
-  $("btn-rooms").innerHTML = (s.speaker
-    ? esc(s.speaker.name) + (hearing > 1 ? ` + ${hearing - 1}` : "")
-    : "No speaker") + " &#9662;";
+  const where = s.speaker
+    ? s.speaker.name + (hearing > 1 ? ` and ${hearing - 1} more` : "")
+    : "No speaker";
+  $("btn-rooms").innerHTML = SPEAKER_SVG + `<span class="lbl">${esc(where)}</span>`;
+  $("btn-rooms").setAttribute("aria-label", `Rooms: ${where}`);
   list.innerHTML = rows.map(([ip, r]) => {
     const isStation = ip === station;
     return `<span class="spk${r.coordinator ? " co" : ""}">` +
@@ -466,7 +678,7 @@ function renderSpeakers(s) {
       `data-spk-select="${esc(ip)}" ` +
       `title="${isStation ? "This room is the station" : `Make ${esc(r.name)} the station`}">` +
       `${esc(r.name)}</button></span>`;
-  }).join("") || '<span class="spk-empty">No speaker — press Scan</span>';
+  }).join("") || '<span class="spk-empty">No speaker found yet. Scan to look for one.</span>';
 }
 
 // ── the up next row menu ───────────────────────────────────────────
@@ -483,16 +695,16 @@ function rowMenu(e) {
   const id = e.episode_id;
   const open = openRowMenuId === String(id);
   return `<div class="dropwrap">` +
-    `<button type="button" class="tab small" data-rowmenu="${id}" ` +
+    `<button type="button" class="tab small more" data-rowmenu="${id}" ` +
     `aria-haspopup="true" aria-expanded="${open}" ` +
-    `aria-label="Actions for ${esc(e.title)}">&middot;&middot;&middot;</button>` +
+    `aria-label="Actions for ${esc(e.title)}">${MORE_SVG}</button>` +
     `<div class="flap" data-rowflap="${id}"${open ? "" : " hidden"}>` +
-    `<button type="button" data-episode="${id}/play_now">Play now <i>interrupt</i></button>` +
+    `<button type="button" data-episode="${id}/play_now">Play now <i>interrupts what's on</i></button>` +
     `<button type="button" data-episode="${id}/pin">${e.pinned ? "Unpin" : "Pin"} ` +
     `<i>${e.pinned ? "Refresh all may replace it" : "Refresh all keeps it"}</i></button>` +
     (e.is_news ? "" :
-      `<button type="button" data-drop="${id}/later">Drop for later <i>back in rotation</i></button>`) +
-    `<button type="button" class="danger" data-drop="${id}/done">Drop for good <i>never play again</i></button>` +
+      `<button type="button" data-drop="${id}/later">Back to rotation <i>plays another day</i></button>`) +
+    `<button type="button" class="danger" data-drop="${id}/done">Never play <i>marks it heard</i></button>` +
     `</div></div>`;
 }
 
@@ -622,9 +834,8 @@ $("vol").addEventListener("keydown", (ev) => {
 });
 
 // ── wire up ────────────────────────────────────────────────────────
-// closeFlaps and the [data-flap] toggle live in base.html: the theme
-// picker in the header opens a flap too, and two handlers both toggling
-// would cancel out.
+// closeFlaps and the [data-flap] toggle live in base.html, shared with the
+// stations page.
 $("btn-playpause").addEventListener("click", (ev) => {
   const playing = status && isPlaying(status);
   post(`/player/${playing ? "pause" : "play"}`, {}, ev.currentTarget);
@@ -704,7 +915,6 @@ document.addEventListener("click", (ev) => {
     if (btn.dataset.sched.endsWith("/delete") && !armed(btn)) return;
     return void post(`/schedules/${btn.dataset.sched}`, {}, btn);
   }
-  if (btn.dataset.category) return void post(`/categories/${btn.dataset.category}`, {}, btn);
   if (btn.dataset.episode) {
     const [id, action] = btn.dataset.episode.split("/");
     setRowMenuOpen(null);
@@ -723,7 +933,7 @@ function seekFromEvent(ev) {
   const np = status.now_playing;
   const pct = 100 * seekFrac;
   $("track-fill").style.width = `${pct}%`;
-  $("track-mark").style.left = `calc(${pct}% - 1px)`;
+  $("track-mark").style.left = `${pct}%`;
   $("t-pos").textContent = fmt(seekFrac * np.duration);
 }
 $("track").addEventListener("pointerdown", (ev) => {
@@ -789,7 +999,7 @@ function wireDisclosure(lineId, panelId, event) {
     panel.hidden = !panel.hidden;
     if (!panel.hidden) track(event);
     $(lineId).setAttribute("aria-expanded", String(!panel.hidden));
-    if (status) renderPage(status);   // refresh the ▾/▴ arrow
+    if (status) renderPage(status);
   });
 }
 wireDisclosure("wake-line", "wake-editor", "wake");

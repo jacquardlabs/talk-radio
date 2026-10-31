@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0b0906">
+<meta name="theme-color" content="#eef0f3">
 <link rel="manifest" href="/static/manifest.webmanifest">
 <link rel="icon" href="/static/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
@@ -12,701 +12,243 @@
 <meta name="apple-mobile-web-app-title" content="Talk Radio">
 <title>{% block title %}Sonos Talk Radio{% endblock %}</title>
 <script>
-// Stamped before the first paint, so switching themes never flashes the
-// old one. Kept tiny and dependency-free for that reason: everything
-// else about the picker can wait for the body, this cannot.
+// Stamped before the first paint, so a device set to dark never flashes
+// light. "auto" (nothing stored) follows the system setting.
 try {
-  var t = localStorage.getItem("theme");
-  if (t && /^[a-z]+$/.test(t)) document.documentElement.dataset.theme = t;
-} catch (e) { /* private mode: the default theme is a fine answer */ }
+  var m = localStorage.getItem("mode");
+  if (m === "light" || m === "dark") document.documentElement.dataset.mode = m;
+} catch (e) { /* private mode: follow the system */ }
 </script>
 <style>
-/* ── the theme contract ──────────────────────────────────────────────
-   A theme is this token set and nothing else. Amber lives here rather
-   than in static/themes.css so the default board costs no second
-   request and cannot flash unstyled.
+@font-face {
+  font-family: "Radio Canada Big"; font-weight: 400 700; font-style: normal; font-display: swap;
+  src: url("/static/fonts/radiocanadabig-normal-var.woff2") format("woff2");
+}
+/* the text face's sibling: same drawing, figures tabular by default */
+@font-face {
+  font-family: "Radio Canada"; font-weight: 300 700; font-style: normal; font-display: swap;
+  src: url("/static/fonts/radiocanada-normal-var.woff2") format("woff2");
+}
 
-   Two rules for anything added here. It is declared on :root — the
-   legacy aliases at the bottom resolve against whatever :root holds,
-   so a token overridden further down the tree would theme half the
-   page and read like a specificity bug. And color-scheme is a real
-   declaration, never a var(): a theme that flips light/dark restates
-   it, or the time and date inputs keep the other theme's chrome. */
+/* ── palette ──────────────────────────────────────────────────────────
+   Two modes, one token set. Light is the root; dark restates every token,
+   once for the system setting and once for an explicit choice. Anything
+   meant to be read is --ink or --slate (both clear 4.5:1 on --paper and
+   --panel); --hair only draws rules and tracks. tools/check_contrast.py
+   holds both modes to that. */
 :root {
-  /* surfaces */
-  --bg: #0b0906;
-  --bezel: #14100a;               /* control faces */
-  --bezel2: #1c1610;              /* control faces, hovered */
-  --panel-deep: #0e0a05;          /* the station sheet */
-  --well: #17110a;                /* recesses: seek track, volume meter */
-  --dock: rgba(17,13,7,.97);      /* the docked transport — wants alpha */
-  --scrim: rgba(11,9,6,.9);       /* a chip laid over artwork */
-
-  /* rules */
-  --line: #2a2213;
-  --line-soft: #1c160c;           /* the dashed rule between rows */
-  --line-hard: #241c0e;           /* under the header */
-  --line-lit: #4a3413;            /* a control that is on */
-  --line-red: #3c231d;
-
-  /* ink. --ink-dim is 3.14:1 on --bg — enough for a border, a glyph, or
-     a deliberately-off state, but 9-12px text is not large text:
-     anything meant to be READ takes --ink-2 (7.03:1). Every theme owes
-     those two ratios; tools/check_contrast.py holds them to it. */
-  --ink: #ffb038;
-  --ink-dim: #7a5a24;
-  --ink-2: #c88f2e;
-  --focus: var(--ink);
-
-  /* the fill under a lit control, and the ink on top of it. Separate
-     from --ink because a lit control is not always the text colour:
-     Ceefax lights yellow on white text, Console lights green. */
-  --accent: var(--ink);
-  --on-accent: var(--bg);
-
-  /* semantic */
-  --red: #ff6146;
-  --green: #86e06b;
-  --on-danger: var(--bg);
-
-  /* glow. A theme without phosphor sets all eight to none. */
-  --glow: 0 0 7px rgba(255,176,56,.75);        /* titles, .glow */
-  --glow-soft: 0 0 6px rgba(255,176,56,.5);    /* secondary, transient */
-  --glow-mark: 0 0 6px rgba(255,176,56,.9);    /* the seek needle */
-  --glow-fill: 0 0 8px rgba(255,176,56,.7);    /* the volume fill */
-  --glow-art: 0 0 22px rgba(255,176,56,.08);   /* halo behind artwork */
-  --glow-pin: drop-shadow(0 0 5px rgba(255,176,0,.8));
-  --glow-red: 0 0 6px rgba(255,97,70,.6);
-  --glow-green: 0 0 6px rgba(134,224,107,.6);
-
-  /* depth */
-  --shadow: 0 10px 30px rgba(0,0,0,.7);        /* a flap over the page */
-  --shadow-lift: 0 6px 18px rgba(0,0,0,.6);    /* a row or tile picked up */
-  --shadow-dock: 0 -12px 30px rgba(0,0,0,.55);
-  --radius: 0;
-  --track-fill: rgba(255,176,56,.35);   /* the played part of the seek bar */
-
-  /* the dot-matrix mask on the brand; a theme with no LED sets none */
-  --led-mask: radial-gradient(circle, #000 34%, transparent 37%);
-  /* the segmented volume meter; a theme with a knob or a VU sets none */
-  --meter-mask: repeating-linear-gradient(90deg, #000 0 8px, transparent 8px 11px);
-
-  /* artwork, while the crate is set to Tinted */
-  --art-filter: grayscale(1) sepia(.85) saturate(3.4) hue-rotate(-12deg) brightness(.82) contrast(1.06);
-
-  /* type */
-  --font-ui: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
-  --font-title: var(--font-ui);
-  --font-body: var(--font-ui);
-
-  /* Legacy aliases. The templates say amber in ~200 places; renaming
-     those call sites would be a larger change than the seven themes
-     are. The names are historical, the roles are the ones above. */
-  --amber: var(--ink);
-  --amber-dim: var(--ink-dim);
-  --amber-prose: var(--ink-2);
-
+  --paper: #eef0f3;      /* the room */
+  --panel: #ffffff;      /* what sits above it: menus, sheets, the dock */
+  --ink: #171a21;
+  --slate: #596070;      /* secondary text, resting controls */
+  --hair: #d5d9e0;       /* rules, tracks, button outlines */
+  --tally: #c8261b;      /* on air: the live light, the second hand, news */
+  --ok: #1d7a3d;
+  --arc-a: #9aa3b2;      /* the dial's schedule, alternating so neighbours part */
+  --arc-b: #c4cad4;
+  --focus: #1f4fd1;
+  --hover: rgb(23 26 33 / .06);
+  --shadow: 0 1px 2px rgb(23 26 33 / .06), 0 10px 30px rgb(23 26 33 / .12);
+  --scrim: rgb(10 12 16 / .45);
+  --font: "Radio Canada Big", system-ui, sans-serif;
+  --figures: "Radio Canada", system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mode="light"]) {
+    --paper: #11151d; --panel: #1a1f29; --ink: #eaedf2; --slate: #9ba3b2;
+    --hair: #2b313d; --tally: #ff5a4a; --ok: #5ccf7e; --arc-a: #5d6676;
+    --arc-b: #3c4350; --focus: #8aa4ff; --hover: rgb(234 237 242 / .07);
+    --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .4);
+    --scrim: rgb(0 0 0 / .55);
+    color-scheme: dark;
+  }
+}
+:root[data-mode="dark"] {
+  --paper: #11151d; --panel: #1a1f29; --ink: #eaedf2; --slate: #9ba3b2;
+  --hair: #2b313d; --tally: #ff5a4a; --ok: #5ccf7e; --arc-a: #5d6676;
+  --arc-b: #3c4350; --focus: #8aa4ff; --hover: rgb(234 237 242 / .07);
+  --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .4);
+  --scrim: rgb(0 0 0 / .55);
   color-scheme: dark;
 }
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html { background: var(--paper); }
 body {
-  background: var(--bg); color: var(--amber);
-  font: 15px/1.45 var(--font-body);
-  font-variant-numeric: tabular-nums;
-  max-width: 1100px; margin: 0 auto; padding: 18px 18px 80px;
+  background: var(--paper); color: var(--ink);
+  font: 400 16px/1.45 var(--font); -webkit-font-smoothing: antialiased;
+  max-width: 1120px; margin: 0 auto; padding: 0 28px 96px;
 }
-.glow { text-shadow: var(--glow); }
-.dim { color: var(--amber-dim); }
-.led {
-  -webkit-mask-image: var(--led-mask);
-  mask-image: var(--led-mask);
-  -webkit-mask-size: 3px 3px; mask-size: 3px 3px;
-}
-
-header {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
-  flex-wrap: wrap; border-bottom: 1px solid var(--line-hard); padding-bottom: 12px;
-}
-header .t { font-size: 17px; font-weight: 700; letter-spacing: .2em; }
-header .clock { font-size: 17px; font-weight: 700; letter-spacing: .12em; }
-header .clock .colon { animation: ledblink 1.2s steps(2, jump-none) infinite; }
-@keyframes ledblink { 50% { opacity: .2; } }
-nav.nav { display: flex; gap: 7px; align-self: center; }
-.navlink {
-  display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px;
-  background: var(--bezel); color: var(--amber); border: 1px solid var(--line);
-  border-radius: var(--radius);
-  font: 700 10px/1.2 var(--font-ui);
-  letter-spacing: .2em; text-transform: uppercase; text-decoration: none;
-  cursor: pointer;
-}
-.navlink:hover { background: var(--bezel2); }
-.navlink.live { background: var(--accent); color: var(--on-accent); text-shadow: none; }
-
-.np-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
-.np-eyebrow { align-items: center; }
-.roomswrap .flap { left: auto; right: 0; }
-.rooms-flap { min-width: 260px; }
-.rooms-flap .spk-list { flex-direction: column; align-items: stretch; padding: 8px; }
-/* the room names are buttons inside a flap, whose button rule would make
-   them full-width menu rows */
-.flap .spk-name { display: inline; width: auto; padding: 0; text-transform: none;
-  font: inherit; font-size: 12.5px; letter-spacing: .06em; color: var(--amber-dim); }
-.flap .spk-name:hover { background: none; color: var(--amber); }
-.flap .spk-name.on { color: var(--amber); }
-.rooms-flap .spk-list + button { border-top: 1px dashed var(--line); }
-/* One chip per room: the checkbox is membership, the name selects which room
-   is the station. Two controls, because they answer two different questions. */
-.spk-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.spk {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--bezel); border: 1px solid var(--line);
-  padding: 0 10px 0 8px; min-height: 44px;
-}
-.spk.co { border-color: var(--amber-dim); }
-.spk input[type="checkbox"] { accent-color: var(--amber); width: 16px; height: 16px; }
-/* The coordinator's box is disabled rather than absent: the row still reads
-   as "yes, this room is hearing it", it just cannot be the one to leave. */
-.spk input[type="checkbox"]:disabled { opacity: .55; cursor: not-allowed; }
-.spk-name {
-  background: none; border: 0; padding: 0; cursor: pointer;
-  color: var(--amber-dim); font: inherit; font-size: 12.5px; letter-spacing: .06em;
-}
-.spk-name:hover { color: var(--amber); }
-.spk-name:focus-visible { outline: 1px solid var(--amber); outline-offset: 3px; }
-.spk-name.on { color: var(--amber); text-shadow: var(--glow-soft); }
-.spk-empty { font-size: 10px; letter-spacing: .18em; color: var(--amber-prose); text-transform: uppercase; }
-select, input[type="url"], input[type="number"], input[type="time"], input[type="search"], input[type="text"] {
-  background: var(--bezel); color: var(--amber); border: 1px solid var(--line);
-  border-radius: var(--radius);
-  min-height: 44px; padding: 0 12px; font: inherit; font-size: 12.5px;
-  letter-spacing: .06em;
-}
-input::placeholder { color: var(--amber-dim); }
-
-.eyebrow {
-  display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
-  font-size: 10px; letter-spacing: .28em; color: var(--amber-prose);
-  margin: 22px 0 8px; text-transform: uppercase;
-}
-@media (prefers-reduced-motion: reduce) {
-  header .clock .colon { animation: none; }
-  .sw .knob { transition: none; }
-}
-
-/* now-playing deck: static display, artwork, two-voice type */
-.deck { display: grid; grid-template-columns: 112px 1fr; gap: 18px; align-items: center; margin-top: 18px; }
-.deck-art {
-  width: 112px; height: 112px; object-fit: cover; border: 1px solid var(--line);
-  box-shadow: 0 0 0 4px var(--bezel), var(--glow-art);
-}
-.np-eyebrow {
-  display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
-  font-size: 9.5px; letter-spacing: .26em; color: var(--amber-prose);
-  text-transform: uppercase; font-weight: 700;
-}
-.showlink { color: inherit; text-decoration: none; }
-.showlink:hover, .showlink:focus-visible { color: var(--amber); text-decoration: underline;
-  text-underline-offset: 3px; }
-.np-title {
-  font-family: var(--font-title);
-  font-size: clamp(19px, 3vw, 25px); line-height: 1.3; font-weight: 600;
-  margin: 8px 0 10px; text-wrap: balance;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-.np-meta { font-size: 11px; letter-spacing: .2em; color: var(--amber-prose); text-transform: uppercase; font-weight: 700; }
-.np-meta b { color: var(--amber); }
-/* The visible bar is 14px; the padding grows the touch target to 44px
-   without moving the layout (negative margins give the padding back). */
-.track {
-  position: relative; height: 44px; padding: 15px 0; background: var(--well);
-  background-clip: content-box; margin: -1px 0 -9px; cursor: pointer;
-  touch-action: none; user-select: none; -webkit-user-select: none;
-}
-.track .fill { position: absolute; top: 15px; bottom: 15px; left: 0; width: 0; background: var(--track-fill); }
-.track .mark {
-  position: absolute; top: 12px; bottom: 12px; left: 0; width: 3px;
-  background: var(--amber); box-shadow: var(--glow-mark);
-}
-.times { display: flex; justify-content: space-between; font-size: 12px; color: var(--amber-prose); letter-spacing: .18em; }
-
-.tabs { display: flex; gap: 7px; margin-top: 18px; flex-wrap: wrap; }
-button.tab {
-  min-height: 46px; min-width: 50px; padding: 0 15px;
-  background: var(--bezel); color: var(--amber); border: 1px solid var(--line);
-  border-radius: var(--radius);
-  font: 700 10.5px/1.2 var(--font-ui);
-  letter-spacing: .18em; text-transform: uppercase; cursor: pointer;
-}
-button.tab:hover { background: var(--bezel2); }
-button.tab:active, button.tab.pressed { background: var(--accent); color: var(--on-accent); text-shadow: none; }
-button.tab.live { background: var(--accent); color: var(--on-accent); }
-button.tab.red { color: var(--red); border-color: var(--line-red); }
-button.tab.red:active, button.tab.red.pressed { background: var(--red); color: var(--on-danger); }
-button.tab.small { min-height: 44px; padding: 0 12px; font-size: 9.5px; }
-button.tab.off { color: var(--amber-dim); }
-/* the pin, as state: shown in a pinned row's meta line, absent otherwise.
-   Drawn rather than set, because 📌 is a color emoji — it ignores `color`
-   and came out red on an all-amber panel. */
-.qpin { display: inline-flex; vertical-align: -2px; margin-right: 6px; color: var(--amber); }
-.qpin svg { width: 11px; height: 11px; fill: currentColor; filter: var(--glow-pin); }
-.qact [data-rowmenu] { min-width: 44px; font-size: 14px; letter-spacing: 0; }
-button.tab.armed, .flap button.armed { background: var(--red); color: var(--on-danger); border-color: var(--red); text-shadow: none; }
-.flap button.armed i { color: var(--on-danger); }
-
-/* An armed sleep timer is lit, not filled: Play already wears the solid
-   amber, and two filled buttons side by side read as two primaries. */
-button.tab.timing { border-color: var(--line-lit); text-shadow: var(--glow); }
-
-/* transport: one primary Play, Skip folds into a flap, isolated power */
-.transport { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; margin-top: 16px; }
-button.tab.tplay { min-width: 140px; min-height: 52px; font-size: 13px; letter-spacing: .2em;
-  background: var(--accent); color: var(--on-accent); border-color: var(--accent); text-shadow: none; }
-button.tab.tplay.paused { background: var(--bezel); color: var(--amber); border-color: var(--line); }
-.flapwrap { position: relative; }
-.flapwrap > button { height: 100%; }
-.flap {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 6; min-width: 230px;
-  background: var(--bezel); border: 1px solid var(--line); box-shadow: var(--shadow);
-}
-.flap button {
-  display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 13px 14px;
-  background: none; border: none; color: var(--amber); cursor: pointer; text-align: left;
-  font: 700 10px/1.2 var(--font-ui);
-  letter-spacing: .14em; text-transform: uppercase;
-}
-.flap button[hidden] { display: none; }
-.flap button + button { border-top: 1px dashed var(--line); }
-.flap button:hover { background: var(--bezel2); }
-.flap .danger { color: var(--red); }
-.flap i { color: var(--amber-prose); font-style: normal; font-weight: 400; font-size: 9px; letter-spacing: .08em; }
-/* Drop reuses the flap inside a queue row; the actions sit at the right
-   edge, so the flap hangs from the right corner instead of overflowing. */
-.dropwrap { position: relative; }
-.dropwrap .flap { left: auto; right: 0; }
-button.tab.power { min-width: 52px; color: var(--red); border-color: var(--line-red); font-size: 17px; }
-/* Power and its sleep caret are one split switch: shared edge, one radius.
-   The flap hangs from the right corner, where the switch sits. No callout
-   or text selection, so a long press reaches the sleep timer on iOS. */
-.powerwrap { display: flex; margin-left: 4px; }
-.powerwrap .flap { left: auto; right: 0; }
-/* .power's red text outranks .armed by source order; Sure? was red on red */
-button.tab.power.armed { color: var(--on-danger); }
-.powerwrap > button.power { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
-.powerwrap > button.power:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-button.tab.power.sleepcaret { min-width: 44px; padding: 0 12px; font-size: 10.5px; white-space: nowrap;
-  border-left-style: dashed; border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
-/* armed, the caret carries the countdown lit amber — "later" is set */
-button.tab.power.sleepcaret.timing { color: var(--amber); border-color: var(--line-lit); }
-
-/* up next: artwork rows with reveal-on-hover actions */
-.qrow {
-  display: grid; grid-template-columns: 18px 34px 1fr auto auto; gap: 12px; align-items: center;
-  padding: 9px 0; border-bottom: 1px dashed var(--line-soft);
-}
-/* Disclosure caret. Its own grid cell rather than a member of .qact: that
-   container dims to .35 until hover, and a child cannot composite back above
-   its parent's alpha — a disclosure has to stay visible to be found. */
-.disc {
-  background: none; border: 0; padding: 2px 4px; cursor: pointer;
-  color: var(--amber-dim); font: inherit; font-size: 11px; line-height: 1;
-  transition: color .15s, transform .15s;
-}
-.disc:hover, .disc:focus-visible { color: var(--amber); }
-.disc:focus-visible { outline: 1px solid var(--amber); outline-offset: 2px; }
-.disc[aria-expanded="true"] { color: var(--amber); transform: rotate(180deg); }
-/* Content voice: mixed case, unletterspaced prose. Spans every column so the
-   panel is full width under the row it belongs to. */
-/* deck disclosure: a caret plus a quiet cue, since the deck has no row of
-   actions to hang it off */
-.np-desc-row { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
-.np-desc-row[hidden] { display: none; }
-.np-desc-cue {
-  font-size: 9px; letter-spacing: .28em; text-transform: uppercase;
-  color: var(--amber-prose); font-weight: 700;
-}
-.npdesc {
-  margin-top: 6px; max-width: 62ch;
-  font-size: 13px; line-height: 1.6; color: var(--amber-prose);
-  white-space: pre-wrap; text-transform: none; letter-spacing: normal;
-}
-.npdesc[hidden] { display: none; }
-.sheet-desc {
-  margin: 6px 0 2px; max-width: 68ch;
-  font-size: 12.5px; line-height: 1.55; color: var(--amber-prose);
-  white-space: pre-wrap; text-transform: none; letter-spacing: normal;
-  font-weight: 400;
-}
-.qdesc[hidden] { display: none; }
-.qdesc {
-  /* Spans the row under it, starting where the title starts (grip 18 +
-     art 34 + two 12px gaps) and stopping at the show blurb's 68ch: at the
-     row's full width a line ran past 150 characters. */
-  grid-column: 1 / -1; max-width: 68ch;
-  margin: 2px 0 4px 76px; padding-right: 8px;
-  font-size: 12.5px; line-height: 1.55; color: var(--amber-prose);
-  white-space: pre-wrap; text-transform: none; letter-spacing: normal;
-  font-weight: 400;
-}
-/* the grip: machine chrome, and touch-action none so a drag on a phone
-   moves the row instead of scrolling the page */
-.grip {
-  background: none; border: 0; padding: 0; cursor: grab; touch-action: none;
-  color: var(--amber-dim); font: inherit; font-size: 13px; line-height: 1;
-  opacity: .35; transition: opacity .15s, color .15s;
-}
-.qrow:hover .grip, .grip:focus-visible { opacity: 1; color: var(--amber); }
-.grip:focus-visible { outline: 1px solid var(--amber); outline-offset: 3px; }
-@media (hover: none) { .grip { opacity: 1; } }
-.qrow.dragging {
-  cursor: grabbing; user-select: none; position: relative; z-index: 2;
-  box-shadow: 0 0 0 1px var(--amber), var(--shadow-lift);
-  text-shadow: var(--glow-soft);
-}
-.qrow.dragging .grip { cursor: grabbing; opacity: 1; color: var(--amber); }
-.qrow img, .qrow .noart { width: 34px; height: 34px; object-fit: cover; border: 1px solid var(--line); background: var(--bezel); }
-.qmain { min-width: 0; }
-.qtitle { font-family: var(--font-title); font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qtitle .news { color: var(--red); font-size: 9px; font-weight: 700; letter-spacing: .2em; margin-right: 8px; text-shadow: var(--glow-red); }
-.qmeta { font-size: 9.5px; color: var(--amber-prose); letter-spacing: .18em; text-transform: uppercase; font-weight: 700; margin-top: 2px; }
-/* one menu per row now, so it rests readable rather than near-invisible */
-.qact { display: flex; gap: 6px; opacity: .6; transition: opacity .15s; }
-.qrow:hover .qact, .qrow:focus-within .qact { opacity: 1; }
-@media (hover: none) { .qact { opacity: 1; } }
-
-/* rotation switches: lit categories feed the DJ, counts show the pool */
-.rotrow { display: flex; gap: 8px; flex-wrap: wrap; }
-.rots {
-  display: flex; flex-direction: column; gap: 3px; align-items: flex-start;
-  min-width: 116px; padding: 10px 13px; background: var(--bezel); border: 1px solid var(--line); cursor: pointer;
-}
-.rots .n { font-size: 9px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }
-.rots .u { font-size: 15px; font-weight: 700; letter-spacing: .06em; }
-/* the state in words, because this chip is read at arm's length on a wall
-   tablet: a dim color says nothing there, and a title tooltip is unreachable
-   without a pointer. --amber-prose, not --amber-dim — 9px uppercase is not
-   large text, so the label needs AA's 4.5:1. */
-.rots .st { font-size: 9px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--amber-prose); }
-.rots.on { border-color: var(--line-lit); }
-.rots.on .u { color: var(--amber); text-shadow: var(--glow); }
-.rots.off .n, .rots.off .u { color: var(--amber-dim); }
-
-/* basement: wake + earlier as one quiet LED line; editors behind a tap */
-.basement {
-  margin-top: 26px; padding-top: 12px; border-top: 1px solid var(--line);
-  display: flex; gap: 10px 28px; flex-wrap: wrap; align-items: baseline;
-  font-size: 9.5px; letter-spacing: .2em; color: var(--amber-prose);
-  text-transform: uppercase; font-weight: 700;
-}
-.basement button {
-  background: none; border: none; padding: 4px 0; cursor: pointer;
-  color: var(--amber-prose); font: inherit; letter-spacing: inherit;
-  text-transform: inherit;
-}
-.basement button:hover { color: var(--amber); }
-.bpanel { padding: 4px 0 0; }
-
-.vol {
-  display: flex; align-items: center; gap: 9px; min-height: 46px; padding: 0 14px;
-  background: var(--bezel); border: 1px solid var(--line); cursor: pointer;
-  margin-left: auto; touch-action: none; user-select: none; -webkit-user-select: none;
-}
-.vol .lbl { font-size: 9px; letter-spacing: .2em; color: var(--amber-prose); font-weight: 700; }
-.vol .meter {
-  position: relative; width: 150px; max-width: 30vw; height: 16px; background: var(--well);
-  -webkit-mask-image: var(--meter-mask);
-  mask-image: var(--meter-mask);
-}
-.vol .meter .fill {
-  position: absolute; inset: 0; width: calc(var(--vol, 0) * 1%);
-  background: var(--amber); box-shadow: var(--glow-fill);
-}
-.vol .val { font-size: 13px; font-weight: 700; min-width: 2ch; text-align: right; }
-
-.empty { padding: 14px 10px; font-size: 12px; color: var(--amber-prose); letter-spacing: .18em; text-transform: uppercase; }
-
-/* two-voice: content rows read mixed-case; their metadata stays LED */
-.svc { margin-top: 8px; }
-.svc-row {
-  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-  padding: 8px 0; font-size: 13.5px; font-weight: 500;
-  border-bottom: 1px dashed var(--line-soft);
-}
-.svc-row:last-child { border-bottom: none; }
-.svc-row .m { color: var(--amber-prose); font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
-.svc-row .spacer { flex: 1 1 auto; }
-.svc-row .pri { color: var(--red); font-size: 10px; letter-spacing: .18em; text-shadow: var(--glow-red); }
-.svc-row .ok { color: var(--green); font-size: 10px; letter-spacing: .18em; text-shadow: var(--glow-green); }
-form.inline { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
-form.inline input[type="url"], form.inline input[type="text"] { flex: 1 1 220px; }
-label.chk {
-  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px;
-  background: var(--bezel); border: 1px solid var(--line); font-size: 10px;
-  letter-spacing: .18em; cursor: pointer; text-transform: uppercase;
-}
-label.chk input { accent-color: var(--amber); width: 16px; height: 16px; }
-
-.chips { display: flex; gap: 3px; }
-.chip {
-  width: 44px; height: 44px; border: 1px solid var(--line); background: var(--bezel);
-  color: var(--amber-dim); font: 700 11px/1 var(--font-ui);
-  cursor: pointer; text-transform: uppercase;
-}
-.chip.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.chip.mini { width: 20px; height: 20px; font-size: 8px; cursor: default; }
-.sched-time { font-size: 20px; font-weight: 700; letter-spacing: .1em; }
-/* alarm on/off: a slide switch, so the state reads by position at a glance */
-.sw {
-  position: relative; width: 52px; height: 28px; padding: 0; cursor: pointer;
-  background: var(--well); border: 1px solid var(--line); border-radius: var(--radius);
-}
-.sw::after { content: ""; position: absolute; inset: -9px 0; }   /* 46px touch target */
-.sw .knob {
-  position: absolute; top: 3px; left: 3px; width: 20px; height: 20px;
-  background: var(--amber-dim); border-radius: var(--radius); transition: transform .15s;
-}
-.sw.on { border-color: var(--amber); }
-.sw.on .knob { transform: translateX(24px); background: var(--amber); box-shadow: var(--glow); }
-.sw:focus-visible { outline: 1px solid var(--focus); outline-offset: 3px; }
-.svc-row.off .sched-time, .svc-row.off .chips { opacity: .4; }
-
-#flash {
-  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
-  background: var(--bezel); border: 1px solid var(--red); color: var(--red);
-  padding: 12px 20px; display: none; max-width: 90vw; z-index: 9;
-  font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
-  text-shadow: var(--glow-red);
-}
-#flash.ok { border-color: var(--green); color: var(--green); text-shadow: var(--glow-green); }
-
-a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, .vol:focus-visible {
+::selection { background: var(--ink); color: var(--paper); }
+img { display: block; }
+/* every display rule above loses to the attribute, as the browser's own does */
+[hidden] { display: none !important; }
+a { color: inherit; }
+.fig, .times, .at, .dur, .bdg, .vol .val { font-family: var(--figures); }
+.slate { color: var(--slate); }
+a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible,
+.vol:focus-visible, .track:focus-visible {
   outline: 2px solid var(--focus); outline-offset: 2px;
 }
-.ep-toolbar { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
-.ep-toolbar input[type="search"] { flex: 1 1 200px; }
-/* episode rows: Up Next's grid without the artwork — title over a meta
-   line, actions in their own column, so every row keeps one shape */
-.ep-row {
-  display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
-  padding: 9px 0; border-bottom: 1px dashed var(--line-soft);
-}
-.ep-row.sel { grid-template-columns: 16px 1fr auto; }
-.ep-row:last-of-type { border-bottom: none; }
-.ep-row input[type="checkbox"] { accent-color: var(--amber); width: 16px; height: 16px; }
-.ep-title { font-family: var(--font-title); font-size: 13.5px; font-weight: 500; line-height: 1.4;
-  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.ep-row .qmeta .pri { color: var(--red); text-shadow: var(--glow-red); }
-.ep-row .qmeta .glow { color: var(--amber); }
-.ep-row .disc { margin-left: 6px; }
-.ep-row .qdesc { margin-left: 0; }
-.ep-actions { display: flex; gap: 7px; flex: none; }
-.ep-actions [data-epmenu] { min-width: 44px; font-size: 14px; letter-spacing: 0; }
-/* status as a display segment: what the DJ can pick stays lit; the back
-   catalog and anything missed are unlit; a heard episode is struck through
-   but readable, since playing it again is one tap. Secondary ink, never
-   opacity, so every theme's contrast floor still holds. */
-.ep-row.st-new .ep-title, .ep-row.st-queued .ep-title { text-shadow: var(--glow-soft); }
-.ep-row.st-archived .ep-title, .ep-row.st-skipped .ep-title,
-.ep-row.st-played .ep-title { color: var(--amber-prose); }
-.ep-row.st-played .ep-title { text-decoration: line-through 1px var(--amber-dim); }
+svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round; flex: none; }
+svg.i.sm { width: 16px; height: 16px; }
 
-/* the theme picker: a global control, so it sits in the header with
-   the other one. The button wears the theme it will switch away from —
-   three dots of ground, ink and accent — because the names alone
-   ("Solari", "Longwave") do not tell you what you are about to get. */
-.themepick { margin-left: auto; }
-.themepick > button { gap: 9px; }
-.themepick .flap { left: auto; right: 0; min-width: 274px; max-height: 70vh; overflow-y: auto; }
-.themepick .flap button { align-items: center; gap: 11px; justify-content: flex-start; }
-.themepick .flap .tname { white-space: nowrap; }
-/* The note is the only part that may be clipped: the swatch and the name
-   are what you choose by. */
-.themepick .flap i { margin-left: auto; text-align: right; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.swatch { display: inline-grid; grid-auto-flow: column; gap: 2px; flex: none; }
-.swatch::before, .swatch::after, .swatch > i {
-  content: ""; width: 9px; height: 9px; margin: 0;
-  /* A dark theme's ground on a dark flap needs its own edge to be a dot
-     at all, so the border is ink rather than the panel's own rule. */
-  border: 1px solid var(--ink-dim); border-radius: 1px;
+/* ── header ─────────────────────────────────────────────────────────── */
+header {
+  display: flex; align-items: center; gap: 28px; height: 72px;
+  border-bottom: 1px solid var(--hair);
 }
-.swatch::before { background: var(--sw-bg, var(--bg)); }
-.swatch > i { background: var(--sw-ink, var(--ink)); }
-.swatch::after { background: var(--sw-accent, var(--accent)); }
-.themepick .flap button[aria-checked="true"] { color: var(--accent); }
-.themepick .flap button[aria-checked="true"] .tname::after {
-  content: "\2022"; margin-left: 7px;
+.mark { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px;
+  letter-spacing: -.01em; text-decoration: none; }
+/* the station's tally light: lit while on air, dark otherwise */
+.mark .tally { width: 10px; height: 10px; border-radius: 50%; background: var(--hair); transition: background .3s; }
+.mark.live .tally { background: var(--tally); box-shadow: 0 0 0 4px color-mix(in srgb, var(--tally) 18%, transparent); }
+nav.nav { display: flex; gap: 4px; align-self: stretch; }
+.navlink {
+  display: flex; align-items: center; padding: 0 14px; margin-bottom: -1px;
+  color: var(--slate); text-decoration: none; font-weight: 500;
+  border-bottom: 2px solid transparent;
 }
+.navlink:hover { color: var(--ink); }
+.navlink.live { color: var(--ink); border-color: var(--ink); }
+.modebtn { margin-left: auto; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  background: none; border: 0; color: var(--ink); cursor: pointer; }
+.modebtn:hover { background: var(--hover); }
 
-/* mobile: the transport docks like a remote */
-@media (max-width: 760px) {
-  body:has(.transport) { padding-bottom: 190px; }
-  /* Wraps to two rows (transport verbs / volume + power) instead of
-     scrolling sideways: overflow-x hid the power button entirely at phone
-     widths, and a hidden "off air" is not a control. */
-  .transport {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; margin: 0;
-    padding: 10px 12px; background: var(--dock); border-top: 1px solid var(--line);
-    box-shadow: var(--shadow-dock);
-  }
-  button.tab.tplay { min-width: 110px; flex: 1 1 auto; }
-  .vol { flex: 1 1 auto; margin-left: 0; }
-  .vol .meter { width: auto; max-width: none; flex: 1 1 60px; }
-  .transport .flap { top: auto; bottom: calc(100% + 6px); }
-  .deck { grid-template-columns: 80px 1fr; gap: 12px; }
-  .deck-art { width: 80px; height: 80px; }
+/* ── controls ───────────────────────────────────────────────────────── */
+/* .tab is every button that is a button: an outlined pill. The names are
+   historical — the scripts key on them — the look is not. */
+button.tab {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 44px; min-width: 44px; padding: 0 16px; border-radius: 999px;
+  background: none; color: var(--ink); border: 1px solid var(--hair);
+  font: 500 15px/1.2 var(--font); cursor: pointer; white-space: nowrap;
 }
-/* narrow phones: give the queue back to the titles — actions drop to a
-   second line under the row instead of crushing the title to a dozen
-   characters, and the clock yields the header to the brand + nav */
-@media (max-width: 600px) {
-  header .clock { display: none; }
-  .themepick #theme-name { display: none; }
-  .themepick > button { padding: 0 11px; }
-  .qrow { gap: 10px; row-gap: 6px; }
-  .qrow .qdesc { margin-left: 0; }
-  .qtitle { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-  /* episode rows: the title takes the full width and the actions share the
-     meta line's row, instead of crushing the title to a dozen characters */
-  .ep-row { grid-template-columns: 1fr auto; grid-template-areas: "title title" "meta actions"; }
-  .ep-row.sel { grid-template-columns: 16px 1fr auto; grid-template-areas: "check title title" "check meta actions"; }
-  .ep-row .qmain { display: contents; }
-  .ep-row .ep-title { grid-area: title; }
-  .ep-row .qmeta { grid-area: meta; }
-  .ep-row .ep-actions { grid-area: actions; }
-  .ep-row input[type="checkbox"] { grid-area: check; }
+button.tab:hover { background: var(--hover); }
+button.tab:disabled { color: var(--slate); cursor: default; background: none; }
+button.tab.pressed { background: var(--hover); }
+button.tab.live { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+button.tab.red { color: var(--tally); }
+button.tab.small { min-height: 44px; padding: 0 14px; font-size: 14px; }
+button.tab.armed, .flap button.armed {
+  background: var(--tally); color: var(--paper); border-color: var(--tally);
 }
-/* stations page, phone: a slim docked remote so pausing doesn't mean
-   navigating back to the board first */
-.mini-transport { display: none; }
-@media (max-width: 760px) {
-  body:has(.mini-transport:not([hidden])) { padding-bottom: 90px; }
-  .mini-transport:not([hidden]) {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
-    display: flex; gap: 10px; align-items: center; padding: 10px 12px;
-    background: var(--dock); border-top: 1px solid var(--line);
-    box-shadow: var(--shadow-dock);
-  }
-  .mini-transport a {
-    flex: 1 1 auto; min-width: 0; color: var(--amber); text-decoration: none;
-    font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .mini-transport a .m { color: var(--amber-prose); font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; font-weight: 700; margin-right: 8px; }
+.flap button.armed i { color: var(--paper); }
+select, input[type="url"], input[type="number"], input[type="time"], input[type="search"], input[type="text"] {
+  min-height: 48px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--hair);
+  background: var(--panel); color: var(--ink); font: 400 16px var(--font);
 }
-.pagination { display: flex; gap: 10px; align-items: center; margin-top: 8px; font-size: 11px; letter-spacing: .1em; color: var(--amber-prose); }
-.pod-art { width: 32px; height: 32px; object-fit: cover; border: 1px solid var(--line); background: var(--bezel); flex: none; }
+select { padding-right: 12px; }
+input::placeholder { color: var(--slate); }
+label.chk {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 16px;
+  border: 1px solid var(--hair); border-radius: 999px; cursor: pointer; font-weight: 500;
+}
+label.chk input { accent-color: var(--ink); width: 18px; height: 18px; }
 
-/* stations page: the record crate — category shelves of artwork tiles */
-.grp-head {
-  display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
-  margin-top: 30px; padding-bottom: 9px; border-bottom: 1px solid var(--line);
-  font-size: 12px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase;
-}
-.grp-head .cnt { font-size: 9.5px; letter-spacing: .18em; color: var(--amber-prose); }
-.grp-head .pri { color: var(--red); }
-.grp-head .spacer { flex: 1 1 auto; }
-.crate-toolbar { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
-.crate-toolbar input { flex: 1 1 240px; }
-.artmode { display: flex; }
-/* Shelves wrap: a sideways scroll hid most of a category behind an edge
-   that touch screens and overlay scrollbars never mark. */
-.shelf-row { display: flex; flex-wrap: wrap; gap: 14px 12px; padding: 14px 2px 6px; }
-.shelf-row .empty { flex: none; }
-.tile {
-  flex: none; width: 104px; display: flex; flex-direction: column; gap: 6px;
-  text-align: left; position: relative; background: none; border: none;
-  color: var(--amber); cursor: pointer; padding: 0; font: inherit;
-}
-.tile img, .tile .noart {
-  width: 104px; height: 104px; object-fit: cover; display: block;
-  border: 1px solid var(--line); background: var(--bezel);
-  transition: box-shadow .15s, transform .15s;
-}
-.tile:hover img, .tile:hover .noart { box-shadow: 0 0 0 1px var(--amber), var(--shadow-lift); transform: translateY(-2px); }
-.tile.open img, .tile.open .noart { box-shadow: 0 0 0 2px var(--amber); }
-.tile.held { opacity: .55; }
-.tile .bdg {
-  position: absolute; top: 5px; right: 5px; background: var(--scrim);
-  border: 1px solid var(--line-lit); color: var(--amber); font-size: 9px; font-weight: 700;
-  letter-spacing: .06em; padding: 2px 5px; text-shadow: var(--glow);
-}
-.tile .tnm {
-  font-size: 9.5px; color: var(--amber-prose); font-weight: 500; line-height: 1.35;
-  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-}
-.tile .theld { color: var(--red); font-size: 8px; letter-spacing: .2em; font-weight: 700; text-transform: uppercase; }
-body.amber-art .tile img, body.amber-art .sheet-art { filter: var(--art-filter); }
-.shelf.off .tile { opacity: .6; }
-.shelf.off .tile.held { opacity: .4; }
+/* section heads: a sentence-case title, a quiet aside, actions to the right */
+.sect { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 36px 0 8px; }
+.sect h2 { font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+.sect .aside { color: var(--slate); font-size: 15px; }
+.sect .end { margin-left: auto; display: flex; gap: 8px; }
+.empty { padding: 18px 0; color: var(--slate); }
 
-/* the station sheet: settings + episode log for one open tile */
-.sheet {
-  border: 1px solid var(--line); border-top: 2px solid var(--accent); background: var(--panel-deep);
-  margin-top: 10px; padding: 18px;
+/* ── menus ──────────────────────────────────────────────────────────── */
+/* Anchored under their button on a wide screen; on a phone every menu is a
+   sheet rising from the bottom over a scrim, above the docked controls, so
+   none can open under the dock or off an edge. */
+.flapwrap, .dropwrap { position: relative; }
+.flap {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; min-width: 280px;
+  padding: 6px; border-radius: 14px; background: var(--panel);
+  border: 1px solid var(--hair); box-shadow: var(--shadow);
 }
-.sheet-head { display: grid; grid-template-columns: 140px 1fr; gap: 18px; align-items: start; }
-.sheet-art { width: 140px; height: 140px; object-fit: cover; border: 1px solid var(--line); background: var(--bezel); }
-.sheet-main { min-width: 0; }
-.sheet-top { display: flex; gap: 12px; align-items: baseline; }
-.sheet-title { font-family: var(--font-title); font-size: 17px; font-weight: 600; line-height: 1.3; min-width: 0; }
-.sheet-close {
-  margin-left: auto; background: none; border: 1px solid transparent; cursor: pointer;
-  color: var(--amber-dim); font: 700 9px/1.2 var(--font-ui);
-  letter-spacing: .2em; text-transform: uppercase; padding: 6px 8px; flex: none;
+.dropwrap .flap, .flap.right { left: auto; right: 0; }
+.flap > button, .flap .spk-list + button {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px; width: 100%;
+  min-height: 48px; padding: 0 14px; border-radius: 10px; border: 0; background: none;
+  color: var(--ink); font: 500 16px var(--font); text-align: left; cursor: pointer;
 }
-.sheet-close:hover { border-color: var(--line); color: var(--amber); }
-.sheet-counts {
-  font-size: 10px; color: var(--amber-prose); letter-spacing: .16em;
-  text-transform: uppercase; font-weight: 700; margin: 6px 0 12px;
-}
-.sheet-counts b { color: var(--amber); }
-.sheet-counts .pri { color: var(--red); }
-.settings-flap { min-width: 280px; }
-.flap-field {
-  display: grid; gap: 6px; padding: 12px 14px; border-bottom: 1px dashed var(--line);
-  font: 700 9px/1.2 var(--font-ui); letter-spacing: .14em; text-transform: uppercase;
-  color: var(--amber-prose);
-}
+.flap > button[hidden] { display: none; }
+.flap > button:hover { background: var(--hover); }
+.flap .danger { color: var(--tally); }
+.flap i { color: var(--slate); font-style: normal; font-weight: 400; font-size: 14px; white-space: nowrap; }
+.flap .danger i { color: var(--slate); }
+.flap-field { display: grid; gap: 6px; padding: 8px 14px 12px; color: var(--slate); font-size: 14px; }
 .flap-field select { width: 100%; }
-.sheet .ep-browser { margin-top: 14px; border-top: 1px dashed var(--line); }
-/* Narrow sheets. Declared after the rules above, which they override; inside
-   the earlier mobile blocks they lost to them on source order. */
 @media (max-width: 760px) {
-  .sheet { padding: 14px; }
-  .sheet-head { grid-template-columns: 88px 1fr; gap: 12px; }
-  .sheet-art { width: 88px; height: 88px; }
+  .flap, .dropwrap .flap, .flap.right {
+    position: fixed; top: auto; left: 8px; right: 8px; bottom: 8px; z-index: 40;
+    min-width: 0; max-height: 80vh; overflow-y: auto; padding: 8px 8px 12px; border-radius: 18px;
+  }
+  /* A real layer, not a shadow: a tap on it lands on <body>, which only
+     closes the menu, instead of falling through to the button beneath.
+     Under the docks (z 20), which stay live as the remote. */
+  body:has(.flap:not([hidden]))::after {
+    content: ""; position: fixed; inset: 0; z-index: 15; background: var(--scrim);
+  }
 }
-/* phone: artwork beside the title and its controls; the blurb and counts
-   take the full width under both */
-@media (max-width: 600px) {
-  .sheet-head { grid-template-columns: 64px 1fr; }
-  .sheet-art { width: 64px; height: 64px; }
-  .sheet-main { display: contents; }
-  .sheet-top { flex-wrap: wrap; align-items: center; row-gap: 2px; }
-  .sheet-title { flex-basis: 100%; }
-  .sheet-top .dropwrap { margin-left: -8px; }
-  .sheet-desc, .sheet-counts { grid-column: 1 / -1; }
-  .ep-row .qmeta { letter-spacing: .1em; }
+
+/* ── switches ───────────────────────────────────────────────────────── */
+/* position says the state: knob right and filled is on */
+.sw {
+  position: relative; flex: none; width: 48px; height: 28px; padding: 0; cursor: pointer;
+  border-radius: 14px; border: 2px solid var(--slate); background: none;
+}
+.sw::after { content: ""; position: absolute; inset: -10px -4px; }   /* 48px touch target */
+.sw .knob {
+  position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--slate); transition: transform .15s;
+}
+.sw.on { background: var(--ink); border-color: var(--ink); }
+.sw.on .knob { transform: translateX(20px); background: var(--paper); }
+@media (prefers-reduced-motion: reduce) { .sw .knob { transition: none; } }
+
+#flash {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50;
+  display: none; max-width: min(520px, 90vw); padding: 12px 20px; border-radius: 14px;
+  background: var(--ink); color: var(--paper); font-weight: 500; box-shadow: var(--shadow);
+}
+#flash::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--tally); margin-right: 10px; vertical-align: 1px; }
+#flash.ok::before { background: var(--ok); }
+
+.showlink { color: inherit; text-decoration: none; }
+.showlink:hover, .showlink:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+.qdesc[hidden], .npdesc[hidden] { display: none; }
+.qdesc, .npdesc, .sheet-desc {
+  max-width: 66ch; color: var(--slate); font-size: 15px; line-height: 1.55; white-space: pre-wrap;
+}
+.disc {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; margin: -8px 0 -8px 2px;
+  vertical-align: middle; border-radius: 50%; border: 0; background: none; cursor: pointer;
+  color: var(--slate); transition: transform .15s, color .15s;
+}
+.disc:hover { color: var(--ink); background: var(--hover); }
+.disc[aria-expanded="true"] { color: var(--ink); transform: rotate(180deg); }
+.disc svg { width: 16px; height: 16px; }
+
+{% block style %}{% endblock %}
+
+@media (max-width: 760px) {
+  body { padding: 0 18px 120px; }
+  header { height: auto; flex-wrap: wrap; gap: 0 12px; padding-top: 10px; }
+  nav.nav { order: 3; width: 100%; height: 48px; }
+  .navlink { flex: 1; justify-content: center; }
 }
 </style>
-<link rel="stylesheet" href="/static/themes.css">
 </head>
 <body>
 
 <header>
-  <span class="t led glow" id="board-title">SONOS TALK RADIO</span>
+  <a class="mark" id="board-title" href="/"><span class="tally" aria-hidden="true"></span>Talk Radio</a>
   <nav class="nav" aria-label="Pages">
-    <a class="navlink{{ ' live' if request.path == '/' else '' }}" href="/">On air</a>
-    <a class="navlink{{ ' live' if request.path.startswith('/stations') else '' }}" href="/stations">Stations</a>
+    <a class="navlink{{ ' live' if request.path == '/' else '' }}" href="/"{{ ' aria-current="page"' if request.path == '/' else '' }}>On air</a>
+    <a class="navlink{{ ' live' if request.path.startswith('/stations') else '' }}" href="/stations"{{ ' aria-current="page"' if request.path.startswith('/stations') else '' }}>Stations</a>
   </nav>
-  <div class="flapwrap themepick">
-    <button type="button" class="navlink" id="btn-theme" data-flap="theme-flap"
-            aria-haspopup="true" aria-expanded="false" title="Change the look of the board">
-      <span class="swatch" aria-hidden="true"></span><span id="theme-name">Amber</span>
-    </button>
-    <div class="flap" id="theme-flap" hidden role="menu" aria-label="Themes"></div>
-  </div>
-  <span class="clock glow" id="clock">--<span class="colon">:</span>--</span>
+  <button type="button" class="modebtn" id="btn-mode"></button>
 </header>
 
 {% block content %}{% endblock %}
@@ -748,8 +290,9 @@ function discToggle(id, description, title) {
   return `<button type="button" class="disc" data-disc="${id}" ` +
     `aria-expanded="${open}" aria-controls="desc-${id}" ` +
     `aria-label="${open ? "Hide" : "Show"} description for ${esc(title)}"` +
-    `>&#9662;</button>`;
+    `>${CHEVRON}</button>`;
 }
+const CHEVRON = '<svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>';
 
 // A show's name, wherever it appears, opens that show's station sheet:
 // "more of this" should not mean finding its tile by hand.
@@ -776,15 +319,6 @@ document.addEventListener("click", (ev) => {
   const panel = document.getElementById(`desc-${id}`);
   if (panel) panel.hidden = !open;
 });
-// ── category rotation ──────────────────────────────────────────────
-// One fact, two shapes: On air draws a chip with its unplayed count, Stations
-// a button in the shelf head. What they share is the words — whether a
-// category feeds the DJ has to be readable on a phone or a wall tablet, where
-// a dimmed color states nothing and a title tooltip has no way to open.
-function rotationLabel(enabled) {
-  return enabled ? "Rotation on" : "Rotation off";
-}
-
 // Sonos reports TRANSITIONING while it spins a track up — the window every
 // skip and play-now lands in, since we poll the moment the action returns.
 // That's playback starting, not a hold: transports read live during it.
@@ -874,17 +408,15 @@ async function post(path, body, btn) {
 async function poll() {
   try {
     status = await (await fetch("/api/status")).json();
-    // header lamp: board title glows only while on air
-    $("board-title").style.opacity = status.dj_state === "playing" ? 1 : 0.45;
+    // the tally light is lit only while on air
+    $("board-title").classList.toggle("live", status.dj_state === "playing");
     renderPage(status);
   } catch (err) { /* transient: keep last render */ }
 }
 
 // ── flaps ──────────────────────────────────────────────────────────
 // One toggle serves every flap on either page: the button names the
-// panel it opens, so a new one is markup and nothing else. It lives
-// here rather than on the board because the theme picker is in the
-// header, and two handlers both toggling would cancel each other out.
+// panel it opens, so a new one is markup and nothing else.
 function closeFlaps(except) {
   for (const btn of document.querySelectorAll("[data-flap]")) {
     if (btn.dataset.flap === except) continue;
@@ -906,109 +438,43 @@ document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") closeFlaps(null);
 });
 
-// ── themes ─────────────────────────────────────────────────────────
-// Per device, not per household: the wall tablet in daylight and the
-// bedside phone at midnight want different answers, and the DJ has no
-// reason to know either of them. The id is the only thing stored; the
-// swatches and the theme-colour meta are read back out of the CSS, so
-// static/themes.css stays the single source of truth for what a theme
-// looks like.
-const THEMES = [
-  ["amber", "Amber", "dot-matrix VFD"],
-  ["solari", "Solari", "split-flap departures board"],
-  ["ceefax", "Ceefax", "teletext, page 100"],
-  ["jcard", "J-Card", "cassette inlay"],
-  ["rams", "Rams", "Braun hi-fi, 1962"],
-  ["storm", "Quiet Storm", "late-night FM"],
-  ["console", "Console", "mixing desk"],
-  ["longwave", "Longwave", "shortwave dial"],
-];
-function currentTheme() {
-  return document.documentElement.dataset.theme || "amber";
+// ── light and dark ─────────────────────────────────────────────────
+// Per device, not per household: the wall tablet in daylight and the bedside
+// phone at midnight want different answers. Auto (nothing stored) follows
+// the system; the button steps Auto → Light → Dark → Auto.
+const MODES = ["auto", "light", "dark"];
+const MODE_ICON = {
+  auto: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg>',
+  light: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  dark: '<svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>',
+};
+function currentMode() {
+  return document.documentElement.dataset.mode || "auto";
 }
-// Reads the applied theme back out of the cascade rather than keeping a
-// second copy of every palette in JS.
-function themeColor(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-function paintThemeButton() {
-  const id = currentTheme();
-  const meta = THEMES.find((t) => t[0] === id) || THEMES[0];
-  $("theme-name").textContent = meta[1];
-  const sw = document.querySelector("#btn-theme .swatch");
-  sw.style.setProperty("--sw-bg", themeColor("--bg"));
-  sw.style.setProperty("--sw-ink", themeColor("--ink"));
-  sw.style.setProperty("--sw-accent", themeColor("--accent"));
-  // The address bar and the PWA splash follow the board.
+function paintMode() {
+  const mode = currentMode();
+  const btn = $("btn-mode");
+  btn.innerHTML = MODE_ICON[mode];
+  const label = `Appearance: ${mode === "auto" ? "match this device" : mode}`;
+  btn.title = label;
+  btn.setAttribute("aria-label", label);
+  // the address bar and the PWA splash follow the page
   const tc = document.querySelector('meta[name="theme-color"]');
-  if (tc) tc.setAttribute("content", themeColor("--bg"));
-  for (const btn of document.querySelectorAll("[data-theme-id]"))
-    btn.setAttribute("aria-checked", String(btn.dataset.themeId === id));
+  if (tc) tc.setAttribute("content", getComputedStyle(document.documentElement).getPropertyValue("--paper").trim());
 }
-function setTheme(id) {
-  document.documentElement.dataset.theme = id;
-  try { localStorage.setItem("theme", id); } catch (e) { /* not fatal */ }
-  paintThemeButton();
-  document.dispatchEvent(new CustomEvent("themechange", { detail: id }));
-}
-(function buildThemeFlap() {
-  const flap = $("theme-flap");
-  flap.innerHTML = THEMES.map(([id, name, note]) =>
-    `<button type="button" role="menuitemradio" aria-checked="false" data-theme-id="${id}">` +
-    `<span class="swatch" data-sw="${id}" aria-hidden="true"><i></i></span>` +
-    `<span class="tname">${name}</span><i>${note}</i></button>`).join("");
-  // Each row wears its own palette, read out of the stylesheet rules
-  // rather than copied into JS — a palette edit in themes.css needs no
-  // edit here.
-  //
-  // Read from the rules, not from the cascade. Stamping each theme on
-  // <html> to measure it works, but it applies that theme's --font-body
-  // for an instant, and the browser starts fetching the face whether or
-  // not the theme survives the next line: every board would pull all
-  // sixteen woff2 files on load instead of the one or two it needs.
-  // Nothing here is ever applied, so nothing is ever fetched.
-  const rules = new Map();
-  for (const sheet of document.styleSheets) {
-    let list;
-    try { list = sheet.cssRules; } catch (e) { continue; }   // foreign origin
-    for (const rule of list) {
-      if (!rule.selectorText || !rule.style) continue;
-      const m = /^:root(?:\[data-theme="([a-z]+)"\])?$/.exec(rule.selectorText.trim());
-      if (m) rules.set(m[1] || "amber", rule.style);
-    }
-  }
-  // One level of indirection is all the contract uses: amber writes
-  // --accent: var(--ink), every other theme writes a literal.
-  const read = (style, token, fallback) => {
-    const raw = (style && style.getPropertyValue(token) || "").trim();
-    const alias = /^var\((--[a-z0-9-]+)\)$/.exec(raw);
-    if (alias) return read(style, alias[1], fallback) || read(fallback, alias[1], null);
-    return raw;
-  };
-  const amber = rules.get("amber");
-  for (const el of flap.querySelectorAll(".swatch")) {
-    const style = rules.get(el.dataset.sw) || amber;
-    for (const [prop, token] of [["--sw-bg", "--bg"], ["--sw-ink", "--ink"], ["--sw-accent", "--accent"]]) {
-      const v = read(style, token, amber) || read(amber, token, null);
-      if (v) el.style.setProperty(prop, v);
-    }
-  }
-  flap.addEventListener("click", (ev) => {
-    const btn = ev.target.closest("[data-theme-id]");
-    if (btn) { setTheme(btn.dataset.themeId); track("theme"); }
-  });
-  paintThemeButton();
-})();
-
-// ── clock ──────────────────────────────────────────────────────────
-function tickClock() {
-  const d = new Date();
-  $("clock").innerHTML =
-    String(d.getHours()).padStart(2, "0") + '<span class="colon">:</span>' +
-    String(d.getMinutes()).padStart(2, "0");
-}
-tickClock();
-setInterval(tickClock, 15000);
+$("btn-mode").addEventListener("click", () => {
+  const next = MODES[(MODES.indexOf(currentMode()) + 1) % MODES.length];
+  if (next === "auto") delete document.documentElement.dataset.mode;
+  else document.documentElement.dataset.mode = next;
+  try {
+    if (next === "auto") localStorage.removeItem("mode"); else localStorage.setItem("mode", next);
+  } catch (e) { /* not fatal */ }
+  paintMode();
+  document.dispatchEvent(new CustomEvent("modechange"));
+  track("mode");
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintMode);
+paintMode();
 </script>
 {% block script %}{% endblock %}
 <script>

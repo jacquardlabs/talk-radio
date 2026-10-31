@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""Hold every theme to the contrast ratios amber already owes.
+"""Hold both modes, light and dark, to the contrast the page needs.
 
-Amber's own comment in base.html is the standard: --ink-dim may sit at
-3.14:1 because it only ever draws a border, a glyph, or a deliberately-off
-state, but anything meant to be READ takes --ink-2, and the board's text is
-9-12px uppercase — not large text, so 4.5:1 is the bar.
-
-Reads the palettes out of the stylesheets rather than keeping a third copy
-of them. Run it from the repo root:  python tools/check_contrast.py
+Anything meant to be read is --ink or --slate and clears 4.5:1 on the
+surfaces it sits on; --tally carries words too (news, Never play), so it
+owes the same. Reads the palettes out of base.html rather than keeping a
+second copy of them. Run it from the repo root:  python tools/check_contrast.py
 """
 from __future__ import annotations
 
@@ -15,20 +12,19 @@ import re
 import sys
 
 BASE = "templates/base.html"
-THEMES = "static/themes.css"
 
 # (foreground, background, minimum, what it is)
 CHECKS: list[tuple[str, str, float, str]] = [
-    ("--ink", "--bg", 4.5, "primary text on the board"),
-    ("--ink-2", "--bg", 4.5, "metadata and labels, which are read"),
-    ("--ink", "--bezel", 4.5, "a control's label on its face"),
-    ("--ink-2", "--bezel", 4.5, "a control's secondary label"),
-    ("--on-accent", "--accent", 4.5, "the label on a lit control"),
-    ("--red", "--bg", 4.5, "news, danger, and the off-air key"),
-    ("--green", "--bg", 4.5, "the healthy-feed marker"),
-    ("--ink-dim", "--bg", 3.0, "borders and deliberately-off glyphs"),
+    ("--ink", "--paper", 4.5, "text on the page"),
+    ("--slate", "--paper", 4.5, "secondary text, which is read"),
+    ("--ink", "--panel", 4.5, "text in a menu, sheet, or the dock"),
+    ("--slate", "--panel", 4.5, "secondary text in a menu or sheet"),
+    ("--tally", "--paper", 4.5, "news, and the words of a destructive action"),
+    ("--tally", "--panel", 4.5, "Never play in a menu"),
+    ("--paper", "--ink", 4.5, "the label on a filled button: Play, a lit chip"),
+    ("--paper", "--tally", 4.5, "Sure? on an armed destructive button"),
+    ("--slate", "--paper", 3.0, "a switch that is off, a drag handle"),
 ]
-
 
 def parse_hex(value: str) -> tuple[int, int, int] | None:
     value = value.strip()
@@ -79,31 +75,19 @@ def resolve(name: str, decls: dict[str, str], depth: int = 0) -> tuple[int, int,
 
 
 def palettes() -> dict[str, dict[str, str]]:
-    base_src = open(BASE, encoding="utf-8").read()
-    m = re.search(r"^:root \{(.*?)^\}", base_src, re.S | re.M)
-    if not m:
-        sys.exit(f"{BASE}: could not find the :root block")
-    amber = tokens(m.group(1))
-
-    out = {"amber": amber}
-    themes_src = open(THEMES, encoding="utf-8").read()
-    # Only the token block for each theme — the component rules that
-    # follow it set colours for one element, not for the palette.
-    # The selector is :root[data-theme=...]; matching the bare attribute
-    # form silently found nothing and passed every theme vacuously.
-    for tm in re.finditer(r'^:root\[data-theme="([a-z]+)"\] \{(.*?)^\}', themes_src, re.S | re.M):
-        theme = dict(amber)
-        theme.update(tokens(tm.group(2)))
-        out[tm.group(1)] = theme
-
-    # A palette that stops being found is a check that stops running, and
-    # a green result is exactly what that looks like. Every theme the
-    # picker offers has to turn up here.
-    offered = set(re.findall(r'^\s*\["([a-z]+)", "', base_src, re.M))
-    missing = offered - set(out)
-    if missing:
-        sys.exit(f"{THEMES}: no token block found for {sorted(missing)} — "
-                 f"has the selector changed?")
+    src = open(BASE, encoding="utf-8").read()
+    light = re.search(r"^:root \{(.*?)^\}", src, re.S | re.M)
+    dark = re.search(r'^:root\[data-mode="dark"\] \{(.*?)^\}', src, re.S | re.M)
+    system = re.search(r'^  :root:not\(\[data-mode="light"\]\) \{(.*?)^  \}', src, re.S | re.M)
+    # A palette that stops being found is a check that stops running, and a
+    # green result is exactly what that looks like.
+    if not (light and dark and system):
+        sys.exit(f"{BASE}: could not find the light, dark, and system-dark token blocks")
+    base = tokens(light.group(1))
+    out = {"light": base, "dark": {**base, **tokens(dark.group(1))},
+           "dark (system)": {**base, **tokens(system.group(1))}}
+    if out["dark"] != out["dark (system)"]:
+        sys.exit(f"{BASE}: the system-dark block and [data-mode=dark] disagree")
     return out
 
 
@@ -130,7 +114,7 @@ def main() -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("\nevery theme clears the bar")
+    print("\nboth modes clear the bar")
     return 0
 
 
