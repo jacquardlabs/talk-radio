@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS feeds (
     category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
     playback_mode TEXT NOT NULL DEFAULT 'in_order'
         CHECK (playback_mode IN ('in_order','random')),
+    -- Title prefixes, one per line, that send a new episode straight to the
+    -- back catalog: a feed's reruns and spin-offs stay reachable but don't
+    -- join rotation. NULL skips nothing.
+    skip_titles TEXT,
     -- The show's own blurb, plain text, same NULL convention as episodes.
     -- Kept ahead of the validators so no column here is both last and
     -- comment-preceded: SQLite's DROP COLUMN rewrites this DDL, and a
@@ -147,6 +151,14 @@ REVIEW_WRITES = {
 }
 
 
+def skip_titles_of(feed: sqlite3.Row) -> list[str]:
+    return (feed["skip_titles"] or "").split("\n") if feed["skip_titles"] else []
+
+
+def title_is_skipped(title: str, prefixes: list[str]) -> bool:
+    return title.casefold().startswith(tuple(p.casefold() for p in prefixes)) if prefixes else False
+
+
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -242,6 +254,8 @@ class Database:
             for name in ("etag", "last_modified"):
                 if name not in feed_cols:
                     c.execute(f"ALTER TABLE feeds ADD COLUMN {name} TEXT")
+            if "skip_titles" not in feed_cols:
+                c.execute("ALTER TABLE feeds ADD COLUMN skip_titles TEXT")
             # Descriptions. Adding the column is not enough to populate it:
             # conditional refresh means an unchanged feed answers 304 and its
             # body is never parsed, so a library that has all its episodes
@@ -397,6 +411,22 @@ class Database:
         with self._conn() as c:
             c.execute("UPDATE feeds SET category_id=? WHERE id=?", (category_id, feed_id))
 
+    def set_feed_skip_titles(self, feed_id: int, titles: list[str]) -> int:
+        """Replace a show's skipped title prefixes, and apply them to what's
+        waiting in rotation. Returns how many moved. An episode the listener
+        decided on keeps that decision, and one in Up Next stays there."""
+        prefixes = list(dict.fromkeys(t.strip() for t in titles if t.strip()))
+        with self._conn() as c:
+            c.execute("UPDATE feeds SET skip_titles=? WHERE id=?",
+                      ("\n".join(prefixes) or None, feed_id))
+            ids = [r["id"] for r in c.execute(
+                "SELECT id, title FROM episodes"
+                " WHERE feed_id=? AND status='new' AND review IS NULL", (feed_id,))
+                   if title_is_skipped(r["title"], prefixes)]
+            c.executemany("UPDATE episodes SET status='archived' WHERE id=?",
+                          [(i,) for i in ids])
+        return len(ids)
+
     def set_feed_validators(self, feed_id: int, etag: str | None,
                             last_modified: str | None) -> None:
         """Remember what the server said this feed's body was, so the next
@@ -424,18 +454,24 @@ class Database:
 
         Both backfills are guarded on IS NULL, so they fill gaps and never
         overwrite: a show that later rewrites its notes does not silently
-        rewrite history here, and a second full refresh is a no-op."""
+        rewrite history here, and a second full refresh is a no-op.
+
+        A skipped title is decided here, on arrival, and only then: an existing
+        row is ignored, so one released by hand is never sent back."""
         if not episodes:
             return 0
         with self._conn() as c:
+            feed = c.execute("SELECT skip_titles FROM feeds WHERE id=?", (feed_id,)).fetchone()
+            prefixes = skip_titles_of(feed) if feed else []
             before = c.total_changes
             c.executemany(
                 "INSERT OR IGNORE INTO episodes"
                 " (feed_id, guid, title, audio_url, published_at,"
-                "  duration_seconds, description, media_key)"
-                " VALUES (?,?,?,?,?,?,?,?)",
+                "  duration_seconds, description, media_key, status)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
                 [(feed_id, e.guid, e.title, e.audio_url, e.published_at,
-                  e.duration_seconds, e.description, media_key_of(e.audio_url))
+                  e.duration_seconds, e.description, media_key_of(e.audio_url),
+                  "archived" if title_is_skipped(e.title, prefixes) else "new")
                  for e in episodes],
             )
             inserted = c.total_changes - before

@@ -60,6 +60,7 @@ form.inline input[type="url"], form.inline input[type="text"] { flex: 1 1 260px;
 .sheet-counts b { color: var(--ink); font-weight: 600; font-family: var(--figures); }
 .sheet-counts .pri { color: var(--tally); font-weight: 500; }
 .settings-flap { min-width: 300px; }
+.flap-field input { width: 100%; }
 .ep-browser { margin-top: 22px; }
 .ep-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
 .ep-toolbar input[type="search"] { flex: 1 1 240px; background: var(--paper); }
@@ -337,6 +338,8 @@ function settingsMenu(f, categories) {
     `<div class="flap settings-flap" data-setflap="${f.id}"${open ? "" : " hidden"}>` +
     `<label class="flap-field"><span>Category</span>` +
     `<select data-feed-category="${f.id}">${categoryOptions}</select></label>` +
+    `<label class="flap-field"><span>Skip titles starting with, separated by commas</span>` +
+    `<input type="text" data-feed-skip="${f.id}" value="${esc(f.skip_titles.join(", "))}"></label>` +
     `<button type="button" data-feed="${f.id}/playback">` +
     `${random ? "Play in order" : "Play in random order"} <i>now ${random ? "random" : "oldest first"}</i></button>` +
     `<button type="button" data-feed="${f.id}/news">` +
@@ -362,6 +365,7 @@ function sheetHeadHTML(f, categories) {
     `<span><b>${c.archived.toLocaleString()}</b> in the back catalog</span>` +
     `<span><b>${(c.played + c.skipped).toLocaleString()}</b> heard</span>` +
     (f.playback_mode === "random" ? "<span>Random order</span>" : "") +
+    (f.skip_titles.length ? `<span>Skips ${esc(f.skip_titles.join(", "))}</span>` : "") +
     (f.is_news ? '<span class="pri">Plays first, as news</span>' : "") +
     (f.enabled ? "" : '<span class="pri">Turned off</span>') +
     // One episode failing is bad luck; a whole station failing is a broken
@@ -814,6 +818,15 @@ document.addEventListener("change", (ev) => {
     const releaseBtn = panel.querySelector("[data-release-selected]");
     if (releaseBtn) releaseBtn.textContent = `Add selected (${set.size})`;
     return;
+  }
+  const skip = ev.target.closest("input[data-feed-skip]");
+  if (skip) {
+    const id = Number(skip.dataset.feedSkip);
+    return void post(`/feeds/${id}/skip_titles`, { titles: skip.value.split(",") }).then((data) => {
+      if (!data) return;
+      if (data.moved) flash(`${data.moved.toLocaleString()} moved to the back catalog`, true);
+      renderEpisodePanel(id);
+    });
   }
   const sel = ev.target.closest("select[data-feed-category]");
   if (sel) {

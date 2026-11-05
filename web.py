@@ -416,6 +416,16 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             return result(f"could not set category: {exc}")
         return result()
 
+    @app.post("/feeds/<int:feed_id>/skip_titles")
+    def set_feed_skip_titles(feed_id: int):
+        if db.get_feed(feed_id) is None:
+            return result("no such feed"), 404
+        titles = (request.get_json(silent=True) or {}).get("titles")
+        if not (isinstance(titles, list) and all(isinstance(t, str) for t in titles)):
+            return result("titles must be a list of strings")
+        return jsonify({"ok": True, "error": None,
+                        "moved": db.set_feed_skip_titles(feed_id, titles)})
+
     @app.get("/api/feeds/<int:feed_id>/episodes")
     def api_feed_episodes(feed_id: int):
         feed = db.get_feed(feed_id)

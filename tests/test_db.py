@@ -504,3 +504,76 @@ def test_explicit_moves_record_a_decision(db) -> None:
     db.unarchive_feed(show)
     assert db.get_episode(old)["status"] == "new"
     assert db.review_counts()["recent"] == 0
+
+
+# ── skipped titles ──────────────────────────────────────────────────
+def _skip_feed(db: Database) -> int:
+    return db.add_feed("https://x/sysk", "SYSK", None, False)
+
+
+def _titled(db: Database, feed_id: int, title: str) -> int:
+    db.insert_episode(feed_id, title, title, f"https://x/{title}.mp3", "2026-11-01T00:00:00Z")
+    return db.find_episode_by_guid(feed_id, title)["id"]
+
+
+def test_skip_titles_column_added_to_an_existing_database(tmp_path) -> None:
+    db = Database(str(tmp_path / "old.db"))
+    db.init()
+    with db._conn() as c:
+        c.execute("ALTER TABLE feeds DROP COLUMN skip_titles")
+    db.init()
+    with db._conn() as c:
+        assert "skip_titles" in {r["name"] for r in c.execute("PRAGMA table_info(feeds)")}
+
+
+def test_skipped_titles_arrive_in_the_back_catalog(db) -> None:
+    feed = _skip_feed(db)
+    db.set_feed_skip_titles(feed, ["Selects", "Short Stuff"])
+    assert db.get_episode(_titled(db, feed, "SELECTS: Salem"))["status"] == "archived"
+    assert db.get_episode(_titled(db, feed, "Short Stuff: Balloons"))["status"] == "archived"
+    assert db.get_episode(_titled(db, feed, "How Selects Work"))["status"] == "new"
+
+
+def test_another_show_is_not_skipped(db) -> None:
+    feed, other = _skip_feed(db), db.add_feed("https://x/o", "Other", None, False)
+    db.set_feed_skip_titles(feed, ["Selects"])
+    assert db.get_episode(_titled(db, other, "Selects: Salem"))["status"] == "new"
+
+
+def test_setting_skips_applies_to_waiting_episodes_only(db) -> None:
+    feed = _skip_feed(db)
+    waiting = _titled(db, feed, "Selects: Waiting")
+    staged = _titled(db, feed, "Selects: Staged")
+    heard = _titled(db, feed, "Selects: Heard")
+    kept = _titled(db, feed, "Selects: Kept")
+    regular = _titled(db, feed, "Regular")
+    db.mark_queued(staged, "uri")
+    db.mark_played(heard, "2026-11-02T00:00:00Z")
+    db.review_episodes([kept], "keep")
+
+    assert db.set_feed_skip_titles(feed, ["Selects"]) == 1
+
+    assert db.get_episode(waiting)["status"] == "archived"
+    assert db.get_episode(waiting)["review"] is None   # not a verdict on the show
+    assert db.get_episode(staged)["status"] == "queued"
+    assert db.get_episode(heard)["status"] == "played"
+    assert db.get_episode(kept)["status"] == "new"
+    assert db.get_episode(regular)["status"] == "new"
+
+
+def test_a_released_episode_survives_the_next_refresh(db) -> None:
+    feed = _skip_feed(db)
+    db.set_feed_skip_titles(feed, ["Selects"])
+    ep = _titled(db, feed, "Selects: Salem")
+    assert db.release_episode(ep)
+    _titled(db, feed, "Selects: Salem")   # the feed offers every episode again
+    assert db.get_episode(ep)["status"] == "new"
+
+
+def test_skip_titles_are_normalized_and_clearable(db) -> None:
+    feed = _skip_feed(db)
+    db.set_feed_skip_titles(feed, [" Selects ", "", "Selects", "Short Stuff"])
+    assert db.get_feed(feed)["skip_titles"] == "Selects\nShort Stuff"
+    db.set_feed_skip_titles(feed, ["  "])
+    assert db.get_feed(feed)["skip_titles"] is None
+    assert db.get_episode(_titled(db, feed, "Selects: Salem"))["status"] == "new"
