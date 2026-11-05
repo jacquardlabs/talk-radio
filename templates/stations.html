@@ -7,7 +7,8 @@
 .lib { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 36px 0 4px; }
 .lib h1 { font-size: 34px; font-weight: 600; letter-spacing: -.02em; margin-right: auto; }
 .lib input[type="search"] { width: min(420px, 100%); }
-.lib-sum { color: var(--slate); margin-bottom: 20px; }
+.lib-row { display: flex; align-items: center; gap: 4px 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.lib-sum { color: var(--slate); }
 #manage-block { margin: 8px 0 28px; padding: 22px 24px; border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
 #manage-block h2 { font-size: 20px; font-weight: 600; margin-bottom: 12px; }
 #manage-block .seg { display: inline-flex; gap: 6px; margin-bottom: 10px; }
@@ -111,7 +112,12 @@ form.inline input[type="url"], form.inline input[type="text"] { flex: 1 1 260px;
   <button type="button" class="tab" id="btn-manage" aria-expanded="false"
           aria-controls="manage-block"><svg class="i sm" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add station</button>
 </div>
-<p class="lib-sum" id="stn-summary"></p>
+<div class="lib-row">
+  <p class="lib-sum" id="stn-summary"></p>
+  <button type="button" class="bc-toggle" id="off-toggle" role="switch" aria-checked="false" hidden>
+    <span class="sw" id="off-switch"><span class="knob"></span></span>Turned off <span class="n" id="off-count"></span>
+  </button>
+</div>
 
 <!-- Library admin, monthly at most: adding stations and categories. -->
 <div id="manage-block" hidden>
@@ -186,6 +192,9 @@ const selectedIds = {};     // feedId -> Set<number>
 // deep back catalog opens on what the DJ can actually pick, and one
 // choice holds for every station until changed.
 let hideBackCatalog = localStorage.getItem("hideBackCatalog") !== "0";
+// A station is off because it isn't wanted now, so it stays out of the crate
+// until asked for, and one choice holds until changed.
+let showTurnedOff = localStorage.getItem("showTurnedOff") === "1";
 
 function episodeState(feedId) {
   return stationSearch[feedId] || (stationSearch[feedId] = { q: "", page: 1 });
@@ -287,7 +296,8 @@ function paginationHTML(page, pageSize, total, kind, key) {
 
 // ── the record crate: category shelves of artwork tiles ────────────
 function tileHTML(f) {
-  const u = f.counts.new + f.counts.queued;
+  // the badge counts what's left to hear, and the DJ won't play a turned-off show
+  const u = f.enabled ? f.counts.new + f.counts.queued : 0;
   const open = expandedFeedId === f.id;
   const art = f.image_url
     ? `<img src="${esc(f.image_url)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'), {className: 'noart'}))">`
@@ -377,7 +387,8 @@ function setCatMenuOpen(id) {
 
 function groupHeadHTML(cat, rows) {
   const count = rows.length;
-  const unplayed = rows.reduce((n, f) => n + f.counts.new + f.counts.queued, 0);
+  const unplayed = rows.filter((f) => f.enabled)
+    .reduce((n, f) => n + f.counts.new + f.counts.queued, 0);
   const cnt = `<span class="cnt">${count} station${count === 1 ? "" : "s"}, ${unplayed.toLocaleString()} to hear</span>`;
   if (!cat) return `<h2 class="grp-name">Uncategorized</h2>` + cnt;
   const open = openCatMenuId === String(cat.id);
@@ -403,6 +414,9 @@ function buildGroups(s) {
   const byCat = new Map();
   for (const f of s.stations) {
     if (stationFilter && !f.title.toLowerCase().includes(stationFilter)) continue;
+    // A search or an open sheet still reaches a hidden station: it's how one
+    // is found again, and a link to one must not close on arrival.
+    if (!f.enabled && !showTurnedOff && !stationFilter && f.id !== expandedFeedId) continue;
     const key = f.category_id == null ? "un" : f.category_id;
     if (!byCat.has(key)) byCat.set(key, []);
     byCat.get(key).push(f);
@@ -415,7 +429,7 @@ function buildGroups(s) {
 }
 
 function renderStations(s) {
-  const sig = JSON.stringify([s.stations, s.categories, stationFilter, expandedFeedId]);
+  const sig = JSON.stringify([s.stations, s.categories, stationFilter, expandedFeedId, showTurnedOff]);
   if (sig === lastStationsSig) return;   // nothing changed: keep DOM (and focus) intact
   lastStationsSig = sig;
 
@@ -431,7 +445,9 @@ function renderStations(s) {
     `<section class="shelf${g.cat && !g.cat.rotation_enabled ? " off" : ""}">` +
     `<div class="grp-head">${groupHeadHTML(g.cat, g.rows)}</div>` +
     `<div class="shelf-row">` +
-    (g.rows.map(tileHTML).join("") || '<div class="empty">No stations here yet.</div>') +
+    (g.rows.map(tileHTML).join("") ||
+      `<div class="empty">${g.cat && s.stations.some((f) => f.category_id === g.cat.id)
+        ? "Every station here is turned off." : "No stations here yet."}</div>`) +
     `</div><div data-sheet-slot></div></section>`
   ).join("") || (stationFilter
     ? '<div class="empty">No stations match</div>'
@@ -549,8 +565,14 @@ function setManaging(on) {
 }
 function renderPage(s) {
   const cats = (s.categories || []).length;
+  const off = s.stations.filter((f) => !f.enabled).length;
+  const on = s.stations.length - off;
   $("stn-summary").textContent =
-    `${s.stations.length} station${s.stations.length === 1 ? "" : "s"} in ${cats} categor${cats === 1 ? "y" : "ies"}`;
+    `${on} station${on === 1 ? "" : "s"} in ${cats} categor${cats === 1 ? "y" : "ies"}`;
+  $("off-toggle").hidden = !off;
+  $("off-count").textContent = off.toLocaleString();
+  $("off-toggle").setAttribute("aria-checked", String(showTurnedOff));
+  $("off-switch").classList.toggle("on", showTurnedOff);
   if (!s.stations.length && !managing) setManaging(true);   // first run: adding is the only job
   renderStations(s);
   renderMiniTransport(s);
@@ -697,6 +719,11 @@ document.addEventListener("click", (ev) => {
       if (ok) { selectedIds[id].clear(); selectMode[id] = false; }
       renderEpisodePanel(id);
     });
+  }
+  if (btn.id === "off-toggle") {
+    showTurnedOff = !showTurnedOff;
+    localStorage.setItem("showTurnedOff", showTurnedOff ? "1" : "0");
+    return void renderPage(status);
   }
   if (btn.id === "btn-manage") return void setManaging(!managing);
   if (btn.id === "search-directory") {

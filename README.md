@@ -109,7 +109,9 @@ of the screen, thumb-height:
 5. **Manage episodes** — *Stations* is a record crate: category shelves of
    artwork tiles in full color so a show is recognisable at a glance, badges
    counting what's left to hear, each shelf's *In rotation* switch, and a
-   menu beside it to rename or remove the category. Tap a tile for its
+   menu beside it to rename or remove the category. Turned-off stations stay
+   hidden until you switch on *Turned off* above the shelves, or search for
+   one. Tap a tile for its
    station sheet: the show's description, then its episodes newest first. An
    episode in the *Back catalog* (the DJ won't pick it until you add it) is
    dimmed; a *Heard* one is struck through, and plays again with one tap. The
@@ -135,8 +137,8 @@ of the screen, thumb-height:
    show's name anywhere on *On air* opens its station sheet.
 6. **Review episodes** — *Settings* lists *Recently added* episodes newest
    first until you decide: *Keep*, *Back catalog*, or *Never play*, on one row
-   or on a selection across pages. *Back catalog* lists every non-news episode
-   out of rotation, filterable by show and title; *Select all* covers the
+   or on a selection across pages. Turned-off shows and news aren't listed.
+   *Back catalog* lists every other episode out of rotation, filterable by show and title; *Select all* covers the
    whole filtered list. *Never play* lists what you've dismissed, so a decision
    can be taken back. *Shows* ranks each show by how much you pass over and
    flags one *Mostly skipped* once at least 5 skips outnumber what you heard or

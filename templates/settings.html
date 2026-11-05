@@ -59,8 +59,8 @@
 // The list is fetched on demand, never from the status poll: a repaint under
 // a thumb mid-triage would lose the place, and selection lives across pages.
 const NOTES = {
-  recent: "Newest first, by publish date, until you decide. Keep leaves it in rotation; news isn't listed.",
-  back_catalog: "Episodes the DJ won't pick until you add them. Pick a show to work through it; news isn't listed.",
+  recent: "Newest first, by publish date, until you decide. Keep leaves it in rotation; news and turned-off shows aren't listed.",
+  back_catalog: "Episodes the DJ won't pick until you add them. Pick a show to work through it; news and turned-off shows aren't listed.",
   never: "Episodes you've dismissed. Move one back if you change your mind.",
   shows: "Sending a recently added episode to the back catalog or Never play counts as a skip, as does Never play on Skip or Up next. Clearing out the back catalog doesn't. Heard includes earlier Never plays, which were recorded as listens.",
 };
@@ -184,7 +184,7 @@ async function decide(ids, decision, btn) {
 // Poll: only the show picker reads library state, and it holds still unless
 // the library changed, so an open dropdown stays open.
 function renderPage(s) {
-  const shows = s.stations.filter((f) => !f.is_news)
+  const shows = s.stations.filter((f) => !f.is_news && f.enabled)
     .sort((a, b) => a.title.localeCompare(b.title));
   const sig = JSON.stringify(shows.map((f) => [f.id, f.title]));
   if (sig === showsSig) return;
