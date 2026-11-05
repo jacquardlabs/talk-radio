@@ -915,8 +915,9 @@ class Database:
     @staticmethod
     def _review_filter(feed_id: int | None, q: str | None) -> tuple[str, list]:
         """News is left out: it plays first until dropped, so keeping a stale
-        headline would put it on air, and skipping it says nothing about a show."""
-        clauses = ["f.is_news=0"] + (["e.feed_id=?"] if feed_id else []) + (
+        headline would put it on air, and skipping it says nothing about a show.
+        So is a turned-off show: there's nothing left to decide about it."""
+        clauses = ["f.is_news=0", "f.enabled=1"] + (["e.feed_id=?"] if feed_id else []) + (
             ["e.title LIKE ?"] if q else [])
         params = ([feed_id] if feed_id else []) + ([f"%{q}%"] if q else [])
         return " AND ".join(clauses), params
@@ -991,7 +992,7 @@ class Database:
                 " SUM(e.status='archived' AND e.review IS 'back_catalog') AS back_catalog,"
                 " SUM(e.status='played' AND e.review IS 'never') AS never"
                 " FROM feeds f JOIN episodes e ON e.feed_id=f.id"
-                " WHERE f.is_news=0 GROUP BY f.id"
+                " WHERE f.is_news=0 AND f.enabled=1 GROUP BY f.id"
                 " HAVING heard + kept + back_catalog + never > 0"
             ).fetchall()
 

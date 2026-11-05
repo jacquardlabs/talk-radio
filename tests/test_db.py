@@ -476,6 +476,20 @@ def test_clearing_out_the_back_catalog_is_not_a_skip(db) -> None:
     assert row["status"] == "archived" and row["review"] is None
 
 
+def test_review_leaves_turned_off_shows_out(db) -> None:
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    db.review_episodes([fresh], "never")
+    db.archive_episode(old)
+    db.toggle_feed(show)
+    assert db.review_counts() == {"recent": 0, "back_catalog": 0, "never": 0}
+    assert db.review_ids("back_catalog") == []
+    assert db.review_page("never", 1, 25) == []
+    assert db.review_shows() == []
+    db.toggle_feed(show)
+    assert db.review_counts()["never"] == 1
+
+
 def test_explicit_moves_record_a_decision(db) -> None:
     show, _ = _review_library(db)
     fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
