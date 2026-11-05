@@ -130,7 +130,9 @@ of the screen, thumb-height:
    it heard. *Play next* queues an
    episode after the current track, *Play now* interrupts, and *Play last*
    queues it at the end of Up Next; all three work on any episode
-   regardless of status, and turn the station on air if it is off. An episode
+   regardless of status, and turn the station on air if it is off. Fresh news
+   still outranks them: within 15 seconds it takes the slot after the current
+   track, ahead of anything you placed there. An episode
    whose title carries a part marker also offers *Queue series* — every
    unheard part of that story, appended in order. The search box above the
    shelves narrows the stations and lists matching episodes from every

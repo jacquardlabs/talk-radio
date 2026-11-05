@@ -1,6 +1,6 @@
 # Open issue review, 2026-11-04
 
-28 open issues checked against `4dcb86f`, after the redesign (#62) and #65, #67, #68, and #69. No issue has been changed.
+28 open issues checked against `4dcb86f`, after the redesign (#62) and #65, #67, #68, and #69.
 
 | Verdict | Count | Issues |
 |---|---|---|
@@ -60,7 +60,7 @@ Evidence types: **browser** is a Playwright run of the current templates against
 3. #17: a decision, then 1 README sentence or a grace flag.
 4. #22 before #23, per the sequencing in both issues.
 
-## Decision needed
+## Decisions
 
-- #17: document news-first in `README.md` and close (recommended; #60 and `PRODUCT.md:145` already point this way), or exempt a just-placed episode.
-- #29: On air or Stations for preset chips.
+- #17: news-first outranks placement. Documented in `README.md`.
+- #29: preset chips stay on On air.
