@@ -2,6 +2,7 @@
 no raw status UPDATEs anywhere else in the codebase."""
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import sqlite3
@@ -84,6 +85,12 @@ CREATE TABLE IF NOT EXISTS episodes (
     -- position banked here reads as newer than a phone's more recent one on
     -- every sync, and the phone's own place snaps backward.
     resume_at TEXT,
+    -- What the listener decided about this episode, beside status because a
+    -- dismissed episode reads 'played' and an auto-cut one reads 'archived':
+    -- status alone can't tell a decision from a listen or a default. NULL is
+    -- undecided. A finished listen clears it (mark_played). 'pruned' is a
+    -- Never play from the back catalog: housekeeping, not a verdict on the show.
+    review TEXT,
     UNIQUE (feed_id, guid)
 );
 CREATE INDEX IF NOT EXISTS idx_episodes_feed_status ON episodes (feed_id, status);
@@ -112,6 +119,32 @@ CREATE TABLE IF NOT EXISTS usage_events (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_events_at ON usage_events (at);
 """
+
+# What each review list shows. Keys are the API's view names and SQL aliases.
+REVIEW_VIEWS = {
+    "recent": "(e.status='new' AND e.review IS NULL)",
+    "back_catalog": "e.status='archived'",
+    "never": "(e.status='played' AND e.review IN ('never','pruned'))",
+}
+# Which rows a decision may move. A heard episode moves only if it was a Never
+# play: taking back a decision must not erase a real listen.
+_TAKEN_BACK = "(status='played' AND review IN ('never','pruned'))"
+REVIEW_ELIGIBLE = {
+    "keep": f"(status IN ('new','archived') OR {_TAKEN_BACK})",
+    "back_catalog": f"(status='new' OR {_TAKEN_BACK})",
+    "never": "status IN ('new','archived')",
+}
+REVIEW_WRITES = {
+    "keep": "status='new', played_at=NULL, review='keep'",
+    # A pruned episode going back was never a decision to leave rotation.
+    "back_catalog": "status='archived', played_at=NULL,"
+                    " review=CASE review WHEN 'pruned' THEN NULL ELSE 'back_catalog' END",
+    # mark_played and clear_failures' fields, in the one statement a batch needs.
+    "never": "status='played', played_at=published_at, resume_seconds=NULL,"
+             " resume_at=NULL, play_uri=NULL, local_path=NULL, observed_seconds=NULL,"
+             " failure_count=0, pinned=0,"
+             " review=CASE status WHEN 'archived' THEN 'pruned' ELSE 'never' END",
+}
 
 
 def utcnow_iso() -> str:
@@ -178,6 +211,7 @@ class Database:
                 ("observed_seconds", "observed_seconds INTEGER"),
                 ("failure_count", "failure_count INTEGER NOT NULL DEFAULT 0"),
                 ("last_failed_at", "last_failed_at TEXT"),
+                ("review", "review TEXT"),
             ):
                 if name not in cols:
                     c.execute(f"ALTER TABLE episodes ADD COLUMN {ddl}")
@@ -560,6 +594,7 @@ class Database:
             return c.execute(
                 "SELECT e.*, f.title AS feed_title FROM episodes e"
                 " JOIN feeds f ON f.id=e.feed_id WHERE e.status='played'"
+                " AND e.review IS NULL"   # a dismissal isn't a listen
                 " ORDER BY e.played_at DESC, e.id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -582,7 +617,8 @@ class Database:
                 (play_uri, local_path, episode_id),
             )
 
-    def mark_played(self, episode_id: int, played_at: str) -> str | None:
+    def mark_played(self, episode_id: int, played_at: str,
+                    never: bool = False) -> str | None:
         with self._conn() as c:
             row = c.execute(
                 "SELECT local_path FROM episodes WHERE id=?", (episode_id,)
@@ -590,8 +626,8 @@ class Database:
             c.execute(
                 "UPDATE episodes SET status='played', played_at=?, resume_seconds=NULL,"
                 " resume_at=NULL, play_uri=NULL, local_path=NULL,"
-                " observed_seconds=NULL WHERE id=?",
-                (played_at, episode_id),
+                " observed_seconds=NULL, review=? WHERE id=?",
+                (played_at, "never" if never else None, episode_id),
             )
             return row["local_path"] if row else None
 
@@ -786,7 +822,8 @@ class Database:
     def unarchive_feed(self, feed_id: int) -> int:
         with self._conn() as c:
             cur = c.execute(
-                "UPDATE episodes SET status='new' WHERE feed_id=? AND status='archived'",
+                "UPDATE episodes SET status='new', review='keep'"
+                " WHERE feed_id=? AND status='archived'",
                 (feed_id,),
             )
             return cur.rowcount
@@ -844,7 +881,8 @@ class Database:
     def release_episode(self, episode_id: int) -> bool:
         with self._conn() as c:
             cur = c.execute(
-                "UPDATE episodes SET status='new' WHERE id=? AND status='archived'",
+                "UPDATE episodes SET status='new', review='keep'"
+                " WHERE id=? AND status='archived'",
                 (episode_id,),
             )
             return cur.rowcount == 1
@@ -855,7 +893,8 @@ class Database:
         lose its history."""
         with self._conn() as c:
             cur = c.execute(
-                "UPDATE episodes SET status='archived' WHERE id=? AND status='new'",
+                "UPDATE episodes SET status='archived', review='back_catalog'"
+                " WHERE id=? AND status='new'",
                 (episode_id,),
             )
             return cur.rowcount == 1
@@ -866,11 +905,95 @@ class Database:
         with self._conn() as c:
             placeholders = ",".join("?" * len(episode_ids))
             cur = c.execute(
-                f"UPDATE episodes SET status='new' WHERE status='archived'"
+                f"UPDATE episodes SET status='new', review='keep' WHERE status='archived'"
                 f" AND id IN ({placeholders})",
                 episode_ids,
             )
             return cur.rowcount
+
+    # ── review ────────────────────────────────────────────────────────
+    @staticmethod
+    def _review_filter(feed_id: int | None, q: str | None) -> tuple[str, list]:
+        """News is left out: it plays first until dropped, so keeping a stale
+        headline would put it on air, and skipping it says nothing about a show."""
+        clauses = ["f.is_news=0"] + (["e.feed_id=?"] if feed_id else []) + (
+            ["e.title LIKE ?"] if q else [])
+        params = ([feed_id] if feed_id else []) + ([f"%{q}%"] if q else [])
+        return " AND ".join(clauses), params
+
+    def review_counts(self, feed_id: int | None = None,
+                      q: str | None = None) -> dict[str, int]:
+        where, params = self._review_filter(feed_id, q)
+        selects = ", ".join(f"COALESCE(SUM({cond}), 0) AS {view}"
+                            for view, cond in REVIEW_VIEWS.items())
+        with self._conn() as c:
+            return dict(c.execute(
+                f"SELECT {selects} FROM episodes e JOIN feeds f ON f.id=e.feed_id"
+                f" WHERE {where}", params).fetchone())
+
+    def review_page(self, view: str, page: int, page_size: int,
+                    feed_id: int | None = None, q: str | None = None) -> list[sqlite3.Row]:
+        where, params = self._review_filter(feed_id, q)
+        with self._conn() as c:
+            return c.execute(
+                "SELECT e.*, f.title AS feed_title FROM episodes e"
+                f" JOIN feeds f ON f.id=e.feed_id WHERE {where} AND {REVIEW_VIEWS[view]}"
+                " ORDER BY e.published_at DESC, e.id DESC LIMIT ? OFFSET ?",
+                [*params, page_size, max(0, page - 1) * page_size],
+            ).fetchall()
+
+    def review_ids(self, view: str, feed_id: int | None = None,
+                   q: str | None = None) -> list[int]:
+        """Every id the view lists, for "select all": the action then covers
+        exactly what the server listed rather than re-deriving a filter."""
+        where, params = self._review_filter(feed_id, q)
+        with self._conn() as c:
+            return [r["id"] for r in c.execute(
+                "SELECT e.id FROM episodes e JOIN feeds f ON f.id=e.feed_id"
+                f" WHERE {where} AND {REVIEW_VIEWS[view]}", params)]
+
+    def review_episodes(self, episode_ids: list[int],
+                        decision: str) -> tuple[list[int], list[str]]:
+        """Apply one decision to many episodes in one transaction: a commit
+        per row would hold the DJ's lock for minutes on the deployed host.
+        Returns the ids that moved and their downloaded files to delete.
+        Queued and heard rows don't move, and neither does anything else the
+        decision's WHERE rules out, so a stale selection can't rewrite history.
+
+        Never play sets played_at to the publish date, as the stale-news
+        migration does, so a batch doesn't flood a phone's sync, whose `since`
+        query is capped at 5000 rows."""
+        moved: list[int] = []
+        paths: list[str] = []
+        with self._conn() as c:
+            for chunk in itertools.batched(episode_ids, 500):
+                marks = ",".join("?" * len(chunk))
+                where = f"id IN ({marks}) AND {REVIEW_ELIGIBLE[decision]}"
+                rows = c.execute(
+                    f"SELECT id, local_path FROM episodes WHERE {where}", chunk).fetchall()
+                moved += [r["id"] for r in rows]
+                if decision == "never":
+                    paths += [r["local_path"] for r in rows if r["local_path"]]
+                c.execute(f"UPDATE episodes SET {REVIEW_WRITES[decision]} WHERE {where}", chunk)
+        return moved, paths
+
+    def review_shows(self) -> list[sqlite3.Row]:
+        """Per show, what became of its episodes. Only decisions about what
+        reached rotation count: neither the cut made when a station is added
+        nor clearing out old episodes says the show is being passed over.
+        Status is read too, so a decision later undone by playing or releasing
+        the episode stops counting."""
+        with self._conn() as c:
+            return c.execute(
+                "SELECT f.id, f.title,"
+                " SUM(e.status='played' AND e.review IS NULL) AS heard,"
+                " SUM(e.status IN ('new','queued') AND e.review IS 'keep') AS kept,"
+                " SUM(e.status='archived' AND e.review IS 'back_catalog') AS back_catalog,"
+                " SUM(e.status='played' AND e.review IS 'never') AS never"
+                " FROM feeds f JOIN episodes e ON e.feed_id=f.id"
+                " WHERE f.is_news=0 GROUP BY f.id"
+                " HAVING heard + kept + back_catalog + never > 0"
+            ).fetchall()
 
     def set_resume(self, episode_id: int, seconds: int | None) -> None:
         """resume_at tracks resume_seconds in lockstep — it is the gpodder

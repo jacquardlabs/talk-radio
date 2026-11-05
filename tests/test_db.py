@@ -1,7 +1,7 @@
 import pytest
 import sqlite3
 
-from db import Database, utcnow_iso
+from db import Database, EpisodeSeed, utcnow_iso
 
 
 def _ep(db: Database, feed_id: int, n: int, status: str = "new") -> int:
@@ -337,3 +337,156 @@ def test_new_episodes_for_feed_ordering_and_filter(db: Database) -> None:
     db.mark_played(played, utcnow_iso())
     rows = db.new_episodes_for_feed(fid)
     assert [r["guid"] for r in rows] == [f"guid-{fid}-1", f"guid-{fid}-3"]
+
+
+# ── review ──────────────────────────────────────────────────────────
+def _review_library(db: Database) -> tuple[int, int]:
+    show = db.add_feed("https://x/show", "Show", None, False)
+    news = db.add_feed("https://x/news", "News", None, True)
+    db.insert_episode(show, "fresh", "Fresh", "https://x/a.mp3", "2026-11-01T00:00:00Z")
+    db.insert_episode(show, "old", "Old", "https://x/b.mp3", "2020-01-01T00:00:00Z")
+    db.insert_episode(news, "n", "Headlines", "https://x/n.mp3", "2026-11-02T00:00:00Z")
+    return show, news
+
+
+def _by_guid(db: Database, feed_id: int, guid: str):
+    return db.find_episode_by_guid(feed_id, guid)
+
+
+def test_review_column_added_to_an_existing_database(tmp_path) -> None:
+    path = str(tmp_path / "old.db")
+    db = Database(path)
+    db.init()
+    with db._conn() as c:
+        c.execute("ALTER TABLE episodes DROP COLUMN review")
+    db.init()
+    with db._conn() as c:
+        assert "review" in {r["name"] for r in c.execute("PRAGMA table_info(episodes)")}
+
+
+def test_review_lists_leave_news_and_decided_rows_out(db) -> None:
+    show, _ = _review_library(db)
+    db.archive_episode(_by_guid(db, show, "old")["id"])
+    assert db.review_counts() == {"recent": 1, "back_catalog": 1, "never": 0}
+    assert [e["title"] for e in db.review_page("recent", 1, 25)] == ["Fresh"]
+    db.review_episodes([_by_guid(db, show, "fresh")["id"]], "keep")
+    assert db.review_counts()["recent"] == 0
+    assert _by_guid(db, show, "fresh")["status"] == "new"
+
+
+def test_review_filters_by_show_and_title(db) -> None:
+    show, news = _review_library(db)
+    assert db.review_ids("recent", show, "res") == [_by_guid(db, show, "fresh")["id"]]
+    assert db.review_ids("recent", show, "nope") == []
+    assert db.review_ids("recent", news) == []
+
+
+def test_never_play_batch_dates_by_publish_and_clears_playback_state(db) -> None:
+    show, _ = _review_library(db)
+    ep = _by_guid(db, show, "old")
+    db.mark_failed(ep["id"], "2026-11-01T00:00:00Z", 5)
+    db.mark_queued(ep["id"], "uri", "/data/a.mp3")
+    db.revert_to_new(ep["id"])
+    db.archive_episode(ep["id"])
+    db.set_pinned(ep["id"], True)
+    db.set_resume(ep["id"], 90)
+
+    moved, paths = db.review_episodes([ep["id"]], "never")
+
+    row = db.get_episode(ep["id"])
+    assert (moved, paths) == ([ep["id"]], ["/data/a.mp3"])
+    assert row["status"] == "played" and row["review"] == "pruned"
+    assert row["played_at"] == row["published_at"]
+    assert not row["pinned"] and row["resume_seconds"] is None and row["local_path"] is None
+    assert row["failure_count"] == 0
+
+
+def test_dismissals_stay_off_the_recently_played_list(db) -> None:
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    db.mark_played(old, "2026-11-01T00:00:00Z")
+    db.review_episodes([fresh], "never")
+    db.mark_played(fresh, "2026-11-02T00:00:00Z", never=True)
+    assert [e["id"] for e in db.recently_played()] == [old]
+
+
+def test_review_batch_spans_sql_variable_chunks(db) -> None:
+    show, _ = _review_library(db)
+    seeds = [EpisodeSeed(f"g{i}", f"T{i}", f"https://x/{i}.mp3", "2026-01-01T00:00:00Z")
+             for i in range(1200)]
+    db.insert_episodes(show, seeds)
+    moved, _ = db.review_episodes(db.review_ids("recent", show), "back_catalog")
+    assert len(moved) == 1202
+    assert db.review_counts(show)["back_catalog"] == 1202
+
+
+def test_review_never_moves_queued_or_heard_rows(db) -> None:
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    db.mark_queued(fresh, "uri")
+    db.mark_played(old, "2026-11-01T00:00:00Z")
+    for decision in ("keep", "back_catalog", "never"):
+        assert db.review_episodes([fresh, old], decision) == ([], [])
+    assert db.get_episode(fresh)["status"] == "queued"
+    assert db.get_episode(old)["played_at"] == "2026-11-01T00:00:00Z"
+
+
+def test_never_play_can_be_taken_back(db) -> None:
+    show, _ = _review_library(db)
+    ep = _by_guid(db, show, "old")["id"]
+    db.review_episodes([ep], "never")
+    db.review_episodes([ep], "back_catalog")
+    row = db.get_episode(ep)
+    assert row["status"] == "archived" and row["played_at"] is None
+    db.review_episodes([ep], "never")
+    db.review_episodes([ep], "keep")
+    row = db.get_episode(ep)
+    assert row["status"] == "new" and row["review"] == "keep" and row["played_at"] is None
+
+
+def test_review_shows_count_decisions_and_drop_undone_ones(db) -> None:
+    show, news = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    # an archive nobody chose isn't a skip, and news doesn't count at all
+    db.archive_episode(fresh)
+    db.review_episodes([_by_guid(db, news, "n")["id"]], "never")
+    assert db.review_shows() == []
+
+    db.review_episodes([old], "never")   # still in rotation: a verdict
+    row = db.review_shows()[0]
+    assert (row["heard"], row["kept"], row["back_catalog"], row["never"]) == (0, 0, 0, 1)
+
+    # replayed to the end: a listen, not a dismissal
+    db.mark_played(old, "2026-11-03T00:00:00Z")
+    row = db.review_shows()[0]
+    assert (row["heard"], row["never"]) == (1, 0)
+
+
+def test_clearing_out_the_back_catalog_is_not_a_skip(db) -> None:
+    show, _ = _review_library(db)
+    old = _by_guid(db, show, "old")["id"]
+    db.archive_episode(old)
+    db.review_episodes([old], "never")
+    assert db.get_episode(old)["review"] == "pruned"
+    assert db.review_counts()["never"] == 1
+    assert db.review_shows() == []
+    # taking it back restores it as undecided, not as a choice to shelve it
+    db.review_episodes([old], "back_catalog")
+    row = db.get_episode(old)
+    assert row["status"] == "archived" and row["review"] is None
+
+
+def test_explicit_moves_record_a_decision(db) -> None:
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    assert db.unrelease_episode(fresh)
+    assert db.get_episode(fresh)["review"] == "back_catalog"
+    assert db.release_episode(fresh)
+    assert db.get_episode(fresh)["review"] == "keep"
+    db.archive_episode(old)
+    assert db.release_episodes([old]) == 1
+    assert db.get_episode(old)["review"] == "keep"
+    db.archive_episode(old)
+    db.unarchive_feed(show)
+    assert db.get_episode(old)["status"] == "new"
+    assert db.review_counts()["recent"] == 0

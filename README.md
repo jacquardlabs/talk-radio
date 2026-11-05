@@ -46,9 +46,9 @@ Open http://<server>:8080.
 
 ## First run
 
-Two pages: **On air** (now-playing deck, transport, Up Next, wake alarms,
-recently played) and **Stations** (the library — categories, episodes, back
-catalog).
+Three pages: **On air** (now-playing deck, transport, Up Next, wake alarms,
+recently played), **Stations** (the library — categories, episodes, back
+catalog), and **Settings** (reviewing episodes in bulk).
 
 ![The Stations page — category shelves of artwork tiles with unplayed counts](docs/screenshots/stations.jpg)
 
@@ -133,6 +133,15 @@ of the screen, thumb-height:
    station; when nothing in the library matches, it hands the words to the
    podcast directory. Each station sheet has its own episode filter too. A
    show's name anywhere on *On air* opens its station sheet.
+6. **Review episodes** — *Settings* lists *Recently added* episodes newest
+   first until you decide: *Keep*, *Back catalog*, or *Never play*, on one row
+   or on a selection across pages. *Back catalog* lists every non-news episode
+   out of rotation, filterable by show and title; *Select all* covers the
+   whole filtered list. *Never play* lists what you've dismissed, so a decision
+   can be taken back. *Shows* ranks each show by how much you pass over and
+   flags one *Mostly skipped* once at least 5 skips outnumber what you heard or
+   kept; clearing out a back catalog doesn't count as skipping. A batch *Never
+   play* doesn't reach a synced phone unless the episode is newer than its last sync.
 
 ## Configuration
 

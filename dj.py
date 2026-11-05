@@ -342,10 +342,11 @@ class DJ:
     _MAX_PLAYBACK_FAILURES = 3
     _RETRY_COOLDOWN_MINUTES = 90
 
-    def _finish(self, episode) -> None:
+    def _finish(self, episode, never: bool = False) -> None:
         """Record an episode as heard. Unconditional — callers that aren't
-        certain go through _retire()."""
-        local_path = self.db.mark_played(episode["id"], utcnow_iso())
+        certain go through _retire(). `never` says the listener dismissed it
+        rather than heard it."""
+        local_path = self.db.mark_played(episode["id"], utcnow_iso(), never)
         self.db.clear_failures(episode["id"])
         # Heard, so the pin has nothing left to protect. Only here, never in
         # mark_played(): the reconcile paths can retire an episode that never
@@ -948,7 +949,7 @@ class DJ:
                 player.stop()
             player.remove_from_queue(cur_idx)  # then drop the skipped item
             if disposition == "done":
-                self._finish(episode)
+                self._finish(episode, never=True)
             elif disposition == "later":
                 self.db.revert_to_new(episode["id"])
                 self.db.remove_from_up_next(episode["id"])  # let go, not waiting
@@ -1038,7 +1039,7 @@ class DJ:
                     # here, so the top-up can't immediately re-pick it
                     self._top_up(player, cur_idx, ids_of(matches))
                     if disposition == "done":
-                        self._finish(ep)
+                        self._finish(ep, never=True)
                     else:
                         self.db.revert_to_new(ep["id"])
                     self.db.remove_from_up_next(ep["id"])
@@ -1055,9 +1056,26 @@ class DJ:
             episode = self.db.get_episode(episode_id)
             if episode is None or episode["status"] not in ("new", "skipped"):
                 return "Only an unplayed or missed episode can be dropped here"
-            self._finish(episode)
+            self._finish(episode, never=True)
             self.db.remove_from_up_next(episode_id)
             return None
+
+    def review_episodes(self, episode_ids: list[int], decision: str) -> int:
+        """Apply a review decision (db.REVIEW_WRITES) and return how many rows
+        moved. Queued rows are ineligible, so nothing here touches the speaker;
+        the lock covers the queue state an episode leaving rotation must leave."""
+        with self._lock:
+            moved, local_paths = self.db.review_episodes(episode_ids, decision)
+            if decision != "keep":
+                gone = set(moved)
+                order = self.db.up_next_order()
+                if gone.intersection(order):
+                    self.db.set_up_next([i for i in order if i not in gone])
+                if self.db.kv_get("resume_episode_id") in {str(i) for i in gone}:
+                    self.db.kv_del("resume_episode_id")
+            for path in local_paths:
+                audio.delete_local(path)
+            return len(moved)
 
     # How close to the end a remote 'play' action must land to count as
     # finished. Matches the slack AntennaPod itself applies (its default

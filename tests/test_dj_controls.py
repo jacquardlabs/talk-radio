@@ -214,7 +214,8 @@ def test_skip_done_marks_played(db, cfg, player, dj) -> None:
     dj.start()
     ep = current_episode(db, player)
     assert dj.skip_done() is None
-    assert db.get_episode(ep["id"])["status"] == "played"
+    after = db.get_episode(ep["id"])
+    assert after["status"] == "played" and after["review"] == "never"
     assert player.state == "PLAYING"
 
 
@@ -357,6 +358,7 @@ def test_drop_from_queue_done_marks_played(db, cfg, player, dj) -> None:
     assert dj.drop_from_queue(target["id"], "done") is None
     after = db.get_episode(target["id"])
     assert after["status"] == "played" and after["played_at"] is not None
+    assert after["review"] == "never"
     assert all(t["uri"] != target["play_uri"] for t in player.queue)
     assert target["id"] not in db.up_next_order()
 
@@ -400,10 +402,49 @@ def test_drop_for_good_from_rotation_or_missed(db, cfg, dj) -> None:
     assert dj.drop_for_good(missed["id"]) is None
     assert db.get_episode(added["id"])["status"] == "played"
     assert db.get_episode(missed["id"])["status"] == "played"
+    assert db.get_episode(added["id"])["review"] == "never"
     assert "unplayed" in dj.drop_for_good(heard["id"])
     db.mark_queued(added["id"], "x-file:///a.mp3", None)
     assert "unplayed" in dj.drop_for_good(added["id"])
     assert db.get_episode(added["id"])["status"] == "queued"
+
+
+def test_review_never_play_leaves_the_queue_state_behind(db, cfg, dj, tmp_path) -> None:
+    """An unplayed episode can hold the resume key, an Up Next slot, and a
+    downloaded file. Dismissing one in a batch has to let go of all three,
+    as dismissing one by hand does."""
+    fid = make_feed(db, "showa", 3)
+    target, other, _ = db.episodes_for_feed(fid)
+    download = tmp_path / "held.mp3"
+    download.write_bytes(b"x")
+    db.mark_queued(target["id"], "uri", str(download))
+    db.revert_to_new(target["id"])
+    db.set_up_next([target["id"], other["id"]])
+    db.kv_set("resume_episode_id", str(target["id"]))
+
+    assert dj.review_episodes([target["id"]], "never") == 1
+
+    assert db.up_next_order() == [other["id"]]
+    assert db.kv_get("resume_episode_id") is None
+    assert not download.exists()
+
+
+def test_review_keep_leaves_the_queue_state_alone(db, cfg, dj) -> None:
+    fid = make_feed(db, "showa", 2)
+    target = db.episodes_for_feed(fid)[0]
+    db.set_up_next([target["id"]])
+    db.kv_set("resume_episode_id", str(target["id"]))
+    assert dj.review_episodes([target["id"]], "keep") == 1
+    assert db.up_next_order() == [target["id"]]
+    assert db.kv_get("resume_episode_id") == str(target["id"])
+
+
+def test_natural_finish_clears_a_dismissal(db, cfg, dj) -> None:
+    fid = make_feed(db, "showa", 1)
+    ep = db.episodes_for_feed(fid)[0]
+    dj.review_episodes([ep["id"]], "never")
+    dj._finish(db.get_episode(ep["id"]))
+    assert db.get_episode(ep["id"])["review"] is None
 
 
 def test_group_all(db, cfg, player, dj) -> None:
