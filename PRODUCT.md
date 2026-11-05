@@ -178,6 +178,7 @@ pointer here. [inferred]
 2. **Is news-first meant to outrank a just-placed episode?** The alternative is
    exempting a row placed in the last N seconds from the standing insertion. The
    current behavior is defensible; it is just undocumented for the user.
+   **Answered:** yes, news-first outranks placement, and the README says so.
 3. **Are the two personas above right,** and is there really no third — no
    "shares it with a housemate", no "runs it for a second house"?
    **Answered:** no third persona. The household listener, off the LAN, on
