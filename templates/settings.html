@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}Settings — Sonos Talk Radio{% endblock %}
+
+{% block style %}
+/* ── settings: deciding what stays ─────────────────────────────────── */
+.review-head { margin: 36px 0 16px; }
+.review-head h1 { font-size: 34px; font-weight: 600; letter-spacing: -.02em; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.seg .n { font-family: var(--figures); font-weight: 400; }
+.review-note { color: var(--slate); margin-bottom: 14px; }
+.review-filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.review-filters select { flex: 0 1 320px; min-width: 0; }
+.review-filters input { flex: 1 1 240px; min-width: 0; }
+.ep-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+#review-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+/* the selection's verbs stay in reach however far down the list you are */
+.bulk {
+  position: sticky; bottom: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 10px 0 calc(10px + env(safe-area-inset-bottom)); background: var(--paper); border-top: 1px solid var(--hair);
+}
+.bulk .count { color: var(--slate); font-family: var(--figures); }
+.bulk .tab:first-of-type { margin-right: auto; }
+.show-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--hair); }
+.show-row .name { font-size: 16px; font-weight: 500; }
+.show-row .counts { grid-column: 1 / -1; color: var(--slate); font-size: 14px; font-family: var(--figures); }
+.show-row .share { font-family: var(--figures); color: var(--slate); text-align: right; }
+.show-row.flagged .share { color: var(--tally); font-weight: 600; }
+@media (max-width: 760px) {
+  .review-head { margin-top: 22px; }
+  .review-head h1 { font-size: 28px; }
+  .ep-row.sel { grid-template-columns: 22px 1fr; }
+  .ep-row.sel .ep-actions { grid-column: 2; justify-content: flex-start; }
+}
+{% endblock %}
+
+{% block content %}
+<div class="review-head"><h1>Review episodes</h1></div>
+<div class="seg" id="review-tabs" role="group" aria-label="What to review">
+  <button type="button" class="tab small" data-view="recent">Recently added <span class="n" data-count="recent"></span></button>
+  <button type="button" class="tab small" data-view="back_catalog">Back catalog <span class="n" data-count="back_catalog"></span></button>
+  <button type="button" class="tab small" data-view="never">Never play <span class="n" data-count="never"></span></button>
+  <button type="button" class="tab small" data-view="shows">Shows</button>
+</div>
+<p class="review-note" id="review-note"></p>
+<div class="review-filters" id="review-filters">
+  <select id="review-show" aria-label="Show"><option value="">All shows</option></select>
+  <input type="search" id="review-q" placeholder="Filter by title" aria-label="Filter by title">
+</div>
+<div id="review-pick"></div>
+<div id="review-list"></div>
+<div id="review-pager"></div>
+<div class="bulk" id="review-bulk"></div>
+{% endblock %}
+
+{% block script %}
+<script>
+"use strict";
+// The list is fetched on demand, never from the status poll: a repaint under
+// a thumb mid-triage would lose the place, and selection lives across pages.
+const NOTES = {
+  recent: "Newest first, by publish date, until you decide. Keep leaves it in rotation; news isn't listed.",
+  back_catalog: "Episodes the DJ won't pick until you add them. Pick a show to work through it; news isn't listed.",
+  never: "Episodes you've dismissed. Move one back if you change your mind.",
+  shows: "Sending a recently added episode to the back catalog or Never play counts as a skip, as does Never play on Skip or Up next. Clearing out the back catalog doesn't. Heard includes earlier Never plays, which were recorded as listens.",
+};
+const VERBS = {
+  recent: [["keep", "Keep"], ["back_catalog", "Back catalog"], ["never", "Never play"]],
+  back_catalog: [["keep", "Back to rotation"], ["never", "Never play"]],
+  never: [["keep", "Back to rotation"], ["back_catalog", "Back catalog"]],
+};
+const DONE = { keep: "in rotation", back_catalog: "in the back catalog", never: "marked Never play" };
+const review = { view: "recent", feed: "", q: "", page: 1, total: 0 };
+const selected = new Set();
+let showsSig = "";
+let listRequest = 0;
+
+function filterQuery() {
+  return `view=${review.view}&feed=${review.feed}&q=${encodeURIComponent(review.q)}`;
+}
+
+function verbButtons(verbs, attr) {
+  return verbs.map(([decision, label]) =>
+    `<button type="button" class="tab small${decision === "never" ? " red" : ""}" ` +
+    `data-${attr}="${decision}"${attr === "bulk" ? " data-confirm=\"1\"" : ""}>${label}</button>`
+  ).join("");
+}
+
+function reviewRow(e) {
+  const meta = [
+    `<span>${showLink(e.feed_id, e.show)}</span>`,
+    `<span class="fig">${pubDate(e.published_at)}</span>`,
+    e.duration ? `<span class="fig">${Math.round(e.duration / 60)} min</span>` : "",
+  ].filter(Boolean).join("");
+  return `<div class="ep-row sel">` +
+    `<input type="checkbox" data-pick="${e.id}"${selected.has(e.id) ? " checked" : ""} aria-label="Select ${esc(e.title)}">` +
+    `<div class="qmain"><div class="ep-title">${esc(e.title)}</div>` +
+    `<div class="qmeta">${meta}${discToggle(e.id, e.description, e.title)}</div></div>` +
+    `<span class="ep-actions" data-row="${e.id}">${verbButtons(VERBS[review.view], "decide")}</span>` +
+    discPanel(e.id, e.description) +
+    `</div>`;
+}
+
+function renderBulk(pageIds) {
+  const unpicked = pageIds.some((id) => !selected.has(id));
+  $("review-pick").innerHTML =
+    (unpicked ? `<button type="button" class="tab small" id="pick-page">Select page</button>` : "") +
+    (review.total > selected.size ? `<button type="button" class="tab small" id="pick-all">Select all ${review.total.toLocaleString()}</button>` : "");
+  const bulk = $("review-bulk");
+  bulk.innerHTML =
+    `<span class="count">${selected.size.toLocaleString()} selected</span>` +
+    `<button type="button" class="tab small" id="pick-none">Clear</button>` +
+    verbButtons(VERBS[review.view], "bulk");
+  bulk.hidden = !selected.size;
+}
+
+async function renderList() {
+  const token = ++listRequest;
+  const data = await (await fetch(`/api/review?${filterQuery()}&page=${review.page}`)).json();
+  if (token !== listRequest) return;   // a newer filter or tap already asked
+  if (!data.episodes.length && review.page > 1) {   // decided the last page away
+    review.page -= 1;
+    return renderList();
+  }
+  review.total = data.total;
+  for (const el of document.querySelectorAll("[data-count]"))
+    el.textContent = data.counts[el.dataset.count].toLocaleString();
+  $("review-list").innerHTML = data.episodes.map(reviewRow).join("") ||
+    `<div class="empty">${review.q || review.feed ? "No episodes match." : "Nothing here."}</div>`;
+  const pages = Math.ceil(data.total / data.page_size);
+  $("review-pager").innerHTML = pages > 1
+    ? `<div class="pagination">` +
+      `<button type="button" class="tab small" data-go="${review.page - 1}"${review.page <= 1 ? " disabled" : ""}>Previous</button>` +
+      `<span>Page ${review.page.toLocaleString()} of ${pages.toLocaleString()}</span>` +
+      `<button type="button" class="tab small" data-go="${review.page + 1}"${review.page >= pages ? " disabled" : ""}>Next</button></div>`
+    : "";
+  renderBulk(data.episodes.map((e) => e.id));
+}
+
+function plural(n, word) { return `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`; }
+
+async function renderShows() {
+  const { shows } = await (await fetch("/api/review/shows")).json();
+  if (review.view !== "shows") return;
+  $("review-list").innerHTML = shows.map((s) =>
+    `<div class="show-row${s.mostly_skipped ? " flagged" : ""}">` +
+    `<div class="name">${showLink(s.feed_id, s.show)}</div>` +
+    `<div class="share">${s.mostly_skipped ? "Mostly skipped, " : ""}${s.skip_percent}%</div>` +
+    `<div class="counts">${s.heard.toLocaleString()} heard, ${s.kept.toLocaleString()} kept, ` +
+    `${s.back_catalog.toLocaleString()} to back catalog, ${s.never.toLocaleString()} never play</div>` +
+    `</div>`
+  ).join("") || '<div class="empty">Nothing to compare yet.</div>';
+}
+
+function render() {
+  for (const b of document.querySelectorAll("[data-view]")) {
+    const on = b.dataset.view === review.view;
+    b.classList.toggle("live", on);
+    b.setAttribute("aria-pressed", String(on));
+  }
+  $("review-note").textContent = NOTES[review.view];
+  const shows = review.view === "shows";
+  $("review-filters").hidden = shows;
+  $("review-bulk").hidden = shows;
+  $("review-pick").innerHTML = "";
+  $("review-pager").innerHTML = "";
+  return shows ? renderShows() : renderList();
+}
+
+function restart() {
+  review.page = 1;
+  selected.clear();
+  render();
+}
+
+async function decide(ids, decision, btn) {
+  const data = await post("/episodes/review", { ids, decision }, btn);
+  if (!data) return;
+  for (const id of ids) selected.delete(id);
+  if (ids.length > 1) flash(`${plural(data.moved, "episode")} ${DONE[decision]}`, true);
+  renderList();
+}
+
+// Poll: only the show picker reads library state, and it holds still unless
+// the library changed, so an open dropdown stays open.
+function renderPage(s) {
+  const shows = s.stations.filter((f) => !f.is_news)
+    .sort((a, b) => a.title.localeCompare(b.title));
+  const sig = JSON.stringify(shows.map((f) => [f.id, f.title]));
+  if (sig === showsSig) return;
+  showsSig = sig;
+  $("review-show").innerHTML = `<option value="">All shows</option>` +
+    shows.map((f) => `<option value="${f.id}"${String(f.id) === review.feed ? " selected" : ""}>${esc(f.title)}</option>`).join("");
+}
+
+document.addEventListener("click", async (ev) => {
+  const btn = ev.target.closest("button");
+  if (!btn) return;
+  if (btn.dataset.confirm && !armed(btn)) return;
+  if (btn.dataset.view) { review.view = btn.dataset.view; return void restart(); }
+  if (btn.dataset.decide) {
+    const id = Number(btn.closest("[data-row]").dataset.row);
+    return void decide([id], btn.dataset.decide, btn);
+  }
+  if (btn.dataset.bulk) return void decide([...selected], btn.dataset.bulk, btn);
+  if (btn.dataset.go) {
+    review.page = Number(btn.dataset.go);
+    await renderList();
+    return void window.scrollTo({ top: 0 });
+  }
+  if (btn.id === "pick-none") { selected.clear(); return void renderList(); }
+  if (btn.id === "pick-page") {
+    for (const cb of document.querySelectorAll("[data-pick]")) selected.add(Number(cb.dataset.pick));
+    return void renderList();
+  }
+  if (btn.id === "pick-all") {
+    const { ids } = await (await fetch(`/api/review/ids?${filterQuery()}`)).json();
+    for (const id of ids) selected.add(id);
+    return void renderList();
+  }
+});
+
+document.addEventListener("change", (ev) => {
+  const cb = ev.target.closest("[data-pick]");
+  if (cb) {
+    const id = Number(cb.dataset.pick);
+    if (cb.checked) selected.add(id); else selected.delete(id);
+    return renderBulk([...document.querySelectorAll("[data-pick]")].map((el) => Number(el.dataset.pick)));
+  }
+  if (ev.target.id === "review-show") { review.feed = ev.target.value; restart(); }
+});
+
+$("review-q").addEventListener("input", (ev) => {
+  debounce(ev.target, () => { review.q = ev.target.value.trim(); restart(); });
+});
+
+render();
+</script>
+{% endblock %}

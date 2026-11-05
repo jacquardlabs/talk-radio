@@ -20,18 +20,21 @@ import feeds as feeds_mod
 import gpodder
 import sonos_ctl
 from config import Config
-from db import Database
+from db import REVIEW_VIEWS, REVIEW_WRITES, Database
 from dj import DJ
 
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
 logger = logging.getLogger(__name__)
 EPISODES_PAGE_SIZE = 25
+# A show is flagged once this many of its episodes were passed over and they
+# outnumber those heard or kept: enough decisions to mean something.
+MOSTLY_SKIPPED_MIN = 5
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # GETs that are a person doing something rather than a page polling. Every
 # POST is recorded; of the GETs, only these.
 USAGE_GETS = frozenset({
-    "/", "/stations", "/api/speakers", "/api/podcasts/search",
-    "/api/episodes/search", "/api/feeds/<int:feed_id>/episodes",
+    "/", "/stations", "/settings", "/api/speakers", "/api/podcasts/search",
+    "/api/episodes/search", "/api/feeds/<int:feed_id>/episodes", "/api/review",
 })
 # Jobs the dashboard does without a request of its own, reported by beacon.
 UI_EVENTS = frozenset({
@@ -72,6 +75,24 @@ def _episode_json(e, feed_title: str) -> dict:
             "failures": e["failure_count"],
             "duration": e["duration_seconds"],
             "description": e["description"]}
+
+
+def _review_show_json(row) -> dict:
+    skipped = row["back_catalog"] + row["never"]
+    return {"feed_id": row["id"], "show": row["title"], "heard": row["heard"],
+            "kept": row["kept"], "back_catalog": row["back_catalog"],
+            "never": row["never"],
+            "skip_percent": round(100 * skipped / (skipped + row["heard"] + row["kept"])),
+            "mostly_skipped": (skipped >= MOSTLY_SKIPPED_MIN
+                               and skipped > row["heard"] + row["kept"])}
+
+
+def _review_filter_args() -> tuple[int | None, str | None]:
+    try:
+        feed_id = int(request.args.get("feed") or 0) or None
+    except ValueError:
+        feed_id = None
+    return feed_id, (request.args.get("q") or "").strip() or None
 
 
 def _page_arg() -> int:
@@ -150,7 +171,7 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             action = f"UI {request.get_json(silent=True)['event']}"
         else:
             action = usage_key(request.method, rule.rule, request.view_args or {})
-        if rule.rule in ("/", "/stations"):
+        if rule.rule in ("/", "/stations", "/settings"):
             page = rule.rule
         else:
             referrer = urlparse(request.referrer or "")
@@ -188,6 +209,10 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
     @app.get("/stations")
     def stations_page():
         return render_template("stations.html")
+
+    @app.get("/settings")
+    def settings_page():
+        return render_template("settings.html")
 
     @app.get("/api/status")
     def api_status():
@@ -450,6 +475,48 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             return result("ids must be a list of integers")
         db.release_episodes(ids)
         return result()
+
+    @app.get("/api/review")
+    def api_review():
+        view = request.args.get("view")
+        if view not in REVIEW_VIEWS:
+            return jsonify({"error": f"view must be one of {sorted(REVIEW_VIEWS)}"}), 400
+        feed_id, q = _review_filter_args()
+        page = _page_arg()
+        counts = db.review_counts(feed_id, q)
+        return jsonify({
+            "episodes": [_episode_json(e, e["feed_title"])
+                         for e in db.review_page(view, page, EPISODES_PAGE_SIZE, feed_id, q)],
+            "page": page, "page_size": EPISODES_PAGE_SIZE,
+            "total": counts[view], "counts": counts,
+        })
+
+    @app.get("/api/review/ids")
+    def api_review_ids():
+        view = request.args.get("view")
+        if view not in REVIEW_VIEWS:
+            return jsonify({"error": f"view must be one of {sorted(REVIEW_VIEWS)}"}), 400
+        return jsonify({"ids": db.review_ids(view, *_review_filter_args())})
+
+    @app.get("/api/review/shows")
+    def api_review_shows():
+        shows = [_review_show_json(r) for r in db.review_shows()]
+        return jsonify({"shows": sorted(
+            shows, key=lambda s: (-s["skip_percent"], -(s["back_catalog"] + s["never"]),
+                                  s["show"].lower()))})
+
+    @app.post("/episodes/review")
+    def review_episodes():
+        body = request.get_json(silent=True) or {}
+        decision = body.get("decision")
+        if decision not in REVIEW_WRITES:
+            return result(f"decision must be one of {sorted(REVIEW_WRITES)}")
+        try:
+            ids = [int(i) for i in (body.get("ids") or [])]
+        except (TypeError, ValueError):
+            return result("ids must be a list of integers")
+        return jsonify({"ok": True, "error": None,
+                        "moved": dj.review_episodes(ids, decision)})
 
     @app.post("/episodes/<int:episode_id>/play_next")
     def play_episode_next(episode_id: int):

@@ -870,3 +870,74 @@ def test_backfill_validates(client) -> None:
     fid = db.add_feed("https://x/rss", "X Show", None, False)
     assert c.post(f"/feeds/{fid}/backfill", json={"include": "some"}).get_json()["ok"] is False
     assert c.post("/feeds/999/backfill", json={"include": "all"}).status_code == 404
+
+
+# ── settings: review ────────────────────────────────────────────────
+def _review_seed(db) -> tuple[int, list[int]]:
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    return fid, [_add_episode(db, fid, n) for n in (1, 2, 3)]
+
+
+def test_settings_page_loads_and_is_in_the_nav(no_sonos_client) -> None:
+    c, _ = no_sonos_client
+    resp = c.get("/settings")
+    assert resp.status_code == 200 and b"Review episodes" in resp.data
+    assert b'href="/settings" aria-current="page"' in resp.data
+    assert b'href="/settings"' in c.get("/").data
+
+
+def test_review_lists_counts_and_ids(client) -> None:
+    c, db, _ = client
+    fid, ids = _review_seed(db)
+    db.archive_episode(ids[0])
+    body = c.get("/api/review?view=recent").get_json()
+    assert body["counts"] == {"recent": 2, "back_catalog": 1, "never": 0}
+    assert body["total"] == 2
+    assert [e["show"] for e in body["episodes"]] == ["X", "X"]
+    assert c.get(f"/api/review/ids?view=back_catalog&feed={fid}").get_json()["ids"] == [ids[0]]
+    assert c.get("/api/review/ids?view=back_catalog&feed=999").get_json()["ids"] == []
+    assert c.get("/api/review?view=bogus").status_code == 400
+    assert c.get("/api/review/ids").status_code == 400
+
+
+def test_review_route_reports_what_moved(client) -> None:
+    c, db, _ = client
+    _, ids = _review_seed(db)
+    db.mark_queued(ids[2], "uri")
+    body = c.post("/episodes/review", json={"ids": ids, "decision": "back_catalog"}).get_json()
+    assert body == {"ok": True, "error": None, "moved": 2}
+    assert db.get_episode(ids[0])["status"] == "archived"
+    assert db.get_episode(ids[2])["status"] == "queued"
+
+
+def test_review_route_validates(client) -> None:
+    c, db, _ = client
+    assert c.post("/episodes/review", json={"ids": [1], "decision": "x"}).get_json()["ok"] is False
+    assert c.post("/episodes/review", json={"ids": ["a"], "decision": "keep"}).get_json()["ok"] is False
+    assert c.post("/episodes/review", json={"decision": "keep"}).get_json()["moved"] == 0
+
+
+def test_review_shows_rank_and_flag_the_mostly_skipped(client) -> None:
+    c, db, _ = client
+    skipped = db.add_feed("https://x/a", "Passed over", None, False)
+    heard = db.add_feed("https://x/b", "Loved", None, False)
+    few = db.add_feed("https://x/c", "Barely tried", None, False)
+    passed = [_add_episode(db, skipped, n) for n in range(1, 7)]
+    db.mark_played(passed[0], "2026-11-01T00:00:00Z")
+    c.post("/episodes/review", json={"ids": passed[1:], "decision": "never"})
+    for n in range(1, 7):
+        db.mark_played(_add_episode(db, heard, n), "2026-11-01T00:00:00Z")
+    c.post("/episodes/review", json={"ids": [_add_episode(db, few, 1)], "decision": "back_catalog"})
+
+    shows = c.get("/api/review/shows").get_json()["shows"]
+
+    assert [(s["show"], s["skip_percent"], s["mostly_skipped"]) for s in shows] == [
+        ("Barely tried", 100, False), ("Passed over", 83, True), ("Loved", 0, False)]
+
+
+def test_settings_visits_count_as_usage(client) -> None:
+    c, db, _ = client
+    c.get("/settings")
+    c.get("/api/review?view=recent")
+    actions = {r["action"] for r in db.usage_summary("2000-01-01T00:00:00Z")}
+    assert {"GET /settings", "GET /api/review"} <= actions
