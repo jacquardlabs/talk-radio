@@ -118,7 +118,9 @@ of the screen, thumb-height:
    back catalog, *Heard* and *Missed* episodes stay hidden until you switch on
    *Heard and back catalog*, so the sheet opens on what's left to hear; the
    choice holds for every station. Station settings
-   (category, order, news, off, remove) sit behind *Settings*. A caret on an
+   (category, order, news, skipped titles, off, remove) sit behind *Settings*.
+   A title you skip, such as a show's reruns, goes to the back catalog on
+   arrival, so you can still add one by hand. A caret on an
    episode row opens that episode's notes; descriptions come from the feed,
    so a show that publishes none shows none. Add back-catalog episodes to
    rotation singly (*Back to rotation* in the row's menu), in batches

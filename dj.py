@@ -14,7 +14,7 @@ from typing import Callable, Literal
 import audio
 import feeds
 from config import Config
-from db import Database, utcnow_iso
+from db import Database, skip_titles_of, utcnow_iso
 
 logger = logging.getLogger(__name__)
 
@@ -1551,6 +1551,7 @@ class DJ:
                     "is_news": bool(f["is_news"]), "enabled": bool(f["enabled"]),
                     "category_id": f["category_id"],
                     "playback_mode": f["playback_mode"],
+                    "skip_titles": skip_titles_of(f),
                     "counts": {s: counts.get(f["id"], {}).get(s, 0)
                                for s in ("new", "queued", "played", "skipped", "archived")},
                     "failures": failures.get(f["id"], 0),

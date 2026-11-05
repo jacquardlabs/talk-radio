@@ -941,3 +941,22 @@ def test_settings_visits_count_as_usage(client) -> None:
     c.get("/api/review?view=recent")
     actions = {r["action"] for r in db.usage_summary("2000-01-01T00:00:00Z")}
     assert {"GET /settings", "GET /api/review"} <= actions
+
+
+def test_skip_titles_route_moves_waiting_episodes_and_reports_in_status(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    db.insert_episode(fid, "s", "Selects: Salem", "https://x/s.mp3", "2026-01-01T00:00:00Z")
+    body = c.post(f"/feeds/{fid}/skip_titles", json={"titles": ["Selects"]}).get_json()
+    assert body == {"ok": True, "error": None, "moved": 1}
+    station = next(f for f in c.get("/api/status").get_json()["stations"] if f["id"] == fid)
+    assert station["skip_titles"] == ["Selects"]
+    assert station["counts"]["archived"] == 1
+
+
+def test_skip_titles_route_validates(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    assert c.post(f"/feeds/{fid}/skip_titles", json={"titles": "Selects"}).get_json()["ok"] is False
+    assert c.post(f"/feeds/{fid}/skip_titles", json={"titles": [1]}).get_json()["ok"] is False
+    assert c.post("/feeds/999/skip_titles", json={"titles": []}).status_code == 404
