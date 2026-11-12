@@ -362,6 +362,29 @@ def test_play_next_and_play_now_routes(client) -> None:
     assert c.post("/episodes/999/play_now").status_code == 404
 
 
+def test_bulk_route_acts_on_a_selection_of_stations(client) -> None:
+    """Every station turned off or re-filed in the usage log was done by
+    script, one request each; the dashboard had no way to do several."""
+    c, db, _ = client
+    a, b, keep = (db.add_feed(f"https://{n}/rss", n, None, False) for n in "abk")
+    cat = db.add_category("Talk")
+    assert c.post("/feeds/bulk", json={"ids": [a, b], "action": "off"}).get_json() == {
+        "ok": True, "error": None, "moved": 2}
+    assert [db.get_feed(i)["enabled"] for i in (a, b, keep)] == [0, 0, 1]
+    c.post("/feeds/bulk", json={"ids": [a, b], "action": "on"})
+    assert [db.get_feed(i)["enabled"] for i in (a, b)] == [1, 1]
+    c.post("/feeds/bulk", json={"ids": [a, b], "action": "category", "category_id": cat})
+    assert [db.get_feed(i)["category_id"] for i in (a, b, keep)] == [cat, cat, None]
+    c.post("/feeds/bulk", json={"ids": [a], "action": "category", "category_id": None})
+    assert db.get_feed(a)["category_id"] is None
+    assert c.post("/feeds/bulk", json={"ids": [a, b], "action": "delete"}).get_json()["moved"] == 2
+    assert db.get_feed(a) is None and db.get_feed(keep) is not None
+    for bad in ({"ids": [keep], "action": "shred"}, {"ids": ["x"], "action": "off"},
+                {"ids": [keep], "action": "category", "category_id": 999}, [keep]):
+        assert c.post("/feeds/bulk", json=bad).get_json()["ok"] is False
+    assert db.get_feed(keep)["enabled"] == 1 and db.get_feed(keep)["category_id"] is None
+
+
 def test_play_now_takes_a_position_to_resume_from(client) -> None:
     c, db, player = client
     fid = db.add_feed("https://x/rss", "X", None, False)
