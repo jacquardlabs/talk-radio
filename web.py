@@ -38,8 +38,20 @@ USAGE_GETS = frozenset({
 })
 # Jobs the dashboard does without a request of its own, reported by beacon.
 UI_EVENTS = frozenset({
-    "earlier", "wake", "trouble", "description", "theme",
+    "earlier", "wake", "trouble", "description", "mode",
+    # the layout a page loaded in: docked transport, upright tablet, or wide
+    "load_narrow", "load_medium", "load_wide",
+    # a menu opening, so one opened and left shows up as opens without actions
+    "menu_skip", "menu_rooms", "menu_sleep", "menu_row",
+    "menu_episode", "menu_station", "menu_category",
 })
+# Routes whose verb rides in the body rather than the path, and the field it
+# rides in. Spelled out in the key like a path's own, so the log can tell an
+# Archive from a Mark heard.
+USAGE_BODY_VERBS = {
+    "/episodes/<int:episode_id>/drop": "disposition",
+    "/episodes/review": "decision",
+}
 
 
 def _origin_is_foreign(origin: str, host: str) -> bool:
@@ -171,6 +183,10 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             action = f"UI {request.get_json(silent=True)['event']}"
         else:
             action = usage_key(request.method, rule.rule, request.view_args or {})
+            body = request.get_json(silent=True)
+            verb = body.get(USAGE_BODY_VERBS.get(rule.rule)) if isinstance(body, dict) else None
+            if ok and isinstance(verb, str):   # only a verb the route accepted
+                action = f"{action}/{verb}"
         if rule.rule in ("/", "/stations", "/settings"):
             page = rule.rule
         else:
@@ -539,9 +555,17 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
 
     @app.post("/episodes/<int:episode_id>/play_now")
     def play_episode_now(episode_id: int):
+        """{"resume": seconds} picks the episode up there instead of at its
+        start: Undo after a skip sends where the episode had got to."""
         if db.get_episode(episode_id) is None:
             return result("no such episode"), 404
-        return call_player(lambda: dj.play_episode(episode_id, "now"))
+        resume = (request.get_json(silent=True) or {}).get("resume")
+        if resume is not None:
+            try:
+                resume = int(resume)
+            except (TypeError, ValueError):
+                return result("resume (int) required")
+        return call_player(lambda: dj.play_episode(episode_id, "now", resume))
 
     @app.post("/episodes/<int:episode_id>/play_last")
     def play_episode_last(episode_id: int):

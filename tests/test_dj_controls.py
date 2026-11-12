@@ -219,6 +219,38 @@ def test_skip_done_marks_played(db, cfg, player, dj) -> None:
     assert player.state == "PLAYING"
 
 
+@pytest.mark.parametrize("tick_between", [False, True])
+def test_undoing_a_skip_resumes_where_it_stopped(db, cfg, player, dj, tick_between) -> None:
+    """Skip marks the episode heard and clears its position, so Undo hands
+    the position back. With no tick between the two, the skipped episode is
+    still the one tick() last tracked, and it used to read as "still
+    current": the position was overwritten instead of sought."""
+    make_feed(db, "showa", 5)
+    make_feed(db, "showb", 5)
+    dj.start()
+    ep = current_episode(db, player)
+    dj.tick()                       # tick() now tracks this episode
+    player.position = 600
+    assert dj.skip_done() is None
+    assert db.get_episode(ep["id"])["resume_seconds"] is None
+    if tick_between:
+        dj.tick()                   # ...or the one that started after the skip
+    interrupted = current_episode(db, player)
+
+    assert dj.review_episodes([ep["id"]], "keep") == (1, 0)
+    assert dj.play_episode(ep["id"], "now", resume=600) is None
+    assert current_episode(db, player)["id"] == ep["id"]
+    assert db.get_episode(ep["id"])["resume_seconds"] == 600
+    # as with any Play now, what it interrupted goes back to rotation
+    assert db.get_episode(interrupted["id"])["status"] == "new"
+
+    player.seeks.clear()
+    dj.tick()
+    assert player.seeks == [590]    # the one-shot seek, 10s of run-up
+    dj.tick()
+    assert player.seeks == [590]    # once
+
+
 def test_skip_on_last_queued_tops_up_first(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 1)
     dj.start()  # queue holds exactly 1 track

@@ -87,6 +87,27 @@ def test_the_beacon_records_known_ui_events_only(c, db) -> None:
     assert rows(db) == [("UI earlier", "/", 1)]
 
 
+def test_the_beacon_counts_appearance_layouts_and_menus(c, db) -> None:
+    """The page sends "mode" since the themes became light and dark; the
+    beacon went on accepting only "theme", so no change was ever counted."""
+    for event in ("mode", "load_narrow", "menu_skip"):
+        assert c.post("/api/usage", json={"event": event}).get_json()["ok"] is True
+    assert c.post("/api/usage", json={"event": "theme"}).get_json()["ok"] is False
+    assert [r[0] for r in rows(db)] == ["UI mode", "UI load_narrow", "UI menu_skip"]
+
+
+def test_a_verb_in_the_body_is_spelled_out_like_one_in_the_path(c, db) -> None:
+    """Drop and review take their verb in the body, so every disposition
+    used to share one key."""
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    db.insert_episode(fid, "g1", "One", "https://cdn/1.mp3", "2026-01-01T00:00:00Z")
+    eid = db.episodes_with_status("new")[0]["id"]
+    c.post("/episodes/review", json={"ids": [eid], "decision": "back_catalog"})
+    c.post("/episodes/review", json={"ids": [eid], "decision": "shred"})   # refused
+    assert [r[0] for r in rows(db)] == [
+        "POST /episodes/review/back_catalog", "POST /episodes/review"]
+
+
 def test_the_report_groups_by_action_and_page(c, db) -> None:
     for _ in range(3):
         c.post("/player/pause", headers={"Referer": "http://localhost/"})

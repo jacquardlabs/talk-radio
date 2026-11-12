@@ -360,6 +360,17 @@ def test_play_next_and_play_now_routes(client) -> None:
     assert c.post("/episodes/999/play_now").status_code == 404
 
 
+def test_play_now_takes_a_position_to_resume_from(client) -> None:
+    c, db, player = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    on_air, eid = _add_episode(db, fid, 1), _add_episode(db, fid, 2)
+    c.post(f"/episodes/{on_air}/play_now")
+    assert c.post(f"/episodes/{eid}/play_now", json={"resume": 600}).get_json()["ok"] is True
+    assert db.get_episode(eid)["resume_seconds"] == 600   # tick() seeks there
+    bad = c.post(f"/episodes/{eid}/play_now", json={"resume": "soon"}).get_json()
+    assert bad["ok"] is False and "resume" in bad["error"]
+
+
 def test_play_now_degrades_gracefully_on_exception(client, monkeypatch) -> None:
     c, db, player = client
     fid = db.add_feed("https://x/rss", "X", None, False)
