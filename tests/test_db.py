@@ -377,6 +377,23 @@ def test_review_lists_leave_news_and_decided_rows_out(db) -> None:
     assert _by_guid(db, show, "fresh")["status"] == "new"
 
 
+def test_rotation_view_lists_what_the_dj_can_pick(db) -> None:
+    """In rotation counts what's left to hear: Up next included, archived and
+    news left out, and a shelf taken out of rotation left out."""
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    db.mark_queued(fresh, "uri")
+    db.archive_episode(old)
+    assert db.review_ids("rotation") == [fresh]
+    assert db.review_ids("recent") == [fresh]   # undecided, though on the speaker
+    shelf = db.add_category("Off air")
+    db.set_feed_category(show, shelf)
+    assert db.review_ids("rotation") == [fresh]
+    db.toggle_category_rotation(shelf)
+    assert db.review_ids("rotation") == []
+    assert db.review_counts()["rotation"] == 0
+
+
 def test_review_filters_by_show_and_title(db) -> None:
     show, news = _review_library(db)
     assert db.review_ids("recent", show, "res") == [_by_guid(db, show, "fresh")["id"]]

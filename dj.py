@@ -1093,7 +1093,11 @@ class DJ:
             for path in local_paths:
                 audio.delete_local(path)
             if player is not None and unqueued:  # after the decision: no re-pick
-                self._top_up(player, cur_idx, staged)
+                try:
+                    self._top_up(player, cur_idx, staged)
+                except Exception:  # the decision stands; the next tick refills
+                    logger.exception("review: refill after unqueue failed")
+                    self._invalidate_player()
             return len(moved), len(held)
 
     def _unqueue(self, episode_ids: set[int]

@@ -365,7 +365,6 @@ function settingsMenu(f, categories) {
 }
 
 function sheetHeadHTML(f, categories) {
-  const c = f.counts;
   return (f.image_url ? `<img class="sheet-art" src="${esc(f.image_url)}" alt="">` : '<span class="sheet-art"></span>') +
     `<div class="sheet-main">` +
     `<div class="sheet-top"><h2 class="sheet-title">${esc(f.title)}</h2>` +
@@ -374,9 +373,8 @@ function sheetHeadHTML(f, categories) {
     // The show's own blurb, always open — it is what the sheet is about, and
     // unlike an episode's notes there is only ever one of it.
     (f.description ? `<div class="sheet-desc">${esc(f.description)}</div>` : "") +
-    `<div class="sheet-counts"><span><b>${(c.new + c.queued).toLocaleString()}</b> to hear</span>` +
-    `<span><b>${c.archived.toLocaleString()}</b> archived</span>` +
-    `<span><b>${c.played.toLocaleString()}</b> heard</span>` +
+    // the tabs below carry the unheard, heard and archived counts
+    `<div class="sheet-counts">` +
     (f.playback_mode === "random" ? "<span>Random order</span>" : "") +
     (f.skip_titles.length ? `<span>Skips ${esc(f.skip_titles.join(", "))}</span>` : "") +
     (f.is_news ? '<span class="pri">Plays first, as news</span>' : "") +

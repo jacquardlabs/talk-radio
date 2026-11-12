@@ -60,11 +60,11 @@
 // The list is fetched on demand, never from the status poll: a repaint under
 // a thumb mid-triage would lose the place, and selection lives across pages.
 const NOTES = {
-  rotation: "Everything the DJ can still pick, including Up next; news and turned-off shows aren't listed. Taking one out of Up next refills it; the one playing stays on.",
+  rotation: "Everything the DJ can still pick, including Up next; news, turned-off shows, and shelves out of rotation aren't listed. Taking one out of Up next refills it; the one playing stays on.",
   recent: "Newest first, by publish date, until you decide. Keep leaves it in rotation; news and turned-off shows aren't listed.",
   back_catalog: "The DJ won't pick these unless you add them back. Pick a show to work through it; news and turned-off shows aren't listed.",
   never: "Episodes you marked heard without hearing them. Move one back if you change your mind.",
-  shows: "Archiving or marking heard a recently added episode counts as a skip, as does doing either from Skip or Up next. Clearing out archived episodes doesn't. Heard includes episodes marked heard before decisions were tracked.",
+  shows: "Archiving or marking heard an episode in rotation counts as a skip, wherever you do it. Clearing out archived episodes doesn't. Heard includes episodes marked heard before decisions were tracked.",
 };
 const VERBS = {
   rotation: [["back_catalog", "Archive"], ["never", "Mark heard"]],
