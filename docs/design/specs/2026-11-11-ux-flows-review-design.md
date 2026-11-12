@@ -30,6 +30,8 @@ preset chips stay on On air (#29). The clock stays; F2 shrinks it on phones
 - **Library at capture:** 84 stations, 50 turned off. 39,619 episodes in the back
   catalog, 523 heard, 11 queued, 139 unplayed — 39 of those on turned-on stations.
 
+File and line citations are for `b26e64f`, the commit before #71.
+
 Limits: one household, so a count under 10 is noise. 27 of the 38 days predate
 the redesign (#62); the 7-day column is the current UI. The capture stub answers
 `ok` to every POST, so claims about what follows an action cite code or a
@@ -117,9 +119,22 @@ with `set_resume`; the DJ already seeks a newly current episode to that point
 (`dj.py:651-652`). The row is unplayed again by then, so the phone sync sees an
 episode in progress, not a heard one with a position (`db.py:568`).
 
-**Cost.** `board.html` markup and about 15 lines for the toast action;
-`base.html` `#flash` gains a button; `web.py` `play_now` reads one field.
-Covers #63 for Skip; the row menus' *Never play* can reuse the toast.
+`play_episode` also has to forget it was tracking the episode. Undo usually
+lands before a tick has run since the Skip, and `tick()` would read the
+episode as still current and overwrite the position instead of seeking to it.
+
+As built, three things follow from reusing what exists:
+
+- The seek lands on the next tick, so the episode plays from 0:00 for up to
+  15 s first.
+- Whatever started after the Skip goes back to rotation, as with any Play now,
+  not back to the head of Up next. News returns there on the next tick.
+- `keep` writes `review='keep'`, so Shows counts an undone skip as kept.
+
+**Cost.** `board.html` markup and about 20 lines for Skip and Undo; `base.html`
+`#flash` gains a button; `web.py` `play_now` reads one field; `dj.py`
+`play_episode` takes the position. Covers #63 for Skip; the row menus' *Mark
+heard* can reuse the toast.
 
 ### F2. The first screen shows the clock, not what's next
 
@@ -298,10 +313,10 @@ make #64 worse.
 
 ## Recommendation
 
-Five PRs, in order, after #71 (below):
+Five PRs, in order, on top of #71 (below):
 
-1. **F1, D1–D10, and the four measurement gaps.** Small, and the next review
-   needs the counts.
+1. **F1, D1–D5, D7–D10, and the four measurement gaps.** Small, and the next
+   review needs the counts. #71 fixed D6.
 2. **F2.**
 3. **F3.**
 4. **F4.**
@@ -309,9 +324,9 @@ Five PRs, in order, after #71 (below):
 
 ## Against #71
 
-#71 (*name episodes by where they end up*) is open against the same templates.
-Read at `20b9ba2`: 558 tests pass, and its changed screens hold at 390px with no
-horizontal overflow.
+#71 (*name episodes by where they end up*) merged as `1568895` while this
+review was being written, unchanged from the `20b9ba2` read here: 558 tests
+pass, and its changed screens hold at 390px with no horizontal overflow.
 
 It renames three things, and this document uses the old names:
 
@@ -341,7 +356,7 @@ the snapshot's station counts).
   row is a `drop` disposition in the body, so it joins the unsplit dispositions
   under *What the log cannot say*.
 
-**For #71 itself.**
+**Left open by #71.**
 
 - The nav still reads *Settings*; `base.html` is not in the diff (Decision 4).
 - *Keep* now means two things. In Review it leaves an episode in rotation, and
@@ -356,6 +371,6 @@ the snapshot's station counts).
 1. **Library work outside the dashboard is a gap.** F5 goes ahead in full.
 2. **Undo after Skip resumes** where the episode stopped.
 3. **Back to Up next stays**, unused or not.
-4. **Settings becomes Review.** The owner assigned the rename to #71's branch;
-   it is not there yet.
+4. **Settings becomes Review.** The owner assigned the rename to #71's author;
+   #71 merged without it.
 5. **The 136px dial on phones is accepted.**
