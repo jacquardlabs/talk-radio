@@ -13,6 +13,7 @@
 .review-filters select { flex: 0 1 320px; min-width: 0; }
 .review-filters input { flex: 1 1 240px; min-width: 0; }
 .ep-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.ep-row .qmain .qdesc { margin: 6px 0 0; }
 #review-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 /* the selection's verbs stay in reach however far down the list you are */
 .bulk {
@@ -62,7 +63,7 @@
 const NOTES = {
   rotation: "Everything the DJ can still pick, including Up next; news, turned-off shows, and shelves out of rotation aren't listed. Taking one out of Up next refills it; the one playing stays on.",
   recent: "Newest first, by publish date, until you decide. Keep leaves it in rotation; news and turned-off shows aren't listed.",
-  back_catalog: "The DJ won't pick these unless you add them back. Pick a show to work through it; news and turned-off shows aren't listed.",
+  back_catalog: "The DJ won't pick these unless you add them back. Pick a show to work through it; across all shows, news and turned-off ones are left out.",
   never: "Episodes you marked heard without hearing them. Move one back if you change your mind.",
   shows: "Archiving or marking heard an episode in rotation counts as a skip, wherever you do it. Clearing out archived episodes doesn't. Heard includes episodes marked heard before decisions were tracked.",
 };
@@ -74,6 +75,21 @@ const VERBS = {
 };
 const DONE = { keep: "in rotation", back_catalog: "archived", never: "marked heard" };
 const review = { view: "recent", feed: "", q: "", page: 1, total: 0 };
+// The view, show, and filter ride in the address, so a station's sheet can
+// link straight to its own archive and Back returns to the same list.
+(function readAddress() {
+  const p = new URLSearchParams(location.search);
+  if (p.get("view") in NOTES) review.view = p.get("view");
+  review.feed = /^\d+$/.test(p.get("feed") || "") ? p.get("feed") : "";
+  review.q = (p.get("q") || "").trim();
+})();
+function writeAddress() {
+  const p = new URLSearchParams();
+  if (review.view !== "recent") p.set("view", review.view);
+  if (review.feed) p.set("feed", review.feed);
+  if (review.q) p.set("q", review.q);
+  history.replaceState(null, "", location.pathname + (p.size ? `?${p}` : ""));
+}
 const selected = new Set();
 let showsSig = "";
 let listRequest = 0;
@@ -98,9 +114,11 @@ function reviewRow(e) {
   return `<div class="ep-row sel">` +
     `<input type="checkbox" data-pick="${e.id}"${selected.has(e.id) ? " checked" : ""} aria-label="Select ${esc(e.title)}">` +
     `<div class="qmain"><div class="ep-title">${esc(e.title)}</div>` +
-    `<div class="qmeta">${meta}${discToggle(e.id, e.description, e.title)}</div></div>` +
+    `<div class="qmeta">${meta}${discToggle(e.id, e.description, e.title)}</div>` +
+    // Two lines of the notes at rest, above the verbs: reading them is how a
+    // row gets decided, and it took a tap on every one.
+    discPanel(e.id, e.description, { clamp: true }) + `</div>` +
     `<span class="ep-actions" data-row="${e.id}">${verbButtons(VERBS[review.view], "decide")}</span>` +
-    discPanel(e.id, e.description) +
     `</div>`;
 }
 
@@ -173,6 +191,7 @@ function render() {
 function restart() {
   review.page = 1;
   selected.clear();
+  writeAddress();
   render();
 }
 
@@ -189,7 +208,9 @@ async function decide(ids, decision, btn) {
 // Poll: only the show picker reads library state, and it holds still unless
 // the library changed, so an open dropdown stays open.
 function renderPage(s) {
-  const shows = s.stations.filter((f) => !f.is_news && f.enabled)
+  // news and turned-off shows aren't offered, but one arrived at by a link
+  // from its own sheet is listed so the picker can say where you are
+  const shows = s.stations.filter((f) => (!f.is_news && f.enabled) || String(f.id) === review.feed)
     .sort((a, b) => a.title.localeCompare(b.title));
   const sig = JSON.stringify(shows.map((f) => [f.id, f.title]));
   if (sig === showsSig) return;
@@ -239,6 +260,7 @@ $("review-q").addEventListener("input", (ev) => {
   debounce(ev.target, () => { review.q = ev.target.value.trim(); restart(); });
 });
 
+$("review-q").value = review.q;
 render();
 </script>
 {% endblock %}

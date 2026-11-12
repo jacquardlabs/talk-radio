@@ -128,10 +128,10 @@ thumb-height; volume and *Off air* open as sheets above it:
    A title you skip, such as a show's reruns, is archived on arrival, so you
    can still add one by hand. A caret on an
    episode row opens that episode's notes; descriptions come from the feed,
-   so a show that publishes none shows none. Add archived episodes to
-   rotation singly (*Add to rotation* in the row's menu), in batches
-   (*Select*, then *Add selected (N)*), or all at once (*Add all to
-   rotation*). *Archive*, in an unplayed episode's menu, takes one out of
+   so a show that publishes none shows none. An archived row's button is
+   *Add to rotation*; to add many at once, *Open the archive in Review*
+   lists that show's archive there, even for news or a turned-off show.
+   *Archive*, in an unplayed episode's menu, takes one out of
    rotation; *Mark heard*, there or on a *Missed* one, counts it as a listen. *Play next* queues an
    episode after the current track, *Play now* interrupts, and *Play last*
    queues it at the end of Up Next; all three work on any episode
@@ -149,9 +149,12 @@ thumb-height; volume and *Off air* open as sheets above it:
    *Recently added* holds new arrivals until you decide: *Keep*, *Archive*,
    or *Mark heard*, on one row or on a selection across pages. Archiving or
    marking heard an episode in Up next takes it off the speaker and refills
-   the slot; the one playing stays on. Turned-off shows and news aren't
-   listed. *Archived* lists every episode out of rotation, filterable by show
-   and title; *Select all* covers the whole filtered list. *Marked heard*
+   the slot; the one playing stays on. Each row shows two lines of the
+   episode's notes, and its caret opens the rest. Turned-off shows and news
+   aren't listed across the library; one reached from its own station sheet
+   lists its archive. *Archived* lists every episode out of rotation,
+   filterable by show and title; *Select all* covers the whole filtered list.
+   The view, show, and filter ride in the address. *Marked heard*
    lists what you dismissed without hearing, so a decision can be taken back.
    *Shows* ranks each show by how much you pass over and flags one *Mostly
    skipped* once at least 5 skips outnumber what you heard or kept; clearing

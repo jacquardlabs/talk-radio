@@ -226,6 +226,7 @@ label.chk input { accent-color: var(--ink); width: 18px; height: 18px; }
 .showlink { color: inherit; text-decoration: none; }
 .showlink:hover, .showlink:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
 .qdesc[hidden], .npdesc[hidden] { display: none; }
+.qdesc.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .qdesc, .npdesc, .sheet-desc {
   max-width: 66ch; color: var(--slate); font-size: 15px; line-height: 1.55; white-space: pre-wrap;
 }
@@ -325,11 +326,14 @@ function showLink(feedId, show) {
   return `<a class="showlink" href="/stations#feed-${feedId}">${esc(show)}</a>`;
 }
 
-function discPanel(id, description) {
+// opts.clamp shows two lines at rest and the caret opens the rest: for
+// lists where reading the notes is how the row gets decided.
+function discPanel(id, description, opts) {
   if (!description) return "";
   const open = expandedEpisodes.has(String(id));
-  return `<div class="qdesc" id="desc-${id}"${open ? "" : " hidden"}>` +
-    `${esc(description)}</div>`;
+  const clamp = opts && opts.clamp;
+  return `<div class="qdesc${clamp && !open ? " clamp" : ""}" id="desc-${id}"` +
+    `${clamp ? " data-clamp" : open ? "" : " hidden"}>${esc(description)}</div>`;
 }
 
 document.addEventListener("click", (ev) => {
@@ -341,7 +345,8 @@ document.addEventListener("click", (ev) => {
   else expandedEpisodes.delete(id);
   btn.setAttribute("aria-expanded", String(open));
   const panel = document.getElementById(`desc-${id}`);
-  if (panel) panel.hidden = !open;
+  if (panel && "clamp" in panel.dataset) panel.classList.toggle("clamp", !open);
+  else if (panel) panel.hidden = !open;
 });
 // Sonos reports TRANSITIONING while it spins a track up — the window every
 // skip and play-now lands in, since we poll the moment the action returns.
