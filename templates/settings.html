@@ -88,7 +88,8 @@ function writeAddress() {
   if (review.view !== "recent") p.set("view", review.view);
   if (review.feed) p.set("feed", review.feed);
   if (review.q) p.set("q", review.q);
-  history.replaceState(null, "", location.pathname + (p.size ? `?${p}` : ""));
+  const query = p.toString();   // not p.size: an older iPad has no such property
+  history.replaceState(null, "", location.pathname + (query ? `?${query}` : ""));
 }
 const selected = new Set();
 let showsSig = "";
