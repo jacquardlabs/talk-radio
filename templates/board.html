@@ -906,11 +906,17 @@ $("btn-power").addEventListener("click", (ev) => {
 // Skip is one tap, so the way back rides on its confirmation. The episode
 // and its position are read before the post: it polls on its way out, and
 // by the time it returns the deck has moved on to the next episode.
+// One at a time: a second tap while the first is in flight would skip the
+// episode that replaced it, and the confirmation only undoes the first.
+let skipping = false;
 async function skipOnAir(btn) {
   const np = status && status.now_playing;
-  if (!np) return;
+  if (!np || skipping) return;
   const id = np.episode_id, at = Math.floor(livePos());
-  if (!await post("/player/skip_done", {}, btn)) return;
+  skipping = true;
+  try {
+    if (!await post("/player/skip_done", {}, btn)) return;
+  } finally { skipping = false; }
   flash("Skipped and marked heard", true, { label: "Undo", run: () => undoSkip(id, at) });
 }
 // Takes the mark back, then plays the episode now from where it stopped.

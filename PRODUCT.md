@@ -60,7 +60,7 @@ prompt is history — see *Superseded* below.
 Eight verbs act on one queue — Play next, Play now, Play last, Pin (*Keep in
 Up next*), Drop (*Back to rotation*, *Archive*, or *Mark heard* in a row's
 menu), reorder, Queue series, Refresh all — plus *Defer* (*Back to Up next*) on
-the Skip menu, which also writes into it [code, dj.py:810-813]. Archiving or
+Skip's caret, which also writes into it [code, dj.py:810-813]. Archiving or
 marking heard from *Settings* drops a queued row the same way, except the one
 on air. The precedence they resolve by, strongest
 first:

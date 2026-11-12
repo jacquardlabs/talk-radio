@@ -6,6 +6,7 @@ import pytest
 from config import Config
 from db import Database
 from dj import DJ
+from fake_player import FakeSonosPlayer
 from web import create_app, usage_key
 
 
@@ -106,6 +107,21 @@ def test_a_verb_in_the_body_is_spelled_out_like_one_in_the_path(c, db) -> None:
     c.post("/episodes/review", json={"ids": [eid], "decision": "shred"})   # refused
     assert [r[0] for r in rows(db)] == [
         "POST /episodes/review/back_catalog", "POST /episodes/review"]
+
+
+def test_dropping_an_up_next_row_is_counted_by_what_it_did(db, cfg) -> None:
+    player = FakeSonosPlayer()
+    dj = DJ(db, cfg, lambda: player)
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    for i in range(3):
+        db.insert_episode(fid, f"g{i}", f"Ep {i}", f"https://cdn/{i}.mp3", "2026-01-01T00:00:00Z")
+    dj.start()
+    waiting = next(e for e in db.episodes_with_status("queued")
+                   if e["play_uri"] != player.queue[player.index]["uri"])
+    app = create_app(db, dj, cfg)
+    app.config["TESTING"] = True
+    app.test_client().post(f"/episodes/{waiting['id']}/drop", json={"disposition": "archive"})
+    assert rows(db) == [("POST /episodes/<int:episode_id>/drop/archive", None, 1)]
 
 
 def test_the_report_groups_by_action_and_page(c, db) -> None:

@@ -626,6 +626,8 @@ def test_skip_is_one_tap_and_its_caret_keeps_the_episode(no_sonos_client) -> Non
     assert order == sorted(order)
     assert b"skip_done" not in flap
     assert b'flash("Skipped and marked heard", true, { label: "Undo"' in body
+    # a second tap mid-flight would skip the next episode, with no Undo for it
+    assert b"if (!np || skipping) return;" in body
     # Undo takes the mark back and plays it from where it stopped
     assert b'decision: "keep"' in body and b"play_now`, { resume: at }" in body
 
@@ -647,6 +649,19 @@ def test_rooms_and_earlier_say_why_and_when(no_sonos_client) -> None:
     assert b"""r.coordinator && !isStation ? '<span class="spk-note">Holds the queue</span>'""" in body
     assert body.count(b"playedWhen(e.played_at)") == 2
     assert b"hm(new Date(e.played_at))" not in body
+
+
+def test_every_event_a_page_reports_is_one_the_beacon_accepts(no_sonos_client) -> None:
+    """The beacon refuses a name it doesn't know without a sound: the pages
+    sent "mode" for weeks while it accepted only "theme"."""
+    c, _ = no_sonos_client
+    pages = b"".join(c.get(path).data for path in ("/", "/stations", "/settings"))
+    named = set(re.findall(rb'track\("([a-z_]+)"\)', pages))
+    named |= set(re.findall(rb'wireDisclosure\("[^"]+", "[^"]+", "([a-z_]+)"\)', pages))
+    named |= {b"load_" + m for m in re.findall(rb'\? "(narrow|medium)"', pages)} | {b"load_wide"}
+    assert {b"mode", b"description", b"menu_row", b"menu_episode", b"menu_station",
+            b"menu_category", b"wake", b"load_narrow", b"load_medium"} <= named
+    assert {n.decode() for n in named} <= UI_EVENTS
 
 
 def test_every_flap_has_a_usage_event_for_opening(no_sonos_client) -> None:
