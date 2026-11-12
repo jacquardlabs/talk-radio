@@ -1034,11 +1034,36 @@ def _review_seed(db) -> tuple[int, list[int]]:
 
 
 def test_settings_page_loads_and_is_in_the_nav(no_sonos_client) -> None:
+    """The nav names the page for its job. The route stays /settings: the
+    usage log keys on it, and a rename would split the series."""
     c, _ = no_sonos_client
     resp = c.get("/settings")
     assert resp.status_code == 200 and b"Review episodes" in resp.data
     assert b'href="/settings" aria-current="page"' in resp.data
     assert b'href="/settings"' in c.get("/").data
+    assert b'>Review<span class="n" id="nav-review" hidden></span></a>' in resp.data
+    assert b">Settings</a>" not in resp.data
+
+
+def test_status_counts_the_arrivals_waiting_for_a_decision(client) -> None:
+    """The count beside Review: recently added and undecided, as that tab
+    lists them. News and turned-off shows are not waiting on anyone."""
+    c, db, _ = client
+    show = db.add_feed("https://x/rss", "X", None, False)
+    news = db.add_feed("https://n/rss", "N", None, True)
+    off = db.add_feed("https://o/rss", "O", None, False)
+    db.toggle_feed(off)
+    kept = _add_episode(db, show, 1)
+    _add_episode(db, show, 2)
+    _add_episode(db, show, 3, status="archived")
+    _add_episode(db, news, 1)
+    _add_episode(db, off, 1)
+    assert c.get("/api/status").get_json()["review_pending"] == 2
+    db.review_episodes([kept], "keep")
+    assert c.get("/api/status").get_json()["review_pending"] == 1
+    assert db.review_pending() == db.review_counts()["recent"]
+    # an older server sends no field; the page shows no count rather than a zero
+    assert b"const pending = status.review_pending || 0;" in c.get("/").data
 
 
 def test_review_lists_counts_and_ids(client) -> None:

@@ -48,7 +48,8 @@ Open http://<server>:8080.
 
 Three pages: **On air** (now-playing deck, transport, Up Next, wake alarms,
 recently played), **Stations** (the library — categories, episodes, back
-catalog), and **Settings** (reviewing episodes in bulk).
+catalog), and **Review** (deciding what stays in rotation; its count in
+the nav is how many new arrivals still wait).
 
 ![The Stations page — category shelves of artwork tiles with unplayed counts](docs/screenshots/stations.jpg)
 
@@ -143,7 +144,7 @@ thumb-height; volume and *Off air* open as sheets above it:
    station; when nothing in the library matches, it hands the words to the
    podcast directory. Each station sheet has its own episode filter too. A
    show's name anywhere on *On air* opens its station sheet.
-6. **Review episodes** — *Settings* counts and lists, newest first,
+6. **Review episodes** — *Review* counts and lists, newest first,
    everything *In rotation*: what the DJ can still pick, Up next included.
    *Recently added* holds new arrivals until you decide: *Keep*, *Archive*,
    or *Mark heard*, on one row or on a selection across pages. Archiving or

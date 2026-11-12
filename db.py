@@ -973,6 +973,18 @@ class Database:
         params = ([feed_id] if feed_id else []) + ([f"%{q}%"] if q else [])
         return " AND ".join(clauses), params
 
+    def review_pending(self) -> int:
+        """How many recently added episodes still wait for a decision: the
+        count beside Review in the nav. Every status poll asks, so this
+        filters rather than sums. CROSS JOIN pins feeds as the outer table:
+        left to choose, SQLite walked all 39,000 episodes; this way each
+        listed feed is one seek on (feed_id, status)."""
+        where, params = self._review_filter(None, None)
+        with self._conn() as c:
+            return c.execute(
+                "SELECT COUNT(*) AS n FROM feeds f CROSS JOIN episodes e ON e.feed_id=f.id"
+                f" WHERE {where} AND {REVIEW_VIEWS['recent']}", params).fetchone()["n"]
+
     def review_counts(self, feed_id: int | None = None,
                       q: str | None = None) -> dict[str, int]:
         where, params = self._review_filter(feed_id, q)

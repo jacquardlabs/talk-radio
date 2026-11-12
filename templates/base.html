@@ -112,6 +112,9 @@ nav.nav { display: flex; gap: 4px; align-self: stretch; }
 }
 .navlink:hover { color: var(--ink); }
 .navlink.live { color: var(--ink); border-color: var(--ink); }
+/* how many new arrivals still wait for a decision */
+.navlink .n { margin-left: 6px; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--ink);
+  color: var(--paper); font: 600 12px/20px var(--figures); text-align: center; }
 .modebtn { margin-left: auto; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
   background: none; border: 0; color: var(--ink); cursor: pointer; }
 .modebtn:hover { background: var(--hover); }
@@ -235,7 +238,7 @@ label.chk input { accent-color: var(--ink); width: 18px; height: 18px; }
 .disc[aria-expanded="true"] { color: var(--ink); transform: rotate(180deg); }
 .disc svg { width: 16px; height: 16px; }
 
-/* ── episode rows, on Stations and Settings ─────────────────────────── */
+/* ── episode rows, on Stations and Review ───────────────────────────── */
 .ep-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--hair); }
 .ep-row.sel { grid-template-columns: 22px 1fr auto; }
 .ep-row input[type="checkbox"] { accent-color: var(--ink); width: 20px; height: 20px; }
@@ -267,7 +270,7 @@ label.chk input { accent-color: var(--ink); width: 18px; height: 18px; }
   <nav class="nav" aria-label="Pages">
     <a class="navlink{{ ' live' if request.path == '/' else '' }}" href="/"{% if request.path == '/' %} aria-current="page"{% endif %}>On air</a>
     <a class="navlink{{ ' live' if request.path.startswith('/stations') else '' }}" href="/stations"{% if request.path.startswith('/stations') %} aria-current="page"{% endif %}>Stations</a>
-    <a class="navlink{{ ' live' if request.path.startswith('/settings') else '' }}" href="/settings"{% if request.path.startswith('/settings') %} aria-current="page"{% endif %}>Settings</a>
+    <a class="navlink{{ ' live' if request.path.startswith('/settings') else '' }}" href="/settings"{% if request.path.startswith('/settings') %} aria-current="page"{% endif %}>Review<span class="n" id="nav-review" hidden></span></a>
   </nav>
   <button type="button" class="modebtn" id="btn-mode"></button>
 </header>
@@ -445,6 +448,10 @@ async function poll() {
     status = await (await fetch("/api/status")).json();
     // the tally light is lit only while on air
     $("board-title").classList.toggle("live", status.dj_state === "playing");
+    // absent from a server older than the page: no count, not a zero
+    const pending = status.review_pending || 0;
+    $("nav-review").hidden = !pending;
+    $("nav-review").textContent = pending.toLocaleString();
     renderPage(status);
   } catch (err) { /* transient: keep last render */ }
 }
