@@ -1646,6 +1646,7 @@ class DJ:
                 for e in self.db.recent_failures()
             ],
             "download_mode": self.cfg.download_mode,
+            "review_pending": self.db.review_pending(),
             "volume": None,
             # Armed sleep timer, if any. 'remaining' counts seconds: a fade
             # knows its own, an episode timer takes it from the track and so

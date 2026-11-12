@@ -514,6 +514,25 @@ def test_review_leaves_turned_off_shows_out(db) -> None:
     assert db.review_counts()["never"] == 1
 
 
+def test_review_lists_a_named_shows_archive_whatever_the_show_is(db) -> None:
+    """A news or turned-off station's sheet links here to add from its
+    archive: its only bulk path. Across the library those shows stay out,
+    and a named one still has nothing in rotation or waiting."""
+    show, news = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    db.review_episodes([fresh], "never")
+    db.archive_episode(old)
+    db.toggle_feed(show)
+    assert db.review_counts(show) == {"rotation": 0, "recent": 0, "back_catalog": 1, "never": 1}
+    assert db.review_ids("back_catalog", show) == [old]
+    assert [e["id"] for e in db.review_page("never", 1, 25, show)] == [fresh]
+    headline = _by_guid(db, news, "n")["id"]
+    db.archive_episode(headline)
+    assert db.review_ids("back_catalog", news) == [headline]
+    assert db.review_ids("back_catalog") == []           # across the library: neither
+    assert db.review_counts(news)["recent"] == 0         # news is never waiting
+
+
 def test_explicit_moves_record_a_decision(db) -> None:
     show, _ = _review_library(db)
     fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]

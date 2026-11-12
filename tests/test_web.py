@@ -582,7 +582,7 @@ def test_stations_page_names_the_archive_one_way(no_sonos_client) -> None:
     episode ends up: Archive, Add to rotation, Mark heard."""
     c, _ = no_sonos_client
     page = c.get("/stations").data
-    for verb in (b"Archive <i>", b"Add to rotation <i>", b"Mark heard <i>", b'"Archived"'):
+    for verb in (b"Archive <i>", b">Add to rotation</button>", b"Mark heard <i>", b'"Archived"'):
         assert verb in page
     for old in (b"vault", b"Release selected", b"Add back catalog", b">Held<",
                 b"Drop for good", b"Add to Up Next", b"Never play", b"Back catalog",
@@ -728,7 +728,42 @@ def test_the_episode_on_air_says_so_on_stations(no_sonos_client) -> None:
     body = no_sonos_client[0].get("/stations").data
     assert b"status.now_playing.episode_id === e.id" in body
     assert b"""onAir ? '<span class="pri">On air</span>'""" in body
-    assert b'(onAir ? "" : `<button type="button" class="tab small" data-episode="${e.id}/play_next"' in body
+    assert b'const primary = onAir ? ""' in body
+
+
+def test_a_sheet_rows_button_follows_the_row(no_sonos_client) -> None:
+    """Play next was every row's button and was pressed once in 38 days; an
+    archived row was let into rotation 14 times through its menu. The
+    archived row's button does that now, and Play next moves into its menu."""
+    body = no_sonos_client[0].get("/stations").data
+    assert (b'e.status === "archived"\n      ? `<button type="button" class="tab small" '
+            b'data-episode="${e.id}/release" title="The DJ may pick it">Add to rotation</button>`') in body
+    assert b'data-episode="${e.id}/play_next">Play next <i>after what\'s on</i></button>` : "") +' in body
+
+
+def test_the_sheet_sends_bulk_adding_to_review(no_sonos_client) -> None:
+    """The sheet's own Select, Add selected, and Add all to rotation went
+    unused for 38 days while Review took 29 decision posts in a week. The
+    routes stay: scripts call them."""
+    c, _ = no_sonos_client
+    body = c.get("/stations").data
+    for gone in (b"data-select-toggle", b"data-release-selected", b"Add all to rotation",
+                 b"data-episode-check", b"selectMode"):
+        assert gone not in body
+    assert b'href="/settings?view=back_catalog&feed=${feedId}"' in body
+    assert c.post("/episodes/release", json={"ids": []}).get_json()["ok"] is True
+
+
+def test_review_shows_two_lines_of_notes_and_keeps_its_place_in_the_address(no_sonos_client) -> None:
+    """50 notes were opened for 29 decision posts: reading them is how a row
+    gets decided. And a sheet's link has to land on that show's archive."""
+    c, _ = no_sonos_client
+    body = c.get("/settings?view=back_catalog&feed=7").data
+    assert b"discPanel(e.id, e.description, { clamp: true })" in body
+    assert b'if (panel && "clamp" in panel.dataset) panel.classList.toggle("clamp", !open);' in body
+    assert b'if (p.get("view") in NOTES) review.view = p.get("view");' in body
+    assert b"history.replaceState(null" in body
+    assert b"String(f.id) === review.feed" in body
 
 
 def test_add_station_with_nothing_chosen_says_what_to_do(no_sonos_client) -> None:
@@ -1034,11 +1069,36 @@ def _review_seed(db) -> tuple[int, list[int]]:
 
 
 def test_settings_page_loads_and_is_in_the_nav(no_sonos_client) -> None:
+    """The nav names the page for its job. The route stays /settings: the
+    usage log keys on it, and a rename would split the series."""
     c, _ = no_sonos_client
     resp = c.get("/settings")
     assert resp.status_code == 200 and b"Review episodes" in resp.data
     assert b'href="/settings" aria-current="page"' in resp.data
     assert b'href="/settings"' in c.get("/").data
+    assert b'>Review<span class="n" id="nav-review" hidden></span></a>' in resp.data
+    assert b">Settings</a>" not in resp.data
+
+
+def test_status_counts_the_arrivals_waiting_for_a_decision(client) -> None:
+    """The count beside Review: recently added and undecided, as that tab
+    lists them. News and turned-off shows are not waiting on anyone."""
+    c, db, _ = client
+    show = db.add_feed("https://x/rss", "X", None, False)
+    news = db.add_feed("https://n/rss", "N", None, True)
+    off = db.add_feed("https://o/rss", "O", None, False)
+    db.toggle_feed(off)
+    kept = _add_episode(db, show, 1)
+    _add_episode(db, show, 2)
+    _add_episode(db, show, 3, status="archived")
+    _add_episode(db, news, 1)
+    _add_episode(db, off, 1)
+    assert c.get("/api/status").get_json()["review_pending"] == 2
+    db.review_episodes([kept], "keep")
+    assert c.get("/api/status").get_json()["review_pending"] == 1
+    assert db.review_pending() == db.review_counts()["recent"]
+    # an older server sends no field; the page shows no count rather than a zero
+    assert b"const pending = status.review_pending || 0;" in c.get("/").data
 
 
 def test_review_lists_counts_and_ids(client) -> None:

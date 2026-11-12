@@ -127,11 +127,15 @@ CREATE INDEX IF NOT EXISTS idx_usage_events_at ON usage_events (at);
 # What each review list shows. Keys are the API's view names and SQL aliases.
 # 'queued' is unplayed too: a row on the speaker is still triaged, and leaving
 # rotation takes it off the speaker (DJ.review_episodes).
+# News is never waiting on a decision: it plays first until dropped, so keeping
+# a stale headline would put it on air, and skipping it says nothing about a
+# show. Nor is a turned-off show: there's nothing left to decide about it.
+_DECIDABLE = "f.is_news=0 AND f.enabled=1"
 REVIEW_VIEWS = {
     # Everything the DJ can still pick: a show's category can take it off air.
-    "rotation": "(e.status IN ('new','queued') AND NOT EXISTS (SELECT 1 FROM categories"
-                " cat WHERE cat.id=f.category_id AND cat.rotation_enabled=0))",
-    "recent": "(e.status IN ('new','queued') AND e.review IS NULL)",
+    "rotation": f"({_DECIDABLE} AND e.status IN ('new','queued') AND NOT EXISTS (SELECT 1"
+                " FROM categories cat WHERE cat.id=f.category_id AND cat.rotation_enabled=0))",
+    "recent": f"({_DECIDABLE} AND e.status IN ('new','queued') AND e.review IS NULL)",
     "back_catalog": "e.status='archived'",
     "never": "(e.status='played' AND e.review IN ('never','pruned'))",
 }
@@ -965,13 +969,27 @@ class Database:
     # ── review ────────────────────────────────────────────────────────
     @staticmethod
     def _review_filter(feed_id: int | None, q: str | None) -> tuple[str, list]:
-        """News is left out: it plays first until dropped, so keeping a stale
-        headline would put it on air, and skipping it says nothing about a show.
-        So is a turned-off show: there's nothing left to decide about it."""
-        clauses = ["f.is_news=0", "f.enabled=1"] + (["e.feed_id=?"] if feed_id else []) + (
+        """Across the library only decidable shows are listed. One asked for
+        by name lists its archive and its marked-heard episodes whatever it
+        is: a news or turned-off station's sheet sends people here to add
+        from its archive, and it has no other bulk path. What's in rotation
+        or waiting stays decidable-only through the views themselves."""
+        clauses = (["e.feed_id=?"] if feed_id else [_DECIDABLE]) + (
             ["e.title LIKE ?"] if q else [])
         params = ([feed_id] if feed_id else []) + ([f"%{q}%"] if q else [])
         return " AND ".join(clauses), params
+
+    def review_pending(self) -> int:
+        """How many recently added episodes still wait for a decision: the
+        count beside Review in the nav. Every status poll asks, so this
+        filters rather than sums. CROSS JOIN pins feeds as the outer table:
+        left to choose, SQLite walked all 39,000 episodes; this way each
+        listed feed is one seek on (feed_id, status)."""
+        where, params = self._review_filter(None, None)
+        with self._conn() as c:
+            return c.execute(
+                "SELECT COUNT(*) AS n FROM feeds f CROSS JOIN episodes e ON e.feed_id=f.id"
+                f" WHERE {where} AND {REVIEW_VIEWS['recent']}", params).fetchone()["n"]
 
     def review_counts(self, feed_id: int | None = None,
                       q: str | None = None) -> dict[str, int]:
