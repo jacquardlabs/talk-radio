@@ -59,12 +59,16 @@ red — and pins mark the wake alarms and when a sleep timer ends. Up Next
 below reads like a program guide: the time each episode starts, then the
 episode and its show.
 
-Controls: **Play/Pause**, back 15 and forward 30 seconds, **Skip** (*Back to
-Up next* parks the episode and resumes it where it stopped, *Back to
-rotation* returns it to the pool, *Archive* takes it out of rotation, *Mark
-heard* counts it as a listen), volume, and a
-power switch that goes off air now — or later: *Sleep*, or a long press on
-*Off air*, sets the sleep timer (end of episode, or a 15/30/60-minute fade).
+Controls: **Play/Pause**, back 15 and forward 30 seconds, **Skip**, volume,
+and a power switch. *Skip* marks the episode heard in one tap, and its
+confirmation offers *Undo* for 8 seconds: that plays the episode again and
+returns it to where it stopped within one tick (15 seconds by default), and
+sends whatever started in its place back to rotation. The caret beside
+*Skip* skips and keeps the episode: *Back to Up next* parks it and resumes
+it where it stopped, *Back to rotation* returns it to the pool, and
+*Archive* takes it out of rotation. The power switch goes off air now — or
+later: *Sleep*, or a long press on *Off air*, sets the sleep timer (end of
+episode, or a 15/30/60-minute fade).
 **Refresh all** re-rolls the DJ's picks: rows you kept and the track on air
 stay, everything else goes back in the pool. Up Next rows act too: drag the
 handle to reorder — arrow keys move a focused handle, so it works without a
@@ -293,8 +297,11 @@ from:
 ## Usage log
 
 Every action, search, and page view is counted in the database (polling is
-not), with the page it came from and whether it worked. Scripted calls like
-the ones above have no page. To see the last 30 days, most frequent first:
+not), with the page it came from and whether it worked. Dropping an Up next
+row and a review decision are counted by what they did. So are a menu
+opening, an appearance change, and the layout each page loaded in: narrow
+(760px and under), medium, or wide (1024px and up). Scripted calls like the
+ones above have no page. To see the last 30 days, most frequent first:
 
     curl http://server:8080/api/usage?days=30
 

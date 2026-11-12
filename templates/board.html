@@ -66,6 +66,10 @@ button.tab.tplay:hover { background: color-mix(in srgb, var(--ink) 88%, var(--pa
 .vol .meter .fill { position: absolute; inset: 0 auto 0 0; width: calc(var(--vol, 0) * 1%); border-radius: 2px; background: var(--slate); }
 .vol .meter .fill::after { content: ""; position: absolute; right: -8px; top: -6px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); }
 .vol .val { min-width: 2ch; font-size: 15px; }
+/* Skip is a split pill like the power switch: the verb, then the rest */
+.skipwrap { display: flex; }
+.skipwrap > button.tab:first-child { border-radius: 999px 0 0 999px; padding: 0 14px 0 20px; }
+.skipwrap > button.tab.skipcaret { border-radius: 0 999px 999px 0; margin-left: -1px; padding: 0 14px 0 10px; color: var(--slate); }
 .powerwrap { display: flex; margin-left: auto; }
 .powerwrap > button.tab:first-child { border-radius: 999px 0 0 999px; padding: 0 16px 0 14px;
   -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
@@ -81,6 +85,7 @@ button.tab.tplay:hover { background: color-mix(in srgb, var(--ink) 88%, var(--pa
 .spk-name { background: none; border: 0; padding: 8px 0; color: var(--slate); font: 500 16px var(--font); cursor: pointer; text-align: left; }
 .spk-name:hover, .spk-name.on { color: var(--ink); }
 .spk-name.on::after { content: "Station"; margin-left: 10px; font-size: 13px; font-weight: 400; color: var(--slate); }
+.spk-note { color: var(--slate); font-size: 13px; }
 .spk-empty { color: var(--slate); padding: 8px 10px; }
 .rooms-flap .spk-list + button { border-top: 1px solid var(--hair); border-radius: 0 0 10px 10px; margin-top: 4px; }
 
@@ -103,6 +108,9 @@ button.tab.tplay:hover { background: color-mix(in srgb, var(--ink) 88%, var(--pa
 .qtitle .news { color: var(--tally); font-weight: 600; margin-right: 8px; }
 .qmeta { display: flex; align-items: center; gap: 0; color: var(--slate); font-size: 14px; white-space: nowrap; overflow: hidden; }
 .qmeta .pd::before { content: ""; display: inline-block; width: 1.2em; }
+/* a long show name gives way; the date and the notes caret never do */
+.qmeta .showlink { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.qmeta .pd, .qmeta .disc, .qpin { flex: none; }
 .qpin { display: inline-flex; margin-right: 6px; color: var(--ink); }
 .qpin svg { width: 13px; height: 13px; fill: currentColor; }
 .dur { color: var(--slate); font-size: 15px; text-align: right; }
@@ -195,18 +203,23 @@ form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; ma
     </div>
     <div class="times"><span id="t-pos">0:00</span><span id="t-dur">0:00</span></div>
 
-    <div class="transport">
+    <div class="transport" data-dock>
       <button type="button" class="tab round" data-player="back_15" title="Back 15 seconds" aria-label="Back 15 seconds"><svg class="i" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/></svg></button>
       <button type="button" class="tab tplay paused" id="btn-playpause"></button>
       <button type="button" class="tab round" data-player="fwd_30" title="Forward 30 seconds" aria-label="Forward 30 seconds"><svg class="i" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4h-4"/></svg></button>
-      <div class="flapwrap">
-        <button type="button" class="tab" id="btn-skip" data-flap="skip-flap"
-                aria-haspopup="true" aria-expanded="false">Skip <svg class="i sm" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <!-- Skip marks it heard in one tap, what nearly every skip chose, and
+           its confirmation carries Undo. The caret keeps the episode. -->
+      <div class="flapwrap skipwrap">
+        <button type="button" class="tab" id="btn-skip" data-player="skip_done"
+                title="Skip this episode and mark it heard">Skip</button>
+        <button type="button" class="tab skipcaret" id="btn-skip-more" data-flap="skip-flap"
+                aria-haspopup="true" aria-expanded="false" aria-label="Skip, but keep the episode"
+                title="Skip, but keep the episode"><svg class="i sm" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
         <div class="flap" id="skip-flap" hidden>
+          <span class="flap-title">Skip, but keep the episode</span>
           <button type="button" data-player="defer">Back to Up next <i>keeps its place</i></button>
           <button type="button" data-player="skip_later">Back to rotation <i>plays another day</i></button>
           <button type="button" data-player="skip_archive">Archive <i>won't play unless you add it back</i></button>
-          <button type="button" class="danger" data-player="skip_done">Mark heard <i>counts as a listen</i></button>
         </div>
       </div>
       <span class="break"></span>
@@ -421,6 +434,15 @@ setInterval(tickDial, 1000);
 const GRIP_SVG = '<svg class="i sm" viewBox="0 0 24 24"><path d="M5 8h14M5 12h14M5 16h14"/></svg>';
 const MORE_SVG = '<svg class="i" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/></svg>';
 const SPEAKER_SVG = '<svg class="i sm" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="14" r="3"/></svg>';
+// A time alone reads as today, and Earlier runs back days: anything older
+// says which day, and past a week, which date.
+function playedWhen(iso) {
+  const d = new Date(iso), now = new Date();
+  const midnight = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const days = Math.round((midnight(now) - midnight(d)) / 86400000);
+  if (days <= 0) return hm(d);
+  return `${days < 7 ? DAYS[(d.getDay() + 6) % 7] : `${d.getDate()} ${MONTHS[d.getMonth()]}`} ${hm(d)}`;
+}
 function fmtMins(sec) {
   const m = Math.round(sec / 60);
   return m >= 60 ? `${(m / 60) | 0} h ${m % 60} min` : `${m} min`;
@@ -507,6 +529,13 @@ function renderPage(s) {
   // after the anchor above: the dial reads the interpolated position
   renderDial(s);
 
+  // Nothing on air leaves these nothing to act on. Off air stays live while
+  // the speaker is doing anything at all: it stops it whatever we believe.
+  for (const sel of ["#btn-skip", "#btn-skip-more", '[data-player="back_15"]', '[data-player="fwd_30"]'])
+    document.querySelector(sel).disabled = !np;
+  const silent = s.dj_state !== "playing" && (!s.transport || s.transport === "STOPPED");
+  $("btn-power").disabled = $("btn-sleep").disabled = silent;
+
   // one primary control: Play when anything but playing, Pause while playing
   const pp = $("btn-playpause");
   pp.classList.toggle("paused", !playing);
@@ -591,10 +620,10 @@ function renderPage(s) {
   $("earlier-line").hidden = !recent.length;
   if (recent.length) {
     $("earlier-line").innerHTML = `<b>Earlier ${CHEVRON}</b>` + recent.slice(0, 2).map((e) =>
-      `<span>${e.played_at ? `<span class="fig">${hm(new Date(e.played_at))}</span> ` : ""}${esc(e.show)}</span>`).join("");
+      `<span>${e.played_at ? `<span class="fig">${playedWhen(e.played_at)}</span> ` : ""}${esc(e.show)}</span>`).join("");
   }
   $("recent").innerHTML = recent.map((e) =>
-    `<div class="svc-row">${e.played_at ? `<span class="fig m">${hm(new Date(e.played_at))}</span>` : ""}<span>${esc(e.title)}</span>` +
+    `<div class="svc-row">${e.played_at ? `<span class="fig m">${playedWhen(e.played_at)}</span>` : ""}<span>${esc(e.title)}</span>` +
     `<span class="m">${showLink(e.feed_id, e.show)}</span></div>`
   ).join("") || '<div class="empty">Nothing played yet today.</div>';
 
@@ -666,7 +695,10 @@ function renderSpeakers(s) {
       `<button type="button" class="spk-name${isStation ? " on" : ""}" ` +
       `data-spk-select="${esc(ip)}" ` +
       `title="${isStation ? "This room is the station" : `Make ${esc(r.name)} the station`}">` +
-      `${esc(r.name)}</button></span>`;
+      `${esc(r.name)}</button>` +
+      // greyed out with the reason only in its aria-label read as broken
+      (r.coordinator && !isStation ? '<span class="spk-note">Holds the queue</span>' : "") +
+      `</span>`;
   }).join("") || '<span class="spk-empty">No speaker found yet. Scan to look for one.</span>';
 }
 
@@ -688,6 +720,7 @@ function rowMenu(e) {
     `aria-haspopup="true" aria-expanded="${open}" ` +
     `aria-label="Actions for ${esc(e.title)}">${MORE_SVG}</button>` +
     `<div class="flap" data-rowflap="${id}"${open ? "" : " hidden"}>` +
+    `<span class="flap-title">${esc(e.title)}</span>` +
     `<button type="button" data-episode="${id}/play_now">Play now <i>interrupts what's on</i></button>` +
     `<button type="button" data-episode="${id}/pin">${e.pinned ? "Stop keeping" : "Keep in Up next"} ` +
     `<i>${e.pinned ? "Refresh all may replace it" : "Refresh all won't replace it"}</i></button>` +
@@ -699,6 +732,7 @@ function rowMenu(e) {
 }
 
 function setRowMenuOpen(id) {
+  if (id != null && id !== openRowMenuId) track("menu_row");
   openRowMenuId = id;
   for (const flap of document.querySelectorAll("[data-rowflap]"))
     flap.hidden = flap.dataset.rowflap !== id;
@@ -865,6 +899,23 @@ $("btn-power").addEventListener("click", (ev) => {
   ev.stopImmediatePropagation();
 });
 
+// Skip is one tap, so the way back rides on its confirmation. The episode
+// and its position are read before the post: it polls on its way out, and
+// by the time it returns the deck has moved on to the next episode.
+async function skipOnAir(btn) {
+  const np = status && status.now_playing;
+  if (!np) return;
+  const id = np.episode_id, at = Math.floor(livePos());
+  if (!await post("/player/skip_done", {}, btn)) return;
+  flash("Skipped and marked heard", true, { label: "Undo", run: () => undoSkip(id, at) });
+}
+// Takes the mark back, then plays the episode now from where it stopped.
+// What started in its place goes back to rotation, as with any Play now.
+async function undoSkip(id, at) {
+  if (await post("/episodes/review", { ids: [id], decision: "keep" }))
+    post(`/episodes/${id}/play_now`, { resume: at });
+}
+
 // Re-rolls the DJ's picks. Armed rather than instant: it discards a queue,
 // and the pinned rows it spares are not obvious until you've used it once.
 $("btn-refresh").addEventListener("click", (ev) => {
@@ -894,6 +945,7 @@ document.addEventListener("click", (ev) => {
     setRowMenuOpen(null);
     return void post(`/episodes/${id}/drop`, { disposition }, btn);
   }
+  if (btn.dataset.player === "skip_done") return void skipOnAir(btn);
   if (btn.dataset.player) {
     // Going off air stops and reverts the queue — worth the same two-press
     // arm as Refresh all, and it doubles as the label the tooltip can't

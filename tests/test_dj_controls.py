@@ -219,16 +219,20 @@ def test_skip_done_marks_played(db, cfg, player, dj) -> None:
     assert player.state == "PLAYING"
 
 
-@pytest.mark.parametrize("tick_between", [False, True])
-def test_undoing_a_skip_resumes_where_it_stopped(db, cfg, player, dj, tick_between) -> None:
+@pytest.mark.parametrize(("tick_between", "news"),
+                         [(False, False), (True, False), (False, True)])
+def test_undoing_a_skip_resumes_where_it_stopped(db, cfg, player, dj,
+                                                 tick_between, news) -> None:
     """Skip marks the episode heard and clears its position, so Undo hands
     the position back. With no tick between the two, the skipped episode is
     still the one tick() last tracked, and it used to read as "still
-    current": the position was overwritten instead of sought."""
-    make_feed(db, "showa", 5)
+    current": the position was overwritten instead of sought. News, which
+    review never lists, comes back the same way."""
+    make_feed(db, "showa", 5, is_news=news)
     make_feed(db, "showb", 5)
     dj.start()
     ep = current_episode(db, player)
+    assert bool(db.get_feed(ep["feed_id"])["is_news"]) is news
     dj.tick()                       # tick() now tracks this episode
     player.position = 600
     assert dj.skip_done() is None

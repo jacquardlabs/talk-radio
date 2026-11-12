@@ -143,7 +143,7 @@ form.inline input[type="url"], form.inline input[type="text"] { flex: 1 1 260px;
   </div>
 </div>
 <form class="inline" id="add-feed">
-  <input type="url" id="feed-url" placeholder="Feed URL, or an Apple Podcasts link" aria-label="Feed URL" required style="display:none">
+  <input type="url" id="feed-url" placeholder="Feed URL, or an Apple Podcasts link" aria-label="Feed URL" style="display:none">
   <label class="chk"><input type="checkbox" id="feed-news"> News</label>
   <select id="feed-include" aria-label="Which episodes join rotation">
     <option value="latest" selected>Latest episode</option>
@@ -174,7 +174,7 @@ form.inline input[type="url"], form.inline input[type="text"] { flex: 1 1 260px;
   <div id="global-search-pagination"></div>
 </div>
 
-<div class="mini-transport" id="mini-transport" hidden>
+<div class="mini-transport" id="mini-transport" data-dock hidden>
   <button type="button" class="tab" id="mini-playpause" aria-label="Play or pause"></button>
   <a href="/" id="mini-now" title="Open On air"><b>Off air</b></a>
 </div>
@@ -241,6 +241,7 @@ function epMenu(e) {
     `aria-haspopup="true" aria-expanded="${open}" ` +
     `aria-label="More actions for ${esc(e.title)}">${MORE_SVG}</button>` +
     `<div class="flap" data-epflap="${e.id}"${open ? "" : " hidden"}>` +
+    `<span class="flap-title">${esc(e.title)}</span>` +
     `<button type="button" data-episode="${e.id}/play_now">Play now <i>interrupts what's on</i></button>` +
     `<button type="button" data-episode="${e.id}/play_last">Play last <i>end of Up next</i></button>` +
     (e.arc
@@ -255,6 +256,7 @@ function epMenu(e) {
 }
 
 function setEpMenuOpen(id) {
+  if (id != null && id !== openEpMenuId) track("menu_episode");
   openEpMenuId = id;
   for (const flap of document.querySelectorAll("[data-epflap]"))
     flap.hidden = flap.dataset.epflap !== id;
@@ -275,9 +277,12 @@ function episodeRow(e, opts) {
     ? `<input type="checkbox" data-episode-check="${e.id}"${opts.selected ? " checked" : ""} ` +
       `aria-label="Select ${esc(e.title)}">`
     : "";
+  // The one playing is "queued" like the rest of Up next, and read as that.
+  const onAir = !!(status && status.now_playing && status.now_playing.episode_id === e.id);
   const meta = [
-    e.status !== opts.plain
-      ? `<span class="${STATUS_CLASS[e.status] || ""}">${STATUS_LABEL[e.status] || esc(e.status)}</span>` : "",
+    onAir ? '<span class="pri">On air</span>'
+      : e.status !== opts.plain
+        ? `<span class="${STATUS_CLASS[e.status] || ""}">${STATUS_LABEL[e.status] || esc(e.status)}</span>` : "",
     opts.showBadge ? `<span>${showLink(e.feed_id, e.show)}</span>` : "",
     `<span class="fig">${pubDate(e.published_at)}</span>`,
     e.duration ? `<span class="fig">${Math.round(e.duration / 60)} min</span>` : "",
@@ -291,7 +296,7 @@ function episodeRow(e, opts) {
     // the caret rides the meta line, under the title it discloses
     `<div class="qmeta">${meta}${discToggle(e.id, e.description, e.title)}</div></div>` +
     `<span class="ep-actions">` +
-    `<button type="button" class="tab small" data-episode="${e.id}/play_next" title="Play after current">Play next</button>` +
+    (onAir ? "" : `<button type="button" class="tab small" data-episode="${e.id}/play_next" title="Play after current">Play next</button>`) +
     epMenu(e) +
     `</span>` +
     discPanel(e.id, e.description) +
@@ -331,6 +336,7 @@ function tileHTML(f) {
 let openSettingsId = null;
 
 function setSettingsOpen(id) {
+  if (id != null && id !== openSettingsId) track("menu_station");
   openSettingsId = id;
   for (const flap of document.querySelectorAll("[data-setflap]"))
     flap.hidden = flap.dataset.setflap !== id;
@@ -393,6 +399,7 @@ function sheetHeadHTML(f, categories) {
 let openCatMenuId = null;
 
 function setCatMenuOpen(id) {
+  if (id != null && id !== openCatMenuId) track("menu_category");
   openCatMenuId = id;
   for (const flap of document.querySelectorAll("[data-catflap]"))
     flap.hidden = flap.dataset.catflap !== id;
@@ -631,6 +638,9 @@ function setAddMode(mode) {
   $("podcast-search-block").style.display = mode === "search" && !pickedPodcast ? "" : "none";
   $("podcast-picked-block").style.display = mode === "search" && pickedPodcast ? "" : "none";
   $("feed-url").style.display = mode === "url" ? "" : "none";
+  // required only while it shows: hidden, it blocked the submit with a
+  // message the browser had nowhere to put
+  $("feed-url").required = mode === "url";
   if (mode === "url") {
     pickedPodcast = null;
     $("feed-url").value = "";
@@ -848,6 +858,10 @@ $("feed-include").addEventListener("change", (ev) => {
 });
 $("add-feed").addEventListener("submit", async (ev) => {
   ev.preventDefault();
+  if (!$("feed-url").value) {
+    flash("Search for a podcast and choose it, or paste a link");
+    return void $("podcast-search-input").focus();
+  }
   const ok = await post("/feeds", {
     url: $("feed-url").value,
     is_news: $("feed-news").checked,

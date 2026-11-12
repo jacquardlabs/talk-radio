@@ -1,10 +1,12 @@
+import re
+
 import pytest
 
 from config import Config
 from db import Database
 from dj import DJ
 from fake_player import FakeSonosPlayer
-from web import create_app
+from web import UI_EVENTS, create_app
 import feeds as feeds_mod
 
 
@@ -602,20 +604,91 @@ def test_board_uses_the_one_verb_set(no_sonos_client) -> None:
     archived, or marked heard. Done and Drop for good were two names for one
     act, and Never play read as archiving."""
     body = no_sonos_client[0].get("/").data
-    assert body.count(b"Mark heard <i>") == 2 and body.count(b"Archive <i>") == 2
-    assert b"Back to rotation <i>" in body and b"Keep in Up next" in body
+    assert body.count(b"Back to rotation <i>") == 2 and body.count(b"Archive <i>") == 2
+    # marking heard is an item in a row's menu, and what Skip itself does
+    assert body.count(b"Mark heard <i>") == 1
+    assert b"Skip this episode and mark it heard" in body
+    assert b"Keep in Up next" in body
     for old in (b"Drop for good", b"Drop for later", b">Done <i>", b">Later <i>", b">Defer <i>",
                 b"Never play", b'"Pin"'):
         assert old not in body
 
 
-def test_skip_flap_offers_defer_first(no_sonos_client) -> None:
-    """The flap runs least-destructive to most, and defer is the only one
-    that keeps the episode."""
+def test_skip_is_one_tap_and_its_caret_keeps_the_episode(no_sonos_client) -> None:
+    """60 of 61 skips in the usage log chose Mark heard, the last and red
+    item of a menu. Skip does that itself now, with Undo on its confirmation;
+    the caret holds the ways to skip and keep the episode, least final first."""
     body = no_sonos_client[0].get("/").data
-    order = [body.index(f'data-player="{a}"'.encode())
-             for a in ("defer", "skip_later", "skip_archive", "skip_done")]
+    assert b'id="btn-skip" data-player="skip_done"' in body
+    flap = body[body.index(b'id="skip-flap"'):body.index(b'id="vol"')]
+    order = [flap.index(f'data-player="{a}"'.encode())
+             for a in ("defer", "skip_later", "skip_archive")]
     assert order == sorted(order)
+    assert b"skip_done" not in flap
+    assert b'flash("Skipped and marked heard", true, { label: "Undo"' in body
+    # Undo takes the mark back and plays it from where it stopped
+    assert b'decision: "keep"' in body and b"play_now`, { resume: at }" in body
+
+
+def test_controls_go_dead_when_nothing_is_on_air(no_sonos_client) -> None:
+    """Skip and the seek buttons act on the episode playing. Off air stops
+    the speaker whatever the DJ believes, so it stays live until the speaker
+    is silent too."""
+    body = no_sonos_client[0].get("/").data
+    assert b"""["#btn-skip", "#btn-skip-more", '[data-player="back_15"]', '[data-player="fwd_30"]']""" in body
+    assert b'const silent = s.dj_state !== "playing" && (!s.transport || s.transport === "STOPPED");' in body
+    assert b'$("btn-power").disabled = $("btn-sleep").disabled = silent;' in body
+
+
+def test_rooms_and_earlier_say_why_and_when(no_sonos_client) -> None:
+    """The room holding the queue was greyed out with its reason only in an
+    aria-label, and Earlier printed bare times across several days."""
+    body = no_sonos_client[0].get("/").data
+    assert b"""r.coordinator && !isStation ? '<span class="spk-note">Holds the queue</span>'""" in body
+    assert body.count(b"playedWhen(e.played_at)") == 2
+    assert b"hm(new Date(e.played_at))" not in body
+
+
+def test_every_flap_has_a_usage_event_for_opening(no_sonos_client) -> None:
+    """The flap toggle counts an open as menu_<id>; an id the beacon doesn't
+    know would be refused without a sound."""
+    c, _ = no_sonos_client
+    pages = b"".join(c.get(path).data for path in ("/", "/stations", "/settings"))
+    flaps = set(re.findall(rb'data-flap="([a-z]+)-flap"', pages))
+    assert flaps and {f"menu_{f.decode()}" for f in flaps} <= UI_EVENTS
+
+
+def test_a_message_sits_above_whatever_is_docked(no_sonos_client) -> None:
+    """On a phone the message landed on the docked transport and hid it."""
+    c, _ = no_sonos_client
+    assert b'class="transport" data-dock' in c.get("/").data
+    assert b'id="mini-transport" data-dock' in c.get("/stations").data
+    assert b'id="review-bulk" data-dock' in c.get("/settings").data
+    assert b'querySelectorAll("[data-dock]")' in c.get("/").data
+
+
+def test_phone_menus_name_what_they_act_on(no_sonos_client) -> None:
+    c, _ = no_sonos_client
+    assert b'<span class="flap-title">${esc(e.title)}</span>' in c.get("/").data
+    assert b'<span class="flap-title">${esc(e.title)}</span>' in c.get("/stations").data
+
+
+def test_the_episode_on_air_says_so_on_stations(no_sonos_client) -> None:
+    """It is "queued" like the rest of Up next, so its row read Up next and
+    offered Play next behind itself."""
+    body = no_sonos_client[0].get("/stations").data
+    assert b"status.now_playing.episode_id === e.id" in body
+    assert b"""onAir ? '<span class="pri">On air</span>'""" in body
+    assert b'(onAir ? "" : `<button type="button" class="tab small" data-episode="${e.id}/play_next"' in body
+
+
+def test_add_station_with_nothing_chosen_says_what_to_do(no_sonos_client) -> None:
+    """The URL field was required while hidden, so the browser blocked the
+    submit and had nowhere to show why: the button did nothing."""
+    body = no_sonos_client[0].get("/stations").data
+    assert b'aria-label="Feed URL" style="display:none">' in body
+    assert b'$("feed-url").required = mode === "url";' in body
+    assert b'flash("Search for a podcast and choose it, or paste a link")' in body
 
 
 
