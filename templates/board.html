@@ -173,6 +173,10 @@ form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; ma
   .qdesc { grid-column: 3 / -1; }
   .basement { grid-template-columns: 1fr; }
 }
+/* the narrowest phones have no room beside Skip for the word: the icon says it */
+@media (max-width: 350px) {
+  button.tab.tplay { font-size: 0; gap: 0; }
+}
 {% endblock %}
 
 {% block content %}
