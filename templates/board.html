@@ -205,7 +205,8 @@ form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; ma
         <div class="flap" id="skip-flap" hidden>
           <button type="button" data-player="defer">Back to Up next <i>keeps its place</i></button>
           <button type="button" data-player="skip_later">Back to rotation <i>plays another day</i></button>
-          <button type="button" class="danger" data-player="skip_done">Never play <i>marks it heard</i></button>
+          <button type="button" data-player="skip_archive">Archive <i>won't play unless you add it back</i></button>
+          <button type="button" class="danger" data-player="skip_done">Mark heard <i>counts as a listen</i></button>
         </div>
       </div>
       <span class="break"></span>
@@ -235,7 +236,7 @@ form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; ma
 
 <div class="sect"><h2>Up next</h2><span class="aside" id="until"></span>
   <span class="end"><button type="button" class="tab small" id="btn-refresh"
-    title="Re-roll everything the DJ picked; pinned rows stay">Refresh all</button></span></div>
+    title="Re-roll everything the DJ picked; episodes you kept stay">Refresh all</button></span></div>
 <div id="departures"></div>
 
 <div class="basement">
@@ -486,7 +487,8 @@ function renderPage(s) {
     npAnchor = { pos: np.position, dur: np.duration, at: performance.now(), playing };
     paintNowPlaying(np, np.position, playing, paused);
     // news back in rotation would only lead Up Next again
-    document.querySelector('[data-player="skip_later"]').hidden = np.is_news;
+    for (const action of ["skip_later", "skip_archive"])
+      document.querySelector(`[data-player="${action}"]`).hidden = np.is_news;
   } else {
     npAnchor = null;
     art.hidden = true;
@@ -545,7 +547,7 @@ function renderPage(s) {
         `${img}<div class="qmain">` +
         `<div class="qtitle">${e.is_news ? '<span class="news">News</span>' : ""}${esc(e.title)}</div>` +
         `<div class="qmeta">` +
-        (e.pinned ? `<span class="qpin" title="Pinned: Refresh all leaves this alone">${PIN_SVG}</span>` : "") +
+        (e.pinned ? `<span class="qpin" title="Kept in Up next: Refresh all leaves this alone">${PIN_SVG}</span>` : "") +
         `${showLink(e.feed_id, e.show)}${when ? `<span class="pd">${when}</span>` : ""}` +
         `${discToggle(e.episode_id, e.description, e.title)}</div></div>` +
         `<span class="dur">${e.duration ? fmtMins(e.duration) : ""}</span>` +
@@ -687,11 +689,12 @@ function rowMenu(e) {
     `aria-label="Actions for ${esc(e.title)}">${MORE_SVG}</button>` +
     `<div class="flap" data-rowflap="${id}"${open ? "" : " hidden"}>` +
     `<button type="button" data-episode="${id}/play_now">Play now <i>interrupts what's on</i></button>` +
-    `<button type="button" data-episode="${id}/pin">${e.pinned ? "Unpin" : "Pin"} ` +
-    `<i>${e.pinned ? "Refresh all may replace it" : "Refresh all keeps it"}</i></button>` +
+    `<button type="button" data-episode="${id}/pin">${e.pinned ? "Stop keeping" : "Keep in Up next"} ` +
+    `<i>${e.pinned ? "Refresh all may replace it" : "Refresh all won't replace it"}</i></button>` +
     (e.is_news ? "" :
-      `<button type="button" data-drop="${id}/later">Back to rotation <i>plays another day</i></button>`) +
-    `<button type="button" class="danger" data-drop="${id}/done">Never play <i>marks it heard</i></button>` +
+      `<button type="button" data-drop="${id}/later">Back to rotation <i>plays another day</i></button>` +
+      `<button type="button" data-drop="${id}/archive">Archive <i>won't play unless you add it back</i></button>`) +
+    `<button type="button" class="danger" data-drop="${id}/done">Mark heard <i>counts as a listen</i></button>` +
     `</div></div>`;
 }
 

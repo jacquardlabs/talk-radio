@@ -64,6 +64,8 @@ form.inline input[type="url"], form.inline input[type="text"] { flex: 1 1 260px;
 .ep-browser { margin-top: 22px; }
 .ep-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
 .ep-toolbar input[type="search"] { flex: 1 1 240px; background: var(--paper); }
+.ep-toolbar .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.ep-toolbar .seg .n { font-family: var(--figures); font-weight: 400; }
 .bc-toggle { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 6px; background: none; border: 0;
   color: var(--ink); font: 500 15px var(--font); cursor: pointer; }
 .bc-toggle .n { color: var(--slate); font-family: var(--figures); }
@@ -143,7 +145,7 @@ form.inline input[type="url"], form.inline input[type="text"] { flex: 1 1 260px;
 <form class="inline" id="add-feed">
   <input type="url" id="feed-url" placeholder="Feed URL, or an Apple Podcasts link" aria-label="Feed URL" required style="display:none">
   <label class="chk"><input type="checkbox" id="feed-news"> News</label>
-  <select id="feed-include" aria-label="How much of the back catalog">
+  <select id="feed-include" aria-label="Which episodes join rotation">
     <option value="latest" selected>Latest episode</option>
     <option value="new_only">New episodes only</option>
     <option value="last_n">Last few episodes</option>
@@ -189,10 +191,21 @@ const globalSearch = { q: "", page: 1 };
 const stationSearch = {};   // feedId -> { q, page }
 const selectMode = {};      // feedId -> bool
 const selectedIds = {};     // feedId -> Set<number>
-// Hidden by default, like Pocket Casts' archived episodes: a show with a
-// deep back catalog opens on what the DJ can actually pick, and one
+// A station sheet's tabs (db.FEED_SHELVES). Unheard by default, like Pocket
+// Casts hiding archived episodes: a show with hundreds archived opens on what
+// the DJ can pick, and heard ones to replay aren't buried among them. One
 // choice holds for every station until changed.
-let hideBackCatalog = localStorage.getItem("hideBackCatalog") !== "0";
+const SHELVES = [["unheard", "Unheard"], ["heard", "Heard"], ["archived", "Archived"]];
+let stationShelf = (() => {
+  try {
+    const saved = localStorage.getItem("stationShelf");
+    return SHELVES.some(([key]) => key === saved) ? saved : "unheard";
+  } catch { return "unheard"; }
+})();
+const EMPTY_SHELF = { unheard: "Nothing left to hear.", heard: "Nothing heard yet.", archived: "Nothing archived." };
+function shelfCounts(c) {
+  return { unheard: c.new + c.queued + c.skipped, heard: c.played, archived: c.archived };
+}
 // A station is off because it isn't wanted now, so it stays out of the crate
 // until asked for, and one choice holds until changed.
 let showTurnedOff = localStorage.getItem("showTurnedOff") === "1";
@@ -210,10 +223,10 @@ function episodeState(feedId) {
 let openEpMenuId = null;
 
 // One listener-facing name per status, the same everywhere it appears.
-// "archived" is the back catalog: episodes the DJ won't pick until asked.
+// "archived": episodes the DJ won't pick unless you add them back.
 const STATUS_LABEL = {
   new: "Unplayed", queued: "Up next", played: "Heard", skipped: "Missed",
-  archived: "Back catalog",
+  archived: "Archived",
 };
 // Done is quiet: the strike already says it, and a news show is all heard.
 const STATUS_CLASS = { queued: "lit", skipped: "pri" };
@@ -233,11 +246,11 @@ function epMenu(e) {
     (e.arc
       ? `<button type="button" data-episode="${e.id}/queue_arc">Queue series <i>every part, in order</i></button>` : "") +
     (e.status === "archived"
-      ? `<button type="button" data-episode="${e.id}/release">Back to rotation <i>the DJ can pick it</i></button>` : "") +
+      ? `<button type="button" data-episode="${e.id}/release">Add to rotation <i>the DJ may pick it</i></button>` : "") +
     (e.status === "new"
-      ? `<button type="button" data-episode="${e.id}/unrelease">Send to back catalog <i>the DJ won't pick it</i></button>` : "") +
+      ? `<button type="button" data-episode="${e.id}/unrelease">Archive <i>won't play unless you add it back</i></button>` : "") +
     (e.status === "new" || e.status === "skipped"
-      ? `<button type="button" class="danger" data-episode="${e.id}/done">Never play <i>marks it heard</i></button>` : "") +
+      ? `<button type="button" class="danger" data-episode="${e.id}/done">Mark heard <i>counts as a listen</i></button>` : "") +
     `</div></div>`;
 }
 
@@ -252,9 +265,9 @@ function setEpMenuOpen(id) {
 // A grid row like Up Next's: title, a meta line under it, actions in their
 // own column, so every row has the same shape whatever its title's length.
 // The row wears its status like a display segment: lit while the DJ can
-// pick it, unlit in the back catalog, struck through once heard — so one
-// newest-first list reads at a glance and a heard episode is still one tap
-// from playing again. The meta label says the same in words.
+// pick it, unlit once archived, struck through once heard — so a row reads
+// at a glance on any tab and a heard episode is still one tap from playing
+// again. The meta label says the same in words.
 // opts.plain is the status that goes without a label.
 function episodeRow(e, opts) {
   opts = opts || {};
@@ -362,8 +375,8 @@ function sheetHeadHTML(f, categories) {
     // unlike an episode's notes there is only ever one of it.
     (f.description ? `<div class="sheet-desc">${esc(f.description)}</div>` : "") +
     `<div class="sheet-counts"><span><b>${(c.new + c.queued).toLocaleString()}</b> to hear</span>` +
-    `<span><b>${c.archived.toLocaleString()}</b> in the back catalog</span>` +
-    `<span><b>${(c.played + c.skipped).toLocaleString()}</b> heard</span>` +
+    `<span><b>${c.archived.toLocaleString()}</b> archived</span>` +
+    `<span><b>${c.played.toLocaleString()}</b> heard</span>` +
     (f.playback_mode === "random" ? "<span>Random order</span>" : "") +
     (f.skip_titles.length ? `<span>Skips ${esc(f.skip_titles.join(", "))}</span>` : "") +
     (f.is_news ? '<span class="pri">Plays first, as news</span>' : "") +
@@ -485,42 +498,39 @@ async function renderEpisodePanel(feedId) {
   const browser = panel.querySelector(".ep-browser");
   const st = episodeState(feedId);
   const data = await (await fetch(
-    `/api/feeds/${feedId}/episodes?page=${st.page}&q=${encodeURIComponent(st.q)}` +
-    (hideBackCatalog ? "&back_catalog=hide" : "")
+    `/api/feeds/${feedId}/episodes?page=${st.page}&q=${encodeURIComponent(st.q)}&shelf=${stationShelf}`
   )).json();
   const sel = !!selectMode[feedId];
   const selected = selectedIds[feedId] || (selectedIds[feedId] = new Set());
   const feed = status && status.stations.find((f) => f.id === feedId);
-  const backCatalog = feed ? feed.counts.archived : 0;
-  // what the toggle hides: the back catalog, and everything heard or missed
-  const hidden = feed ? backCatalog + feed.counts.played + feed.counts.skipped : 0;
+  const counts = feed ? shelfCounts(feed.counts) : null;
   const prevInput = browser.querySelector("[data-station-search]");
   const hadFocus = prevInput && document.activeElement === prevInput;
+  const archivedShown = stationShelf === "archived" && counts && counts.archived;
   browser.innerHTML =
     `<div class="ep-toolbar">` +
     `<input type="search" placeholder="Filter this station's episodes" aria-label="Filter this station's episodes" value="${esc(st.q)}" data-station-search="${feedId}">` +
-    // a switch, not a Show/Hide pair: one label, so the second tap lands on
-    // the same control as the first
-    (hidden
-      ? `<button type="button" class="bc-toggle" role="switch" aria-checked="${!hideBackCatalog}" data-back-catalog="${feedId}">` +
-        `<span class="sw${hideBackCatalog ? "" : " on"}"><span class="knob"></span></span>` +
-        `Heard and back catalog <span class="n">${hidden.toLocaleString()}</span></button>`
-      : "") +
-    `</div>` +
-    // the back catalog's verbs on their own row, only while it shows, so
-    // they never act on unseen rows or crowd the toggle out of its place
-    (backCatalog && !hideBackCatalog
+    `<div class="seg" role="group" aria-label="Which episodes">` +
+    SHELVES.map(([key, label]) => {
+      const on = key === stationShelf;
+      return `<button type="button" class="tab small${on ? " live" : ""}" aria-pressed="${on}" data-shelf="${feedId}/${key}">` +
+        `${label}${counts ? ` <span class="n">${counts[key].toLocaleString()}</span>` : ""}</button>`;
+    }).join("") +
+    `</div></div>` +
+    // the archive's verbs on their own row, only on its tab, so they never
+    // act on unseen rows
+    (archivedShown
       ? `<div class="ep-toolbar">` +
         (sel ? `<button type="button" class="tab small" data-release-selected="${feedId}">Add selected (${selected.size})</button>` : "") +
         `<button type="button" class="tab small" data-select-toggle="${feedId}">${sel ? "Done" : "Select"}</button>` +
         (sel ? "" : `<button type="button" class="tab small" data-feed="${feedId}/unarchive" data-confirm="1" ` +
-                    `title="The DJ can pick any of these">Add all to rotation</button>`) +
+                    `title="The DJ may pick any of these">Add all to rotation</button>`) +
         `</div>`
       : "") +
     (data.episodes.map((e) => episodeRow(e, {
       plain: "new", checkbox: sel && e.status === "archived", selected: selected.has(e.id),
     })).join("") ||
-      `<div class="empty">${st.q ? "No episodes match." : hidden && hideBackCatalog ? "Nothing left to hear. Switch on heard and back catalog to see the rest." : "No episodes."}</div>`) +
+      `<div class="empty">${st.q ? "No episodes match." : EMPTY_SHELF[stationShelf]}</div>`) +
     paginationHTML(data.page, data.page_size, data.total, "station", feedId);
   if (hadFocus) {   // the rebuild replaced the input mid-typing
     const input = browser.querySelector("[data-station-search]");
@@ -700,10 +710,11 @@ document.addEventListener("click", (ev) => {
     else if (kind === "station") { episodeState(Number(key)).page = p; renderEpisodePanel(Number(key)); }
     return;
   }
-  if (btn.dataset.backCatalog) {
-    const id = Number(btn.dataset.backCatalog);
-    hideBackCatalog = !hideBackCatalog;
-    localStorage.setItem("hideBackCatalog", hideBackCatalog ? "1" : "0");
+  if (btn.dataset.shelf) {
+    const [feed, shelf] = btn.dataset.shelf.split("/");
+    const id = Number(feed);
+    stationShelf = shelf;
+    try { localStorage.setItem("stationShelf", shelf); } catch { /* per-viewer nicety only */ }
     episodeState(id).page = 1;
     selectMode[id] = false;
     if (selectedIds[id]) selectedIds[id].clear();
@@ -824,7 +835,7 @@ document.addEventListener("change", (ev) => {
     const id = Number(skip.dataset.feedSkip);
     return void post(`/feeds/${id}/skip_titles`, { titles: skip.value.split(",") }).then((data) => {
       if (!data) return;
-      if (data.moved) flash(`${data.moved.toLocaleString()} moved to the back catalog`, true);
+      if (data.moved) flash(`${data.moved.toLocaleString()} archived`, true);
       renderEpisodePanel(id);
     });
   }

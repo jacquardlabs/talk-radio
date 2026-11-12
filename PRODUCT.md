@@ -57,10 +57,12 @@ prompt is history — see *Superseded* below.
 
 ## Up Next: what outranks what
 
-Eight verbs act on one queue — Play next, Play now, Play last, Pin, Drop
-(*Back to rotation* or *Never play* in a row's menu), reorder, Queue series,
-Refresh all — plus *Defer* (*Back to Up next*) on the Skip menu, which also
-writes into it [code, dj.py:810-813]. The precedence they resolve by, strongest
+Eight verbs act on one queue — Play next, Play now, Play last, Pin (*Keep in
+Up next*), Drop (*Back to rotation*, *Archive*, or *Mark heard* in a row's
+menu), reorder, Queue series, Refresh all — plus *Defer* (*Back to Up next*) on
+the Skip menu, which also writes into it [code, dj.py:810-813]. Archiving or
+marking heard from *Settings* drops a queued row the same way, except the one
+on air. The precedence they resolve by, strongest
 first:
 
 1. **The track on air.** Not droppable [code, dj.py:872], not movable

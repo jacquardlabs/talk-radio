@@ -20,7 +20,7 @@ import feeds as feeds_mod
 import gpodder
 import sonos_ctl
 from config import Config
-from db import REVIEW_VIEWS, REVIEW_WRITES, Database
+from db import FEED_SHELVES, REVIEW_VIEWS, REVIEW_WRITES, Database
 from dj import DJ
 
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
@@ -251,6 +251,7 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             "defer": dj.defer_current,
             "skip_later": dj.skip_later,
             "skip_done": dj.skip_done,
+            "skip_archive": dj.skip_archive,
             "stop": dj.stop_off_air,
             "sleep_cancel": dj.cancel_sleep_timer,
             "group_all": dj.group_all,
@@ -433,9 +434,11 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             return jsonify({"error": "no such feed"}), 404
         q = (request.args.get("q") or "").strip() or None
         page = _page_arg()
-        hide = request.args.get("back_catalog") == "hide"
-        total = db.count_episodes_for_feed(feed_id, q, hide)
-        episodes = db.episodes_for_feed_page(feed_id, page, EPISODES_PAGE_SIZE, q, hide)
+        shelf = request.args.get("shelf")
+        if shelf not in (None, *FEED_SHELVES):
+            return jsonify({"error": f"shelf must be one of {sorted(FEED_SHELVES)}"}), 400
+        total = db.count_episodes_for_feed(feed_id, q, shelf)
+        episodes = db.episodes_for_feed_page(feed_id, page, EPISODES_PAGE_SIZE, q, shelf)
         return jsonify({
             "episodes": [_episode_json(e, feed["title"]) for e in episodes],
             "page": page, "page_size": EPISODES_PAGE_SIZE, "total": total,
@@ -525,8 +528,8 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             ids = [int(i) for i in (body.get("ids") or [])]
         except (TypeError, ValueError):
             return result("ids must be a list of integers")
-        return jsonify({"ok": True, "error": None,
-                        "moved": dj.review_episodes(ids, decision)})
+        moved, held = dj.review_episodes(ids, decision)
+        return jsonify({"ok": True, "error": None, "moved": moved, "held": held})
 
     @app.post("/episodes/<int:episode_id>/play_next")
     def play_episode_next(episode_id: int):
@@ -602,8 +605,8 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             return result("no such episode"), 404
         body = request.get_json(silent=True) or {}
         disposition = body.get("disposition", "later")
-        if disposition not in ("later", "done"):
-            return result("disposition must be later or done")
+        if disposition not in ("later", "archive", "done"):
+            return result("disposition must be later, archive, or done")
         return call_player(lambda: dj.drop_from_queue(episode_id, disposition))
 
     @app.post("/schedules")

@@ -125,8 +125,13 @@ CREATE INDEX IF NOT EXISTS idx_usage_events_at ON usage_events (at);
 """
 
 # What each review list shows. Keys are the API's view names and SQL aliases.
+# 'queued' is unplayed too: a row on the speaker is still triaged, and leaving
+# rotation takes it off the speaker (DJ.review_episodes).
 REVIEW_VIEWS = {
-    "recent": "(e.status='new' AND e.review IS NULL)",
+    # Everything the DJ can still pick: a show's category can take it off air.
+    "rotation": "(e.status IN ('new','queued') AND NOT EXISTS (SELECT 1 FROM categories"
+                " cat WHERE cat.id=f.category_id AND cat.rotation_enabled=0))",
+    "recent": "(e.status IN ('new','queued') AND e.review IS NULL)",
     "back_catalog": "e.status='archived'",
     "never": "(e.status='played' AND e.review IN ('never','pruned'))",
 }
@@ -134,12 +139,14 @@ REVIEW_VIEWS = {
 # play: taking back a decision must not erase a real listen.
 _TAKEN_BACK = "(status='played' AND review IN ('never','pruned'))"
 REVIEW_ELIGIBLE = {
-    "keep": f"(status IN ('new','archived') OR {_TAKEN_BACK})",
+    "keep": f"(status IN ('new','queued','archived') OR {_TAKEN_BACK})",
     "back_catalog": f"(status='new' OR {_TAKEN_BACK})",
     "never": "status IN ('new','archived')",
 }
 REVIEW_WRITES = {
-    "keep": "status='new', played_at=NULL, review='keep'",
+    # Keeping one already on the speaker leaves it there.
+    "keep": "status=CASE status WHEN 'queued' THEN 'queued' ELSE 'new' END,"
+            " played_at=NULL, review='keep'",
     # A pruned episode going back was never a decision to leave rotation.
     "back_catalog": "status='archived', played_at=NULL,"
                     " review=CASE review WHEN 'pruned' THEN NULL ELSE 'back_catalog' END",
@@ -148,6 +155,14 @@ REVIEW_WRITES = {
              " resume_at=NULL, play_uri=NULL, local_path=NULL, observed_seconds=NULL,"
              " failure_count=0, pinned=0,"
              " review=CASE status WHEN 'archived' THEN 'pruned' ELSE 'never' END",
+}
+
+
+# A station sheet's tabs. Missed is unheard: it failed to play, not a listen.
+FEED_SHELVES = {
+    "unheard": "status IN ('new','queued','skipped')",
+    "heard": "status='played'",
+    "archived": "status='archived'",
 }
 
 
@@ -866,17 +881,17 @@ class Database:
 
     @staticmethod
     def _feed_episode_filter(feed_id: int, q: str | None,
-                             hide_back_catalog: bool) -> tuple[str, list]:
+                             shelf: str | None) -> tuple[str, list]:
         """The WHERE a station's episode page and its count share, so the
-        pager never counts rows the page can't show. Hiding the back catalog
-        leaves only what's left to hear: heard and missed go with it."""
+        pager never counts rows the page can't show. `shelf` narrows to one
+        of FEED_SHELVES; None lists every episode."""
         clauses = ["feed_id=?"] + (["title LIKE ?"] if q else []) + (
-            ["status IN ('new','queued')"] if hide_back_catalog else [])
+            [FEED_SHELVES[shelf]] if shelf else [])
         return " AND ".join(clauses), [feed_id] + ([f"%{q}%"] if q else [])
 
     def count_episodes_for_feed(self, feed_id: int, q: str | None = None,
-                                hide_back_catalog: bool = False) -> int:
-        where, params = self._feed_episode_filter(feed_id, q, hide_back_catalog)
+                                shelf: str | None = None) -> int:
+        where, params = self._feed_episode_filter(feed_id, q, shelf)
         with self._conn() as c:
             return c.execute(
                 f"SELECT COUNT(*) AS n FROM episodes WHERE {where}", params
@@ -884,9 +899,9 @@ class Database:
 
     def episodes_for_feed_page(self, feed_id: int, page: int, page_size: int,
                                q: str | None = None,
-                               hide_back_catalog: bool = False) -> list[sqlite3.Row]:
+                               shelf: str | None = None) -> list[sqlite3.Row]:
         offset = max(0, page - 1) * page_size
-        where, params = self._feed_episode_filter(feed_id, q, hide_back_catalog)
+        where, params = self._feed_episode_filter(feed_id, q, shelf)
         with self._conn() as c:
             return c.execute(
                 f"SELECT * FROM episodes WHERE {where}"
@@ -994,8 +1009,10 @@ class Database:
         """Apply one decision to many episodes in one transaction: a commit
         per row would hold the DJ's lock for minutes on the deployed host.
         Returns the ids that moved and their downloaded files to delete.
-        Queued and heard rows don't move, and neither does anything else the
-        decision's WHERE rules out, so a stale selection can't rewrite history.
+        Heard rows don't move, and neither does anything else the decision's
+        WHERE rules out, so a stale selection can't rewrite history. A queued
+        row moves only on keep: DJ.review_episodes takes one off the speaker
+        before it can leave rotation.
 
         Never play sets played_at to the publish date, as the stale-news
         migration does, so a batch doesn't flood a phone's sync, whose `since`

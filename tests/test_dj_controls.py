@@ -363,6 +363,67 @@ def test_drop_from_queue_done_marks_played(db, cfg, player, dj) -> None:
     assert target["id"] not in db.up_next_order()
 
 
+def test_drop_from_queue_archive_sends_it_to_the_back_catalog(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 5)
+    dj.start()
+    target = next_queued_episode(db, player)
+    assert dj.drop_from_queue(target["id"], "archive") is None
+    after = db.get_episode(target["id"])
+    assert after["status"] == "archived" and after["review"] == "back_catalog"
+    assert all(t["uri"] != target["play_uri"] for t in player.queue)
+    assert target["id"] not in db.up_next_order()
+
+
+def test_skip_archive_takes_it_off_air_into_the_back_catalog(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 5)
+    make_feed(db, "showb", 5)
+    dj.start()
+    ep = current_episode(db, player)
+    skipped_uri = player.queue[player.index]["uri"]
+    assert dj.skip_archive() is None
+    after = db.get_episode(ep["id"])
+    assert after["status"] == "archived" and after["review"] == "back_catalog"
+    assert after["resume_seconds"] is None
+    assert skipped_uri not in player.queue_uris()
+    assert player.state == "PLAYING"
+
+
+def test_review_takes_upcoming_episodes_off_the_speaker(db, cfg, player, dj) -> None:
+    """Archiving or marking heard an episode already in Up Next takes it off
+    the speaker and refills behind it; the one on air plays on."""
+    make_feed(db, "showa", 20)  # deeper than QUEUE_AHEAD, so there's a refill
+    dj.start()
+    on_air = current_episode(db, player)
+    target = next_queued_episode(db, player)
+    before_len = player.queue_length()
+    assert dj.review_episodes([on_air["id"], target["id"]], "back_catalog") == (1, 1)
+    assert db.get_episode(target["id"])["status"] == "archived"
+    assert all(t["uri"] != target["play_uri"] for t in player.queue)
+    assert db.get_episode(on_air["id"])["status"] == "queued"
+    assert player.queue[player.index]["uri"] == on_air["play_uri"]
+    assert player.queue_length() == before_len  # refilled, not re-picked
+    assert target["id"] not in {e["id"] for e in db.episodes_with_status("queued")}
+
+
+def test_review_holds_queued_episodes_without_a_speaker(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 5)
+    dj.start()
+    target = next_queued_episode(db, player)
+    off = DJ(db, cfg, lambda: None)
+    assert off.review_episodes([target["id"]], "never") == (0, 1)
+    assert db.get_episode(target["id"])["status"] == "queued"
+
+
+def test_review_keep_leaves_a_queued_episode_on_the_speaker(db, cfg, player, dj) -> None:
+    make_feed(db, "showa", 5)
+    dj.start()
+    target = next_queued_episode(db, player)
+    queue = player.queue_uris()
+    assert dj.review_episodes([target["id"]], "keep") == (1, 0)
+    assert db.get_episode(target["id"])["status"] == "queued"
+    assert player.queue_uris() == queue
+
+
 def test_drop_from_queue_refuses_current_track(db, cfg, player, dj) -> None:
     make_feed(db, "showa", 5)
     dj.start()
@@ -422,7 +483,7 @@ def test_review_never_play_leaves_the_queue_state_behind(db, cfg, dj, tmp_path) 
     db.set_up_next([target["id"], other["id"]])
     db.kv_set("resume_episode_id", str(target["id"]))
 
-    assert dj.review_episodes([target["id"]], "never") == 1
+    assert dj.review_episodes([target["id"]], "never") == (1, 0)
 
     assert db.up_next_order() == [other["id"]]
     assert db.kv_get("resume_episode_id") is None
@@ -434,7 +495,7 @@ def test_review_keep_leaves_the_queue_state_alone(db, cfg, dj) -> None:
     target = db.episodes_for_feed(fid)[0]
     db.set_up_next([target["id"]])
     db.kv_set("resume_episode_id", str(target["id"]))
-    assert dj.review_episodes([target["id"]], "keep") == 1
+    assert dj.review_episodes([target["id"]], "keep") == (1, 0)
     assert db.up_next_order() == [target["id"]]
     assert db.kv_get("resume_episode_id") == str(target["id"])
 

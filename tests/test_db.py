@@ -190,13 +190,16 @@ def test_episodes_for_feed_page_paginates_and_filters(db: Database) -> None:
     archived = [e["id"] for e in db.episodes_for_feed(fid)][:4]  # Ep 7..4
     for eid in archived:
         db.archive_episode(eid)
-    assert db.count_episodes_for_feed(fid, hide_back_catalog=True) == 3
-    assert [e["guid"] for e in db.episodes_for_feed_page(fid, 1, 2, hide_back_catalog=True)] == [
+    assert db.count_episodes_for_feed(fid, shelf="unheard") == 3
+    assert [e["guid"] for e in db.episodes_for_feed_page(fid, 1, 2, shelf="unheard")] == [
         f"guid-{fid}-3", f"guid-{fid}-2"]
-    assert db.count_episodes_for_feed(fid, q="Ep 5", hide_back_catalog=True) == 0
-    db.mark_played(db.episodes_for_feed_page(fid, 1, 1, hide_back_catalog=True)[0]["id"],
-                   "2026-01-09T00:00:00Z")   # heard leaves with the back catalog
-    assert db.count_episodes_for_feed(fid, hide_back_catalog=True) == 2
+    assert db.count_episodes_for_feed(fid, q="Ep 5", shelf="unheard") == 0
+    assert db.count_episodes_for_feed(fid, q="Ep 5", shelf="archived") == 1
+    heard = db.episodes_for_feed_page(fid, 1, 1, shelf="unheard")[0]["id"]
+    db.mark_played(heard, "2026-01-09T00:00:00Z")   # heard moves to its own shelf
+    assert db.count_episodes_for_feed(fid, shelf="unheard") == 2
+    assert [e["id"] for e in db.episodes_for_feed_page(fid, 1, 5, shelf="heard")] == [heard]
+    assert db.count_episodes_for_feed(fid, shelf="archived") == 4
 
 
 def test_search_episodes_matches_title_or_feed_title(db: Database) -> None:
@@ -367,7 +370,7 @@ def test_review_column_added_to_an_existing_database(tmp_path) -> None:
 def test_review_lists_leave_news_and_decided_rows_out(db) -> None:
     show, _ = _review_library(db)
     db.archive_episode(_by_guid(db, show, "old")["id"])
-    assert db.review_counts() == {"recent": 1, "back_catalog": 1, "never": 0}
+    assert db.review_counts() == {"rotation": 1, "recent": 1, "back_catalog": 1, "never": 0}
     assert [e["title"] for e in db.review_page("recent", 1, 25)] == ["Fresh"]
     db.review_episodes([_by_guid(db, show, "fresh")["id"]], "keep")
     assert db.review_counts()["recent"] == 0
@@ -421,13 +424,17 @@ def test_review_batch_spans_sql_variable_chunks(db) -> None:
 
 
 def test_review_never_moves_queued_or_heard_rows(db) -> None:
+    """A queued row leaves rotation only once DJ.review_episodes has taken it
+    off the speaker; keeping one leaves it queued."""
     show, _ = _review_library(db)
     fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
     db.mark_queued(fresh, "uri")
     db.mark_played(old, "2026-11-01T00:00:00Z")
-    for decision in ("keep", "back_catalog", "never"):
+    for decision in ("back_catalog", "never"):
         assert db.review_episodes([fresh, old], decision) == ([], [])
+    assert db.review_episodes([fresh, old], "keep") == ([fresh], [])
     assert db.get_episode(fresh)["status"] == "queued"
+    assert db.get_episode(fresh)["review"] == "keep"
     assert db.get_episode(old)["played_at"] == "2026-11-01T00:00:00Z"
 
 
@@ -482,7 +489,7 @@ def test_review_leaves_turned_off_shows_out(db) -> None:
     db.review_episodes([fresh], "never")
     db.archive_episode(old)
     db.toggle_feed(show)
-    assert db.review_counts() == {"recent": 0, "back_catalog": 0, "never": 0}
+    assert db.review_counts() == {"rotation": 0, "recent": 0, "back_catalog": 0, "never": 0}
     assert db.review_ids("back_catalog") == []
     assert db.review_page("never", 1, 25) == []
     assert db.review_shows() == []
