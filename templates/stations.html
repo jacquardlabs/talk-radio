@@ -48,14 +48,19 @@ form.inline input[type="url"], form.inline input[type="text"] { flex: 1 1 260px;
 @media (prefers-reduced-motion: reduce) { .tile img, .tile .noart { transition: none; } }
 
 /* the station sheet: one open show, its settings and its episodes */
-.sheet { margin: 4px 0 24px; padding: 28px; border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
+.sheet { margin: 4px 0 24px; padding: 0 28px 28px; border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
+.sheet:focus { outline: none; }
+/* The show's name and the way out stay in reach however far down its
+   episodes you are: the bar sticks, and the rest scrolls under it. */
+.sheet-bar { position: sticky; top: 0; z-index: 3; display: flex; gap: 8px; align-items: center;
+  margin: 0 -28px 14px; padding: 18px 28px 14px; border-radius: 18px 18px 0 0; background: var(--panel);
+  box-shadow: 0 1px 0 var(--hair); }
 .sheet-head { display: grid; grid-template-columns: 120px 1fr; gap: 24px; align-items: start; }
 .sheet-art { width: 120px; height: 120px; border-radius: 12px; object-fit: cover; background: var(--hair); }
 .sheet-main { min-width: 0; }
-.sheet-top { display: flex; gap: 8px; align-items: flex-start; }
 .sheet-title { font-size: 26px; font-weight: 600; letter-spacing: -.015em; line-height: 1.15; margin-right: auto; min-width: 0; }
 .sheet-close { flex: none; }
-.sheet-desc { margin-top: 8px; }
+button.sheet-more { display: none; }
 .sheet-counts { display: flex; flex-wrap: wrap; gap: 4px 22px; margin-top: 12px; color: var(--slate); font-size: 15px; }
 .sheet-counts b { color: var(--ink); font-weight: 600; font-family: var(--figures); }
 .sheet-counts .pri { color: var(--tally); font-weight: 500; }
@@ -89,13 +94,28 @@ form.inline input[type="url"], form.inline input[type="text"] { flex: 1 1 260px;
   .lib input[type="search"] { flex: 1; width: auto; }
   .shelf-row { grid-template-columns: repeat(3, 1fr); gap: 16px 12px; }
   .grp-name { font-size: 19px; }
-  .sheet { padding: 18px; margin-inline: -6px; }
-  .sheet-head { grid-template-columns: 72px 1fr; gap: 14px; }
-  .sheet-art { width: 72px; height: 72px; }
-  .sheet-main { display: contents; }
-  .sheet-top { flex-wrap: wrap; }
-  .sheet-title { font-size: 20px; flex-basis: 100%; }
-  .sheet-desc, .sheet-counts { grid-column: 1 / -1; }
+  /* On a phone the sheet is a layer over the page, not a block far below
+     the tile: the page keeps its place, and Back or Close returns to it.
+     Above the menu scrim (15), under the docked transport (20). */
+  .sheet { position: fixed; inset: 0; z-index: 19; margin: 0; border-radius: 0; box-shadow: none;
+    overflow-y: auto; overscroll-behavior: contain; padding: 0 18px calc(96px + env(safe-area-inset-bottom)); }
+  body.sheet-open { overflow: hidden; }
+  .sheet-bar { margin: 0 -18px; padding: 12px 18px; border-radius: 0; }
+  /* two lines before it cuts: beside two buttons, one line lost most names */
+  .sheet-title { font-size: 18px; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .sheet-head { grid-template-columns: 56px 1fr; gap: 14px; padding-top: 14px; }
+  .sheet-art { width: 56px; height: 56px; border-radius: 8px; }
+  /* two lines of the blurb at rest: the episodes are what the sheet is for */
+  .sheet-desc.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  button.sheet-more { display: inline-flex; margin-block: -6px; background: none; border: 0; padding: 0; cursor: pointer; font-family: var(--font); }
+  /* A fixed sheet is its own stacking context, so its menus' z-index counts
+     only inside it: they would sit under the page's scrim and the dock. The
+     sheet dims itself, and its menus rise above the dock instead. */
+  .sheet:has(.flap:not([hidden]))::after { content: ""; position: fixed; inset: 0; z-index: 39; background: var(--scrim); }
+  .sheet .flap, .sheet .dropwrap .flap { bottom: calc(84px + env(safe-area-inset-bottom)); max-height: calc(100vh - 180px); }
+  /* the sticky bar is a stacking context of its own, one level further in:
+     while its Settings menu is open it rides above the sheet's scrim */
+  .sheet-bar:has(.flap:not([hidden])) { z-index: 41; }
   .mini-transport:not([hidden]) {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; gap: 12px; align-items: center;
     padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); background: var(--panel);
@@ -372,15 +392,23 @@ function settingsMenu(f, categories) {
     `</div></div>`;
 }
 
+function sheetBarHTML(f, categories) {
+  return `<h2 class="sheet-title" title="${esc(f.title)}">${esc(f.title)}</h2>` +
+    settingsMenu(f, categories) +
+    `<button type="button" class="tab small sheet-close" data-close-sheet>Close</button>`;
+}
+
 function sheetHeadHTML(f, categories) {
+  const open = expandedEpisodes.has(`blurb-${f.id}`);
   return (f.image_url ? `<img class="sheet-art" src="${esc(f.image_url)}" alt="">` : '<span class="sheet-art"></span>') +
     `<div class="sheet-main">` +
-    `<div class="sheet-top"><h2 class="sheet-title">${esc(f.title)}</h2>` +
-    settingsMenu(f, categories) +
-    `<button type="button" class="tab small sheet-close" data-close-sheet>Close</button></div>` +
-    // The show's own blurb, always open — it is what the sheet is about, and
-    // unlike an episode's notes there is only ever one of it.
-    (f.description ? `<div class="sheet-desc">${esc(f.description)}</div>` : "") +
+    // The show's own blurb. Whole on a wide screen; on a phone two lines and
+    // More, so the episodes start on the first screen.
+    (f.description
+      ? `<div class="sheet-desc${open ? "" : " clamp"}" id="blurb-${f.id}">${esc(f.description)}</div>` +
+        `<button type="button" class="more-link sheet-more" data-blurb="${f.id}" aria-expanded="${open}" ` +
+        `aria-controls="blurb-${f.id}">${open ? "Less" : "More"}</button>`
+      : "") +
     // the tabs below carry the unheard, heard and archived counts
     `<div class="sheet-counts">` +
     (f.playback_mode === "random" ? "<span>Random order</span>" : "") +
@@ -461,6 +489,8 @@ function renderStations(s) {
   // the open station sheet survives rebuilds: its episode browser holds
   // search/selection state a poll must never stomp
   let sheet = container.querySelector("[data-sheet]");
+  // on a phone the sheet scrolls itself, and leaving the document resets that
+  const scrolled = sheet ? sheet.scrollTop : 0;
   if (sheet) sheet.remove();
   if (sheet && Number(sheet.dataset.sheet) !== expandedFeedId) sheet = null;
 
@@ -480,23 +510,38 @@ function renderStations(s) {
   if (expandedFeedId == null) return;
   const tile = container.querySelector(`[data-tile="${expandedFeedId}"]`);
   const feed = s.stations.find((f) => f.id === expandedFeedId);
-  if (!tile || !feed) { expandedFeedId = null; return; }
+  if (!tile || !feed) {   // removed, or filtered out from under its sheet
+    expandedFeedId = null;
+    return void document.body.classList.remove("sheet-open");
+  }
   const slot = tile.closest(".shelf").querySelector("[data-sheet-slot]");
   if (!sheet) {
     sheet = document.createElement("div");
     sheet.className = "sheet";
     sheet.dataset.sheet = expandedFeedId;
-    sheet.innerHTML = `<div class="sheet-head"></div><div class="ep-browser"></div>`;
+    sheet.tabIndex = -1;
+    sheet.setAttribute("role", "region");
+    sheet.innerHTML = `<div class="sheet-bar"></div><div class="sheet-head"></div><div class="ep-browser"></div>`;
     slot.append(sheet);
     renderEpisodePanel(expandedFeedId);
   } else {
     slot.append(sheet);
+    sheet.scrollTop = scrolled;
   }
+  sheet.setAttribute("aria-label", feed.title);
   const adminSig = JSON.stringify([feed, s.categories]);
   if (sheet._adminSig !== adminSig) {   // don't stomp an open category dropdown
     sheet._adminSig = adminSig;
+    sheet.querySelector(".sheet-bar").innerHTML = sheetBarHTML(feed, s.categories || []);
     sheet.querySelector(".sheet-head").innerHTML = sheetHeadHTML(feed, s.categories || []);
+    syncBlurb(sheet);
   }
+}
+
+// More shows only when two lines did not hold the blurb, as on the deck.
+function syncBlurb(sheet) {
+  const desc = sheet.querySelector(".sheet-desc"), more = sheet.querySelector(".sheet-more");
+  if (desc && more) more.hidden = desc.classList.contains("clamp") && desc.scrollHeight <= desc.clientHeight + 1;
 }
 
 async function renderEpisodePanel(feedId) {
@@ -610,14 +655,47 @@ $("mini-playpause").addEventListener("click", (ev) => {
   post(`/player/${playing ? "pause" : "play"}`, {}, ev.currentTarget);
 });
 
-function toggleManage(id) {
-  expandedFeedId = expandedFeedId === id ? null : id;
+// The open sheet is in the address, #feed-<id>. A tile pushes it, so Back
+// closes the sheet instead of leaving the page; a link that names it opens
+// it; and showSheet only ever draws what the address says.
+const layered = () => matchMedia("(max-width: 760px)").matches;
+
+function showSheet(id) {
+  const was = expandedFeedId;
+  expandedFeedId = id;
   if (status) renderStations(status);
-  if (expandedFeedId != null) {
-    const sheet = $("station-groups").querySelector("[data-sheet]");
-    const smooth = matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
-    if (sheet) sheet.scrollIntoView({ behavior: smooth, block: "nearest" });
+  document.body.classList.toggle("sheet-open", expandedFeedId != null);
+  const sheet = $("station-groups").querySelector("[data-sheet]");
+  if (expandedFeedId != null && sheet && was !== expandedFeedId) {
+    sheet.scrollTop = 0;
+    if (!layered()) {   // inline on a wide screen: bring it into view
+      const smooth = matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+      sheet.scrollIntoView({ behavior: smooth, block: "nearest" });
+    }
+    sheet.focus({ preventScroll: true });
+  } else if (expandedFeedId == null && was != null) {
+    const tile = $("station-groups").querySelector(`[data-tile="${was}"]`);
+    if (tile) tile.focus({ preventScroll: true });   // back where the listener was
   }
+}
+
+function openSheet(id) {
+  // from one sheet to another replaces the entry: Back closes, it doesn't step through sheets
+  history[expandedFeedId == null ? "pushState" : "replaceState"]({ sheet: true }, "", `#feed-${id}`);
+  showSheet(id);
+}
+
+function closeSheet() {
+  if (expandedFeedId == null) return;
+  // We pushed the entry: step back over it, and popstate closes the sheet.
+  // A sheet reached by a link has no entry of ours, so just clear its name.
+  if (history.state && history.state.sheet) return void history.back();
+  history.replaceState(null, "", location.pathname + location.search);
+  showSheet(null);
+}
+
+function toggleManage(id) {
+  if (expandedFeedId === id) closeSheet(); else openSheet(id);
 }
 
 // ── podcast search (add station) ──────────────────────────────────
@@ -674,7 +752,11 @@ function pickPodcast(p) {
 
 // ── wire up ────────────────────────────────────────────────────────
 document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") { setEpMenuOpen(null); setCatMenuOpen(null); setSettingsOpen(null); }
+  if (ev.key !== "Escape") return;
+  // Escape closes the innermost thing: an open menu first, then the sheet
+  const menuOpen = openEpMenuId != null || openCatMenuId != null || openSettingsId != null;
+  setEpMenuOpen(null); setCatMenuOpen(null); setSettingsOpen(null);
+  if (!menuOpen) closeSheet();
 });
 document.addEventListener("click", (ev) => {
   if (!ev.target.closest(".dropwrap")) { setEpMenuOpen(null); setCatMenuOpen(null); setSettingsOpen(null); }
@@ -691,7 +773,15 @@ document.addEventListener("click", (ev) => {
     return void setCatMenuOpen(openCatMenuId === btn.dataset.catmenu ? null : btn.dataset.catmenu);
   }
   if (btn.dataset.tile) return void toggleManage(Number(btn.dataset.tile));
-  if ("closeSheet" in btn.dataset) return void toggleManage(expandedFeedId);
+  if ("closeSheet" in btn.dataset) return void closeSheet();
+  if (btn.dataset.blurb) {
+    const key = `blurb-${btn.dataset.blurb}`, desc = $(key);
+    const open = !expandedEpisodes.has(key);
+    if (open) expandedEpisodes.add(key); else expandedEpisodes.delete(key);
+    desc.classList.toggle("clamp", !open);
+    btn.textContent = open ? "Less" : "More";
+    return void btn.setAttribute("aria-expanded", String(open));
+  }
   if (btn.dataset.feed) {
     // a setting can change what the list shows (turned off, news), so the
     // open list is redrawn, not just the head the poll repaints
@@ -855,15 +945,18 @@ setAddMode("search");
 // /stations#feed-<id>: a show name tapped anywhere lands on its sheet.
 function openFromHash() {
   const m = location.hash.match(/^#feed-(\d+)$/);
-  if (!m) return;
-  // a search would hide the tile the sheet opens under
-  $("global-search-input").value = "";
-  globalSearch.q = "";
-  stationFilter = "";
-  renderGlobalSearch();
-  expandedFeedId = null;   // toggleManage opens; never closes from a link
-  toggleManage(Number(m[1]));
+  const id = m ? Number(m[1]) : null;
+  if (id === expandedFeedId) return;
+  if (id != null && stationFilter) {
+    // a search would hide the tile the sheet opens under
+    $("global-search-input").value = "";
+    globalSearch.q = "";
+    stationFilter = "";
+    renderGlobalSearch();
+  }
+  showSheet(id);
 }
 window.addEventListener("hashchange", openFromHash);
+window.addEventListener("popstate", openFromHash);
 </script>
 {% endblock %}

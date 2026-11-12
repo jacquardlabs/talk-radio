@@ -143,7 +143,10 @@ thumb-height; volume and *Off air* open as sheets above it:
    shelves narrows the stations and lists matching episodes from every
    station; when nothing in the library matches, it hands the words to the
    podcast directory. Each station sheet has its own episode filter too. A
-   show's name anywhere on *On air* opens its station sheet.
+   show's name anywhere on *On air* opens its station sheet. On a phone the
+   sheet is a layer over the page, with its name, *Settings*, and *Close*
+   held at the top; Back closes it, since an open sheet is in the address
+   (`/stations#feed-<id>`).
 6. **Review episodes** — *Review* counts and lists, newest first,
    everything *In rotation*: what the DJ can still pick, Up next included.
    *Recently added* holds new arrivals until you decide: *Keep*, *Archive*,
