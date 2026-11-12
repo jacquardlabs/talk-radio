@@ -49,8 +49,10 @@ form.inline input[type="url"], form.inline input[type="text"] { flex: 1 1 260px;
 /* selecting: every tile shows where its mark goes, and a picked one is ringed */
 .selecting .tile .cov::after { content: ""; position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 50%;
   background: var(--panel); border: 2px solid var(--slate); }
-.selecting .tile.picked .cov::after { border-color: var(--ink); background: var(--ink) center / 14px no-repeat
-  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E"); }
+.selecting .tile.picked .cov::after { border-color: var(--ink); background: var(--ink); }
+/* the check is drawn in the page's own colours, so it shows in dark too */
+.selecting .tile.picked .cov::before { content: ""; position: absolute; z-index: 1; top: 13px; right: 17px; width: 6px; height: 11px;
+  border: solid var(--paper); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg); }
 .selecting .tile.picked img, .selecting .tile.picked .noart { box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--ink); }
 #station-bulk .grow { flex: 1; }
 #station-bulk select { min-height: 44px; font-size: 15px; }
