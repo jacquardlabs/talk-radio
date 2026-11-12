@@ -754,6 +754,24 @@ def test_the_sheet_sends_bulk_adding_to_review(no_sonos_client) -> None:
     assert c.post("/episodes/release", json={"ids": []}).get_json()["ok"] is True
 
 
+def test_the_station_sheet_is_a_layer_on_a_phone_and_lives_in_the_address(no_sonos_client) -> None:
+    """Inline, the sheet opened 836px below the tapped tile, ran 2,800px, and
+    had Close only at its top; Back left the page. It is a fixed layer under
+    760px, its bar sticks, and opening it pushes #feed-<id>."""
+    body = no_sonos_client[0].get("/stations").data
+    assert b".sheet { position: fixed; inset: 0; z-index: 19;" in body
+    assert b".sheet-bar { position: sticky; top: 0;" in body
+    assert b'history[expandedFeedId == null ? "pushState" : "replaceState"]({ sheet: true }, "", `#feed-${id}`);' in body
+    assert b'window.addEventListener("popstate", openFromHash);' in body
+    # A fixed sheet is a stacking context: its menus need its own scrim, and
+    # room above the dock, or they open under both (#43 again).
+    assert b".sheet:has(.flap:not([hidden]))::after" in body
+    assert b".sheet .flap, .sheet .dropwrap .flap { bottom: calc(84px + env(safe-area-inset-bottom));" in body
+    assert b".sheet-bar:has(.flap:not([hidden])) { z-index: 41; }" in body
+    # it scrolls itself, and a rebuild detaches it
+    assert b"const scrolled = sheet ? sheet.scrollTop : 0;" in body and b"sheet.scrollTop = scrolled;" in body
+
+
 def test_review_shows_two_lines_of_notes_and_keeps_its_place_in_the_address(no_sonos_client) -> None:
     """50 notes were opened for 29 decision posts: reading them is how a row
     gets decided. And a sheet's link has to land on that show's archive."""
