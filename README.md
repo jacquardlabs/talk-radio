@@ -59,16 +59,16 @@ red — and pins mark the wake alarms and when a sleep timer ends. Up Next
 below reads like a program guide: the time each episode starts, then the
 episode and its show.
 
-Controls: **Play/Pause**, back 15 and forward 30 seconds, **Skip**, volume,
-and a power switch. *Skip* marks the episode heard in one tap, and its
+Controls: **Play/Pause**, **Skip**, volume, and **Off air**, with back 15
+and forward 30 seconds either side of the seek bar. *Skip* marks the episode heard in one tap, and its
 confirmation offers *Undo* for 8 seconds: that plays the episode again and
 returns it to where it stopped within one tick (15 seconds by default), and
 sends whatever started in its place back to rotation. The caret beside
 *Skip* skips and keeps the episode: *Back to Up next* parks it and resumes
 it where it stopped, *Back to rotation* returns it to the pool, and
-*Archive* takes it out of rotation. The power switch goes off air now — or
-later: *Sleep*, or a long press on *Off air*, sets the sleep timer (end of
-episode, or a 15/30/60-minute fade).
+*Archive* takes it out of rotation. *Off air* opens one menu: *Now*, at the
+*End of episode*, or in 15, 30, or 60 minutes with a fade. While a timer
+runs the control counts down, and the menu offers *Stay on air*.
 **Refresh all** re-rolls the DJ's picks: rows you kept and the track on air
 stay, everything else goes back in the pool. Up Next rows act too: drag the
 handle to reorder — arrow keys move a focused handle, so it works without a
@@ -87,8 +87,9 @@ counts, are self-hosted: the appliance never calls out to a font CDN.
 ![The On air page in dark mode](docs/screenshots/on-air-dark.jpg)
 
 The dashboard is an installable PWA — on a phone, *Add to Home Screen* opens it
-standalone like a remote control. Under 760px the transport docks to the bottom
-of the screen, thumb-height:
+standalone like a remote control. Under 760px the clock shrinks beside the
+minutes left, and the transport docks to the bottom of the screen in one row,
+thumb-height; volume and *Off air* open as sheets above it:
 
 <img src="docs/screenshots/on-air-narrow.jpg" alt="The On air page at phone width, transport docked to the bottom" width="420">
 

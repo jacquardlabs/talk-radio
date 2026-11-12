@@ -638,8 +638,42 @@ def test_controls_go_dead_when_nothing_is_on_air(no_sonos_client) -> None:
     is silent too."""
     body = no_sonos_client[0].get("/").data
     assert b"""["#btn-skip", "#btn-skip-more", '[data-player="back_15"]', '[data-player="fwd_30"]']""" in body
-    assert b'const silent = s.dj_state !== "playing" && (!s.transport || s.transport === "STOPPED");' in body
-    assert b'$("btn-power").disabled = $("btn-sleep").disabled = silent;' in body
+    assert (b'$("btn-sleep").disabled = s.dj_state !== "playing" && '
+            b'(!s.transport || s.transport === "STOPPED");') in body
+
+
+def test_off_air_is_one_control_now_or_later(no_sonos_client) -> None:
+    """Off air (1 use in 38 days) and Sleep (0) took half the dock's second
+    row as a split switch with a long press behind it. One control now: the
+    menu is the second press, so Now needs no arming."""
+    body = no_sonos_client[0].get("/").data
+    assert b'id="btn-power"' not in body and b"LONG_PRESS_MS" not in body
+    flap = body[body.index(b'id="sleep-flap"'):body.index(b"</section>")]
+    order = [flap.index(needle) for needle in (
+        b'data-player="stop">Now', b'data-sleep="episode"', b'data-sleep="15"',
+        b'data-sleep="30"', b'data-sleep="60"', b'data-player="sleep_cancel"')]
+    assert order == sorted(order)
+    assert b'=== "stop" && !armed(btn)' not in body
+
+
+def test_seeking_sits_with_the_seek_bar(no_sonos_client) -> None:
+    """Back 15 and Forward 30 went unused for 38 days while flanking Play in
+    the dock. They flank the bar they act on, and the dock is one row."""
+    body = no_sonos_client[0].get("/").data
+    seek = body[body.index(b'class="seekrow"'):body.index(b'class="transport"')]
+    assert seek.index(b'data-player="back_15"') < seek.index(b'id="track"') < seek.index(b'data-player="fwd_30"')
+    transport = body[body.index(b'class="transport"'):body.index(b"</section>")]
+    assert b"back_15" not in transport and b'class="break"' not in transport
+
+
+def test_volume_is_one_slider_inline_or_in_a_sheet(no_sonos_client) -> None:
+    """A phone gets a button that opens the slider full width; a wide screen
+    shows the same slider in place. One element, so one set of handlers."""
+    body = no_sonos_client[0].get("/").data
+    assert body.count(b'id="vol"') == 1 and body.count(b'role="slider"') == 1
+    assert b'id="btn-vol" data-flap="vol-flap"' in body
+    assert b'class="flap volflap" id="vol-flap" data-flap-keep hidden' in body
+    assert b".volflap, .volflap[hidden] { display: block !important; position: static;" in body
 
 
 def test_rooms_and_earlier_say_why_and_when(no_sonos_client) -> None:
