@@ -177,7 +177,11 @@ label.chk input { accent-color: var(--ink); width: 18px; height: 18px; }
 .flap .danger i { color: var(--slate); }
 .flap-field { display: grid; gap: 6px; padding: 8px 14px 12px; color: var(--slate); font-size: 14px; }
 .flap-field select { width: 100%; }
+.flap-title { display: none; }
 @media (max-width: 760px) {
+  /* a sheet over a dimmed page has lost its row: it says what it acts on */
+  .flap-title { display: block; padding: 10px 14px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--hair);
+    color: var(--slate); font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .flap, .dropwrap .flap, .flap.right {
     position: fixed; top: auto; left: 8px; right: 8px; bottom: 8px; z-index: 40;
     min-width: 0; max-height: 80vh; overflow-y: auto; padding: 8px 8px 12px; border-radius: 18px;
@@ -207,12 +211,14 @@ label.chk input { accent-color: var(--ink); width: 18px; height: 18px; }
 
 #flash {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50;
-  display: none; max-width: min(520px, 90vw); padding: 12px 20px; border-radius: 14px;
+  display: none; width: max-content; max-width: min(520px, 90vw); padding: 12px 20px; border-radius: 14px;
   background: var(--ink); color: var(--paper); font-weight: 500; box-shadow: var(--shadow);
 }
 #flash::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   background: var(--tally); margin-right: 10px; vertical-align: 1px; }
 #flash.ok::before { background: var(--ok); }
+#flash button { margin-left: 14px; min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid currentColor;
+  background: none; color: inherit; font: 600 15px var(--font); cursor: pointer; }
 
 .showlink { color: inherit; text-decoration: none; }
 .showlink:hover, .showlink:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
@@ -339,13 +345,27 @@ function isPlaying(s) {
   return s.transport === "PLAYING" || s.transport === "TRANSITIONING";
 }
 
-function flash(msg, ok = false) {
+// `action` is a way back, { label, run }, offered for as long as the message
+// shows: a one-tap verb confirms itself and carries its own undo.
+function flash(msg, ok = false, action = null) {
   const el = $("flash");
   el.textContent = msg;
+  if (action) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = action.label;
+    btn.addEventListener("click", () => { el.style.display = "none"; action.run(); });
+    el.append(btn);
+  }
   el.className = ok ? "ok" : "";
+  // Above whatever is docked to the bottom edge, never over it: on a phone
+  // that is the transport, and a message there hid the controls for 4s.
+  const dock = [...document.querySelectorAll("[data-dock]")].map((d) => d.getBoundingClientRect())
+    .find((r) => r.height && r.top < innerHeight && r.bottom >= innerHeight - 1);
+  el.style.bottom = dock ? `${innerHeight - dock.top + 12}px` : "";
   el.style.display = "block";
   clearTimeout(flashTimer);
-  flashTimer = setTimeout(() => { el.style.display = "none"; }, 4000);
+  flashTimer = setTimeout(() => { el.style.display = "none"; }, action ? 8000 : 4000);
 }
 function fmt(sec) {
   sec = Math.max(0, sec | 0);
@@ -445,6 +465,7 @@ document.addEventListener("click", (ev) => {
   if (!toggle) return;
   const flap = $(toggle.dataset.flap);
   flap.hidden = !flap.hidden;
+  if (!flap.hidden) track(`menu_${toggle.dataset.flap.replace("-flap", "")}`);
   toggle.setAttribute("aria-expanded", String(!flap.hidden));
 });
 document.addEventListener("keydown", (ev) => {
@@ -493,6 +514,10 @@ paintMode();
 <script>
 poll();
 setInterval(poll, 5000);
+// The layout this page loaded in, so use can be told apart by device: the
+// docked transport, an upright tablet, or wide.
+track("load_" + (matchMedia("(max-width: 760px)").matches ? "narrow"
+  : matchMedia("(max-width: 1023px)").matches ? "medium" : "wide"));
 </script>
 </body>
 </html>

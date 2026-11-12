@@ -6,6 +6,7 @@ import pytest
 from config import Config
 from db import Database
 from dj import DJ
+from fake_player import FakeSonosPlayer
 from web import create_app, usage_key
 
 
@@ -85,6 +86,42 @@ def test_the_beacon_records_known_ui_events_only(c, db) -> None:
     assert c.post("/api/usage", json={"event": "nonsense"}).get_json()["ok"] is False
     assert c.post("/api/usage", json={}).get_json()["ok"] is False
     assert rows(db) == [("UI earlier", "/", 1)]
+
+
+def test_the_beacon_counts_appearance_layouts_and_menus(c, db) -> None:
+    """The page sends "mode" since the themes became light and dark; the
+    beacon went on accepting only "theme", so no change was ever counted."""
+    for event in ("mode", "load_narrow", "menu_skip"):
+        assert c.post("/api/usage", json={"event": event}).get_json()["ok"] is True
+    assert c.post("/api/usage", json={"event": "theme"}).get_json()["ok"] is False
+    assert [r[0] for r in rows(db)] == ["UI mode", "UI load_narrow", "UI menu_skip"]
+
+
+def test_a_verb_in_the_body_is_spelled_out_like_one_in_the_path(c, db) -> None:
+    """Drop and review take their verb in the body, so every disposition
+    used to share one key."""
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    db.insert_episode(fid, "g1", "One", "https://cdn/1.mp3", "2026-01-01T00:00:00Z")
+    eid = db.episodes_with_status("new")[0]["id"]
+    c.post("/episodes/review", json={"ids": [eid], "decision": "back_catalog"})
+    c.post("/episodes/review", json={"ids": [eid], "decision": "shred"})   # refused
+    assert [r[0] for r in rows(db)] == [
+        "POST /episodes/review/back_catalog", "POST /episodes/review"]
+
+
+def test_dropping_an_up_next_row_is_counted_by_what_it_did(db, cfg) -> None:
+    player = FakeSonosPlayer()
+    dj = DJ(db, cfg, lambda: player)
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    for i in range(3):
+        db.insert_episode(fid, f"g{i}", f"Ep {i}", f"https://cdn/{i}.mp3", "2026-01-01T00:00:00Z")
+    dj.start()
+    waiting = next(e for e in db.episodes_with_status("queued")
+                   if e["play_uri"] != player.queue[player.index]["uri"])
+    app = create_app(db, dj, cfg)
+    app.config["TESTING"] = True
+    app.test_client().post(f"/episodes/{waiting['id']}/drop", json={"disposition": "archive"})
+    assert rows(db) == [("POST /episodes/<int:episode_id>/drop/archive", None, 1)]
 
 
 def test_the_report_groups_by_action_and_page(c, db) -> None:

@@ -1245,10 +1245,13 @@ class DJ:
                 return "Speaker unreachable"
 
     def play_episode(self, episode_id: int,
-                     mode: Literal["next", "now", "last"]) -> str | None:
+                     mode: Literal["next", "now", "last"],
+                     resume: int | None = None) -> str | None:
         """Force-play a specific episode, any status. mode="next" queues it
         right after the current track; mode="now" interrupts immediately;
-        mode="last" appends it to the end of Up Next.
+        mode="last" appends it to the end of Up Next. `resume` is where to
+        pick it up, in seconds: the way back from a skip, which cleared the
+        position the episode had reached.
         For the on-air bootstrap we reuse start(); for the actual interrupt
         we inline the skip logic rather than delegating to _skip(), because
         _skip() re-reads _match_queue and can race with Sonos naturally
@@ -1281,7 +1284,7 @@ class DJ:
                                 and audio.uris_match(queue[cur_idx], cur.uri))
             if (mode == "now" and needle_found
                     and current is not None and current["id"] == episode_id):
-                return self.seek_abs(0)  # already playing it -- just restart
+                return self.seek_abs(resume or 0)  # already playing it -- just restart
             # Resolve before enqueueing: the purge below needs the URI, and
             # _enqueue would otherwise resolve a second time and hand back a
             # different expiry token.
@@ -1326,6 +1329,15 @@ class DJ:
             # the row if you would rather a refresh re-rolled it.
             self.db.set_pinned(episode_id, True)
             self.db.kv_set("last_feed_id", str(episode["feed_id"]))
+            if resume is not None:
+                # tick() seeks an episode to its banked position once, when it
+                # becomes current. One skipped and brought back between two
+                # ticks is still the episode tick() last tracked: it would read
+                # as "still current" and have this position overwritten rather
+                # than sought. So forget it was tracked.
+                self.db.set_resume(episode_id, max(0, int(resume)))
+                if self._resume_tracking_episode_id == str(episode_id):
+                    self._resume_tracking_episode_id = None
             if current is None:
                 self._mark_transport_cmd()
                 player.play_from_queue(insert_at)
