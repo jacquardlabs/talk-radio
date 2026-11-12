@@ -20,7 +20,7 @@ import feeds as feeds_mod
 import gpodder
 import sonos_ctl
 from config import Config
-from db import FEED_SHELVES, REVIEW_VIEWS, REVIEW_WRITES, Database
+from db import FEED_BULK_ACTIONS, FEED_SHELVES, REVIEW_VIEWS, REVIEW_WRITES, Database
 from dj import DJ
 
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
@@ -51,6 +51,8 @@ UI_EVENTS = frozenset({
 USAGE_BODY_VERBS = {
     "/episodes/<int:episode_id>/drop": "disposition",
     "/episodes/review": "decision",
+    "/feeds/bulk": "action",
+    "/feeds/<int:feed_id>/backfill": "include",
 }
 
 
@@ -346,6 +348,26 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
         except Exception as exc:
             return result(f"could not add feed: {exc}")
         return result()
+
+    @app.post("/feeds/bulk")
+    def feeds_bulk():
+        """One action over a selection of stations: {"ids": [...], "action":
+        "on" | "off" | "category" | "delete"}. "category" files them under
+        "category_id", or under none when it is null."""
+        body = request.get_json(silent=True)
+        body = body if isinstance(body, dict) else {}
+        action = body.get("action")
+        if action not in FEED_BULK_ACTIONS:
+            return result(f"action must be one of {FEED_BULK_ACTIONS}")
+        try:
+            ids = [int(i) for i in (body.get("ids") or [])]
+            category_id = None if body.get("category_id") in (None, "") else int(body["category_id"])
+        except (TypeError, ValueError):
+            return result("ids and category_id must be integers")
+        if action == "category" and category_id is not None and db.get_category(category_id) is None:
+            return result("no such category")
+        return jsonify({"ok": True, "error": None,
+                        "moved": db.bulk_feeds(ids, action, category_id)})
 
     @app.post("/feeds/<int:feed_id>/backfill")
     def feed_backfill(feed_id: int):

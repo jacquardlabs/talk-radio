@@ -94,7 +94,7 @@ def jpeg(page: Page, path: Path, **opts) -> None:
 
 
 def shoot_pages(browser: Browser, base: str) -> None:
-    # 792 ends on the divider under the fourth Up Next row, not through the fifth.
+    # 792 ends on the divider under the second Up next row, not through the third.
     jpeg(open_page(browser, f"{base}/", 1400, 792, storage={"mode": "light"}), OUT / "on-air.jpg")
     jpeg(open_page(browser, f"{base}/", 1400, 792, storage={"mode": "dark"}), OUT / "on-air-dark.jpg")
     jpeg(open_page(browser, f"{base}/", 390, 844, scale=2, storage={"mode": "light"}), OUT / "on-air-narrow.jpg")

@@ -99,16 +99,19 @@ thumb-height; volume and *Off air* open as sheets above it:
    the one the DJ plays through. Each room's checkbox adds it to the group or
    drops it out; the room holding the queue is fixed on — switch rooms rather
    than unticking it. *Group all* adds every speaker.
-2. **Add stations** — on *Stations*, press *Add station*, then search by
-   podcast name, or switch to *Paste a link* for feeds a directory search won't find (an
-   Apple Podcasts show link works too). Check *news* for news
-   feeds. Pick which episodes join rotation:
+2. **Add stations** — on *Stations*, press *Add station* and search by
+   podcast name; *Add* on a result adds it with its latest episode in
+   rotation. For a feed the directory won't find, switch to *Paste a link*
+   (an Apple Podcasts show link works too), check *news* for a news feed,
+   and pick which episodes join rotation:
    - *New episodes only* — nothing until the next episode drops
    - *Latest episode* (default) — start from the newest
    - *Last few episodes* — the newest N
    - *Every episode* — starts the show at episode 1
 
-   The rest is *Archived*: the DJ won't pick it unless you add it.
+   The rest is *Archived*: the DJ won't pick it unless you add it. A
+   station's *Settings* can make the same cut again later (*Re-cut what's in
+   rotation*) or mark it as news.
 3. **Set wake times** — alarm-style rows (time + day chips), e.g. 08:00
    Mon–Fri and 10:00 Sat–Sun.
 4. Press **Play**.
@@ -117,14 +120,17 @@ thumb-height; volume and *Off air* open as sheets above it:
    counting what's left to hear, each shelf's *In rotation* switch, and a
    menu beside it to rename or remove the category. Turned-off stations stay
    hidden until you switch on *Turned off* above the shelves, or search for
-   one. Tap a tile for its
+   one. *Select* turns the tiles into a selection: tap the stations you
+   mean, then *Turn off*, *Turn on*, *Move to* a category, or *Remove* them
+   together. Tap a tile for its
    station sheet: the show's description, then its episodes newest first
    under three tabs. *Unheard* (the default) is what's left to hear,
    including *Missed* ones that failed to play; *Heard* lists what you've
    heard, struck through, each one tap from playing again; *Archived* lists
    what the DJ won't pick unless you add it, dimmed. The tab you pick holds
    for every station. Station settings
-   (category, order, news, skipped titles, off, remove) sit behind *Settings*.
+   (category, order, news, skipped titles, a re-cut of what's in rotation,
+   off, remove) sit behind *Settings*.
    A title you skip, such as a show's reruns, is archived on arrival, so you
    can still add one by hand. A caret on an
    episode row opens that episode's notes; descriptions come from the feed,

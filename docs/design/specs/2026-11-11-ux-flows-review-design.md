@@ -358,7 +358,6 @@ the snapshot's station counts).
 
 **Left open by #71.**
 
-- The nav still reads *Settings*; `base.html` is not in the diff (Decision 4).
 - *Keep* now means two things. In Review it leaves an episode in rotation, and
   Shows counts those as *kept*. On Up next, *Keep in Up next*, *Stop keeping*,
   and "episodes you kept stay" mean the pin.
@@ -371,6 +370,6 @@ the snapshot's station counts).
 1. **Library work outside the dashboard is a gap.** F5 goes ahead in full.
 2. **Undo after Skip resumes** where the episode stopped.
 3. **Back to Up next stays**, unused or not.
-4. **Settings becomes Review.** The owner assigned the rename to #71's author;
-   #71 merged without it.
+4. **Settings becomes Review.** #71 merged without the rename, so it ships
+   with F3.
 5. **The 136px dial on phones is accepted.**

@@ -109,6 +109,15 @@ def test_a_verb_in_the_body_is_spelled_out_like_one_in_the_path(c, db) -> None:
         "POST /episodes/review/back_catalog", "POST /episodes/review"]
 
 
+def test_bulk_station_actions_and_recuts_are_counted_by_what_they_did(c, db) -> None:
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    c.post("/feeds/bulk", json={"ids": [fid], "action": "off"},
+           headers={"Referer": "http://localhost/stations"})
+    c.post(f"/feeds/{fid}/backfill", json={"include": "all"})
+    assert rows(db) == [("POST /feeds/bulk/off", "/stations", 1),
+                        ("POST /feeds/<int:feed_id>/backfill/all", None, 1)]
+
+
 def test_dropping_an_up_next_row_is_counted_by_what_it_did(db, cfg) -> None:
     player = FakeSonosPlayer()
     dj = DJ(db, cfg, lambda: player)

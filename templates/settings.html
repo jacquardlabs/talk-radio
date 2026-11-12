@@ -15,12 +15,6 @@
 .ep-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .ep-row .qmain .qdesc { margin: 6px 0 0; }
 #review-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-/* the selection's verbs stay in reach however far down the list you are */
-.bulk {
-  position: sticky; bottom: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-  padding: 10px 0 calc(10px + env(safe-area-inset-bottom)); background: var(--paper); border-top: 1px solid var(--hair);
-}
-.bulk .count { color: var(--slate); font-family: var(--figures); }
 .bulk .tab:first-of-type { margin-right: auto; }
 .show-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--hair); }
 .show-row .name { font-size: 16px; font-weight: 500; }
