@@ -252,9 +252,11 @@ label.chk input { accent-color: var(--ink); width: 18px; height: 18px; }
 
 @media (max-width: 760px) {
   body { padding: 0 18px 120px; }
-  header { height: auto; flex-wrap: wrap; gap: 0 12px; padding-top: 10px; }
-  nav.nav { order: 3; width: 100%; height: 48px; }
-  .navlink { flex: 1; justify-content: center; }
+  /* one row: the tally light alone is the way home, the tabs say the rest */
+  header { height: 56px; gap: 2px; }
+  header .mark { font-size: 0; gap: 0; padding: 16px 10px 16px 2px; }
+  nav.nav { flex: 1; }
+  .navlink { flex: 1; justify-content: center; padding: 0 6px; }
 }
 </style>
 </head>

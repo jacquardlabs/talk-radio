@@ -42,7 +42,7 @@ UI_EVENTS = frozenset({
     # the layout a page loaded in: docked transport, upright tablet, or wide
     "load_narrow", "load_medium", "load_wide",
     # a menu opening, so one opened and left shows up as opens without actions
-    "menu_skip", "menu_rooms", "menu_sleep", "menu_row",
+    "menu_skip", "menu_rooms", "menu_sleep", "menu_vol", "menu_row",
     "menu_episode", "menu_station", "menu_category",
 })
 # Routes whose verb rides in the body rather than the path, and the field it
