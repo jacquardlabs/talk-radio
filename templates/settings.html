@@ -37,9 +37,10 @@
 {% block content %}
 <div class="review-head"><h1>Review episodes</h1></div>
 <div class="seg" id="review-tabs" role="group" aria-label="What to review">
+  <button type="button" class="tab small" data-view="rotation">In rotation <span class="n" data-count="rotation"></span></button>
   <button type="button" class="tab small" data-view="recent">Recently added <span class="n" data-count="recent"></span></button>
-  <button type="button" class="tab small" data-view="back_catalog">Back catalog <span class="n" data-count="back_catalog"></span></button>
-  <button type="button" class="tab small" data-view="never">Never play <span class="n" data-count="never"></span></button>
+  <button type="button" class="tab small" data-view="back_catalog">Archived <span class="n" data-count="back_catalog"></span></button>
+  <button type="button" class="tab small" data-view="never">Marked heard <span class="n" data-count="never"></span></button>
   <button type="button" class="tab small" data-view="shows">Shows</button>
 </div>
 <p class="review-note" id="review-note"></p>
@@ -59,17 +60,19 @@
 // The list is fetched on demand, never from the status poll: a repaint under
 // a thumb mid-triage would lose the place, and selection lives across pages.
 const NOTES = {
+  rotation: "Everything the DJ can still pick, including Up next; news, turned-off shows, and shelves out of rotation aren't listed. Taking one out of Up next refills it; the one playing stays on.",
   recent: "Newest first, by publish date, until you decide. Keep leaves it in rotation; news and turned-off shows aren't listed.",
-  back_catalog: "Episodes the DJ won't pick until you add them. Pick a show to work through it; news and turned-off shows aren't listed.",
-  never: "Episodes you've dismissed. Move one back if you change your mind.",
-  shows: "Sending a recently added episode to the back catalog or Never play counts as a skip, as does Never play on Skip or Up next. Clearing out the back catalog doesn't. Heard includes earlier Never plays, which were recorded as listens.",
+  back_catalog: "The DJ won't pick these unless you add them back. Pick a show to work through it; news and turned-off shows aren't listed.",
+  never: "Episodes you marked heard without hearing them. Move one back if you change your mind.",
+  shows: "Archiving or marking heard an episode in rotation counts as a skip, wherever you do it. Clearing out archived episodes doesn't. Heard includes episodes marked heard before decisions were tracked.",
 };
 const VERBS = {
-  recent: [["keep", "Keep"], ["back_catalog", "Back catalog"], ["never", "Never play"]],
-  back_catalog: [["keep", "Back to rotation"], ["never", "Never play"]],
-  never: [["keep", "Back to rotation"], ["back_catalog", "Back catalog"]],
+  rotation: [["back_catalog", "Archive"], ["never", "Mark heard"]],
+  recent: [["keep", "Keep"], ["back_catalog", "Archive"], ["never", "Mark heard"]],
+  back_catalog: [["keep", "Add to rotation"], ["never", "Mark heard"]],
+  never: [["keep", "Add to rotation"], ["back_catalog", "Archive"]],
 };
-const DONE = { keep: "in rotation", back_catalog: "in the back catalog", never: "marked Never play" };
+const DONE = { keep: "in rotation", back_catalog: "archived", never: "marked heard" };
 const review = { view: "recent", feed: "", q: "", page: 1, total: 0 };
 const selected = new Set();
 let showsSig = "";
@@ -147,7 +150,7 @@ async function renderShows() {
     `<div class="name">${showLink(s.feed_id, s.show)}</div>` +
     `<div class="share">${s.mostly_skipped ? "Mostly skipped, " : ""}${s.skip_percent}%</div>` +
     `<div class="counts">${s.heard.toLocaleString()} heard, ${s.kept.toLocaleString()} kept, ` +
-    `${s.back_catalog.toLocaleString()} to back catalog, ${s.never.toLocaleString()} never play</div>` +
+    `${s.back_catalog.toLocaleString()} archived, ${s.never.toLocaleString()} marked heard</div>` +
     `</div>`
   ).join("") || '<div class="empty">Nothing to compare yet.</div>';
 }
@@ -177,7 +180,9 @@ async function decide(ids, decision, btn) {
   const data = await post("/episodes/review", { ids, decision }, btn);
   if (!data) return;
   for (const id of ids) selected.delete(id);
-  if (ids.length > 1) flash(`${plural(data.moved, "episode")} ${DONE[decision]}`, true);
+  // A queued episode is held when it's playing or the speaker can't be reached.
+  const held = data.held ? `; ${plural(data.held, "episode")} left as is (playing now, or speaker unreachable)` : "";
+  if (ids.length > 1 || held) flash(`${plural(data.moved, "episode")} ${DONE[decision]}${held}`, !held);
   renderList();
 }
 

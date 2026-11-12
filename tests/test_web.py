@@ -241,10 +241,10 @@ def test_feed_episodes_list_every_status_newest_first(client) -> None:
 
 
 
-def test_feed_episodes_hide_back_catalog(client) -> None:
-    """Back-catalog episodes added to rotation are findable among hundreds
-    still in it: hiding the back catalog leaves only what's left to hear —
-    heard and missed go with it — and the total pages the same rows."""
+def test_feed_episodes_by_shelf(client) -> None:
+    """A station sheet splits Unheard, Heard and Archived, so a heard episode
+    to replay isn't buried among hundreds archived. Missed is unheard: it
+    failed to play. The total pages the same rows."""
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X Show", None, False)
     for i in range(1, 6):
@@ -253,13 +253,19 @@ def test_feed_episodes_hide_back_catalog(client) -> None:
     db.release_episodes([released])
     db.mark_played(_add_episode(db, fid, 7), "2026-01-09T00:00:00Z")
     db.mark_skipped(_add_episode(db, fid, 8))
-    data = c.get(f"/api/feeds/{fid}/episodes?back_catalog=hide").get_json()
-    assert data["total"] == 1
-    assert [(e["title"], e["status"]) for e in data["episodes"]] == [("Ep 6", "new")]
-    assert c.get(f"/api/feeds/{fid}/episodes?back_catalog=hide&q=Ep 3").get_json()["total"] == 0
-    shown = c.get(f"/api/feeds/{fid}/episodes?back_catalog=show").get_json()
-    assert shown["total"] == 8
-    assert [e["title"] for e in shown["episodes"][:3]] == ["Ep 8", "Ep 7", "Ep 6"]
+
+    def shelf(name: str, q: str = "") -> dict:
+        return c.get(f"/api/feeds/{fid}/episodes?shelf={name}&q={q}").get_json()
+
+    unheard = shelf("unheard")
+    assert unheard["total"] == 2
+    assert [(e["title"], e["status"]) for e in unheard["episodes"]] == [
+        ("Ep 8", "skipped"), ("Ep 6", "new")]
+    assert [e["title"] for e in shelf("heard")["episodes"]] == ["Ep 7"]
+    assert shelf("archived")["total"] == 5
+    assert shelf("archived", "Ep 3")["total"] == 1 and shelf("unheard", "Ep 3")["total"] == 0
+    assert c.get(f"/api/feeds/{fid}/episodes").get_json()["total"] == 8
+    assert c.get(f"/api/feeds/{fid}/episodes?shelf=bogus").status_code == 400
 
 
 def test_feed_episodes_unknown_feed_404s(no_sonos_client) -> None:
@@ -322,6 +328,15 @@ def test_drop_route_validates_disposition(client) -> None:
     data = c.post(f"/episodes/{eid}/drop", json={"disposition": "someday"}).get_json()
     assert data["ok"] is False and "disposition" in data["error"]
     assert c.post("/episodes/999/drop").status_code == 404
+    # archive is a disposition; this one isn't on the speaker, so it's refused there
+    data = c.post(f"/episodes/{eid}/drop", json={"disposition": "archive"}).get_json()
+    assert data["error"] == "That episode isn't in Up Next"
+
+
+def test_skip_archive_route(client) -> None:
+    c, _, _ = client
+    data = c.post("/player/skip_archive").get_json()
+    assert data["ok"] is False and "episode" in data["error"]  # nothing on air
 
 
 def test_release_episodes_bulk_route(client) -> None:
@@ -548,15 +563,17 @@ def test_stations_page_offers_add_to_up_next(no_sonos_client) -> None:
     assert b"play_last" in c.get("/stations").data
 
 
-def test_stations_page_names_the_back_catalog_one_way(no_sonos_client) -> None:
-    """"archived" was also "in the vault", "Release", and "Add back catalog";
-    a show added with its latest episode read as 162 dead ones. The verbs
-    are one set across both pages: Back to rotation, Never play."""
+def test_stations_page_names_the_archive_one_way(no_sonos_client) -> None:
+    """"archived" was also "in the vault", "Release", and "Back catalog",
+    which read as episodes waiting to play. Each verb names where the
+    episode ends up: Archive, Add to rotation, Mark heard."""
     c, _ = no_sonos_client
     page = c.get("/stations").data
-    assert b"Back catalog" in page and b"Back to rotation" in page and b"Never play" in page
+    for verb in (b"Archive <i>", b"Add to rotation <i>", b"Mark heard <i>", b'"Archived"'):
+        assert verb in page
     for old in (b"vault", b"Release selected", b"Add back catalog", b">Held<",
-                b"Drop for good", b"Add to Up Next", b"Add to rotation <"):
+                b"Drop for good", b"Add to Up Next", b"Never play", b"Back catalog",
+                b"back catalog", b"Send to back catalog"):
         assert old not in page
 
 
@@ -570,19 +587,24 @@ def test_board_renders_reorder_grips(no_sonos_client) -> None:
 
 
 def test_board_uses_the_one_verb_set(no_sonos_client) -> None:
-    """Skip's Done and a row's Drop for good were two names for one act."""
+    """Skip and an Up next row offer the same ways out: back to rotation,
+    archived, or marked heard. Done and Drop for good were two names for one
+    act, and Never play read as archiving."""
     body = no_sonos_client[0].get("/").data
-    assert body.count(b"Never play <i>") == 2 and b"Back to rotation <i>" in body
-    for old in (b"Drop for good", b"Drop for later", b">Done <i>", b">Later <i>", b">Defer <i>"):
+    assert body.count(b"Mark heard <i>") == 2 and body.count(b"Archive <i>") == 2
+    assert b"Back to rotation <i>" in body and b"Keep in Up next" in body
+    for old in (b"Drop for good", b"Drop for later", b">Done <i>", b">Later <i>", b">Defer <i>",
+                b"Never play", b'"Pin"'):
         assert old not in body
 
 
 def test_skip_flap_offers_defer_first(no_sonos_client) -> None:
-    """The flap runs least-destructive to most, and defer is the only one of
-    the three that keeps the episode."""
+    """The flap runs least-destructive to most, and defer is the only one
+    that keeps the episode."""
     body = no_sonos_client[0].get("/").data
-    assert b'data-player="defer"' in body
-    assert body.index(b'data-player="defer"') < body.index(b'data-player="skip_later"')
+    order = [body.index(f'data-player="{a}"'.encode())
+             for a in ("defer", "skip_later", "skip_archive", "skip_done")]
+    assert order == sorted(order)
 
 
 
@@ -891,7 +913,7 @@ def test_review_lists_counts_and_ids(client) -> None:
     fid, ids = _review_seed(db)
     db.archive_episode(ids[0])
     body = c.get("/api/review?view=recent").get_json()
-    assert body["counts"] == {"recent": 2, "back_catalog": 1, "never": 0}
+    assert body["counts"] == {"rotation": 2, "recent": 2, "back_catalog": 1, "never": 0}
     assert body["total"] == 2
     assert [e["show"] for e in body["episodes"]] == ["X", "X"]
     assert c.get(f"/api/review/ids?view=back_catalog&feed={fid}").get_json()["ids"] == [ids[0]]
@@ -905,7 +927,8 @@ def test_review_route_reports_what_moved(client) -> None:
     _, ids = _review_seed(db)
     db.mark_queued(ids[2], "uri")
     body = c.post("/episodes/review", json={"ids": ids, "decision": "back_catalog"}).get_json()
-    assert body == {"ok": True, "error": None, "moved": 2}
+    # queued but not on the speaker's queue: it can't be taken off, so it's held
+    assert body == {"ok": True, "error": None, "moved": 2, "held": 1}
     assert db.get_episode(ids[0])["status"] == "archived"
     assert db.get_episode(ids[2])["status"] == "queued"
 
@@ -933,6 +956,18 @@ def test_review_shows_rank_and_flag_the_mostly_skipped(client) -> None:
 
     assert [(s["show"], s["skip_percent"], s["mostly_skipped"]) for s in shows] == [
         ("Barely tried", 100, False), ("Passed over", 83, True), ("Loved", 0, False)]
+
+
+def test_settings_tabs_say_what_will_play(no_sonos_client) -> None:
+    """"Back catalog 11,372" read as episodes still to come. The tabs lead
+    with what the DJ can pick, and name the rest by what happened to them."""
+    page = no_sonos_client[0].get("/settings").data
+    tabs = [page.index(f'data-view="{v}"'.encode())
+            for v in ("rotation", "recent", "back_catalog", "never", "shows")]
+    assert tabs == sorted(tabs)
+    for label in (b"In rotation", b"Archived", b"Marked heard"):
+        assert label in page
+    assert b"Back catalog" not in page and b"Never play" not in page
 
 
 def test_settings_visits_count_as_usage(client) -> None:

@@ -61,15 +61,16 @@ episode and its show.
 
 Controls: **Play/Pause**, back 15 and forward 30 seconds, **Skip** (*Back to
 Up next* parks the episode and resumes it where it stopped, *Back to
-rotation* returns it to the pool, *Never play* marks it heard), volume, and a
+rotation* returns it to the pool, *Archive* takes it out of rotation, *Mark
+heard* counts it as a listen), volume, and a
 power switch that goes off air now — or later: *Sleep*, or a long press on
 *Off air*, sets the sleep timer (end of episode, or a 15/30/60-minute fade).
-**Refresh all** re-rolls the DJ's picks: pinned rows and the track on air
+**Refresh all** re-rolls the DJ's picks: rows you kept and the track on air
 stay, everything else goes back in the pool. Up Next rows act too: drag the
 handle to reorder — arrow keys move a focused handle, so it works without a
 pointer — and each row's menu offers *Play now* (interrupts immediately),
-*Pin* (spares the row from that re-roll; pinned rows show a pin), *Back to
-rotation* and *Never play*. A chevron on the episode playing and on each Up
+*Keep in Up next* (spares the row from that re-roll; kept rows show a pin),
+*Back to rotation*, *Archive*, and *Mark heard*. A chevron on the episode playing and on each Up
 Next row opens that episode's notes when the feed publishes them. On a phone
 every menu rises from the bottom, above the controls.
 
@@ -95,14 +96,13 @@ of the screen, thumb-height:
 2. **Add stations** — on *Stations*, press *Add station*, then search by
    podcast name, or switch to *Paste a link* for feeds a directory search won't find (an
    Apple Podcasts show link works too). Check *news* for news
-   feeds. Pick how much back catalog to include:
+   feeds. Pick which episodes join rotation:
    - *New episodes only* — nothing until the next episode drops
    - *Latest episode* (default) — start from the newest
    - *Last few episodes* — the newest N
    - *Every episode* — starts the show at episode 1
 
-   The rest waits in the station's *Back catalog*, out of rotation until
-   you add it.
+   The rest is *Archived*: the DJ won't pick it unless you add it.
 3. **Set wake times** — alarm-style rows (time + day chips), e.g. 08:00
    Mon–Fri and 10:00 Sat–Sun.
 4. Press **Play**.
@@ -112,22 +112,21 @@ of the screen, thumb-height:
    menu beside it to rename or remove the category. Turned-off stations stay
    hidden until you switch on *Turned off* above the shelves, or search for
    one. Tap a tile for its
-   station sheet: the show's description, then its episodes newest first. An
-   episode in the *Back catalog* (the DJ won't pick it until you add it) is
-   dimmed; a *Heard* one is struck through, and plays again with one tap. The
-   back catalog, *Heard* and *Missed* episodes stay hidden until you switch on
-   *Heard and back catalog*, so the sheet opens on what's left to hear; the
-   choice holds for every station. Station settings
+   station sheet: the show's description, then its episodes newest first
+   under three tabs. *Unheard* (the default) is what's left to hear,
+   including *Missed* ones that failed to play; *Heard* lists what you've
+   heard, struck through, each one tap from playing again; *Archived* lists
+   what the DJ won't pick unless you add it, dimmed. The tab you pick holds
+   for every station. Station settings
    (category, order, news, skipped titles, off, remove) sit behind *Settings*.
-   A title you skip, such as a show's reruns, goes to the back catalog on
-   arrival, so you can still add one by hand. A caret on an
+   A title you skip, such as a show's reruns, is archived on arrival, so you
+   can still add one by hand. A caret on an
    episode row opens that episode's notes; descriptions come from the feed,
-   so a show that publishes none shows none. Add back-catalog episodes to
-   rotation singly (*Back to rotation* in the row's menu), in batches
+   so a show that publishes none shows none. Add archived episodes to
+   rotation singly (*Add to rotation* in the row's menu), in batches
    (*Select*, then *Add selected (N)*), or all at once (*Add all to
-   rotation*). *Send to back catalog*, in an unplayed episode's menu, takes
-   one back out of rotation; *Never play*, there or on a *Missed* one, marks
-   it heard. *Play next* queues an
+   rotation*). *Archive*, in an unplayed episode's menu, takes one out of
+   rotation; *Mark heard*, there or on a *Missed* one, counts it as a listen. *Play next* queues an
    episode after the current track, *Play now* interrupts, and *Play last*
    queues it at the end of Up Next; all three work on any episode
    regardless of status, and turn the station on air if it is off. Fresh news
@@ -139,15 +138,19 @@ of the screen, thumb-height:
    station; when nothing in the library matches, it hands the words to the
    podcast directory. Each station sheet has its own episode filter too. A
    show's name anywhere on *On air* opens its station sheet.
-6. **Review episodes** — *Settings* lists *Recently added* episodes newest
-   first until you decide: *Keep*, *Back catalog*, or *Never play*, on one row
-   or on a selection across pages. Turned-off shows and news aren't listed.
-   *Back catalog* lists every other episode out of rotation, filterable by show and title; *Select all* covers the
-   whole filtered list. *Never play* lists what you've dismissed, so a decision
-   can be taken back. *Shows* ranks each show by how much you pass over and
-   flags one *Mostly skipped* once at least 5 skips outnumber what you heard or
-   kept; clearing out a back catalog doesn't count as skipping. A batch *Never
-   play* doesn't reach a synced phone unless the episode is newer than its last sync.
+6. **Review episodes** — *Settings* counts and lists, newest first,
+   everything *In rotation*: what the DJ can still pick, Up next included.
+   *Recently added* holds new arrivals until you decide: *Keep*, *Archive*,
+   or *Mark heard*, on one row or on a selection across pages. Archiving or
+   marking heard an episode in Up next takes it off the speaker and refills
+   the slot; the one playing stays on. Turned-off shows and news aren't
+   listed. *Archived* lists every episode out of rotation, filterable by show
+   and title; *Select all* covers the whole filtered list. *Marked heard*
+   lists what you dismissed without hearing, so a decision can be taken back.
+   *Shows* ranks each show by how much you pass over and flags one *Mostly
+   skipped* once at least 5 skips outnumber what you heard or kept; clearing
+   out archived episodes doesn't count as skipping. A batch *Mark heard*
+   doesn't reach a synced phone unless the episode is newer than its last sync.
 
 ## Configuration
 
@@ -203,8 +206,8 @@ sticks; the radio doesn't push it back.
 
 Each station reaches the phone as a feed this server builds,
 `/gpodder/feeds/<id>.xml`, not the show's own RSS. It holds only what the
-station would play — episodes in rotation and in Up Next — so a show with a
-900-episode back catalog and 11 released episodes shows those 11. Release
+station would play — episodes in rotation and in Up Next — so a show with
+900 archived episodes and 11 in rotation shows those 11. Add
 more from *Stations* and they appear at AntennaPod's next feed refresh (or
 pull to refresh); heard ones drop off. Audio still comes from the show's own
 servers. The feed URLs are unauthenticated like the rest of the app, since

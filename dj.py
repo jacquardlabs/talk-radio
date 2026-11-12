@@ -925,9 +925,9 @@ class DJ:
                 return "Nothing is playing"
             return self.seek_abs(cur.position + delta)
 
-    # ── the three dispositions ────────────────────────────────────────
-    def _skip(self, disposition: Literal["later", "done", "defer"]) -> str | None:
-        """Take the current episode off the air. All three dispositions share
+    # ── the dispositions ──────────────────────────────────────────────
+    def _skip(self, disposition: Literal["later", "archive", "done", "defer"]) -> str | None:
+        """Take the current episode off the air. Every disposition shares
         this prologue — fill first when this is the last track so there is
         something to advance to, advance or stop, then drop the outgoing slot —
         and differ only in what becomes of the episode afterwards."""
@@ -950,12 +950,14 @@ class DJ:
             player.remove_from_queue(cur_idx)  # then drop the skipped item
             if disposition == "done":
                 self._finish(episode, never=True)
-            elif disposition == "later":
+            elif disposition in ("later", "archive"):
                 self.db.revert_to_new(episode["id"])
                 self.db.remove_from_up_next(episode["id"])  # let go, not waiting
                 self.db.set_resume(episode["id"], None)  # replays fresh another day
                 if self.db.kv_get("resume_episode_id") == str(episode["id"]):
                     self.db.kv_del("resume_episode_id")
+                if disposition == "archive":
+                    self.db.unrelease_episode(episode["id"])
             else:
                 self._hold_in_up_next(player, episode, cur, matches, cur_idx)
             return None
@@ -965,6 +967,9 @@ class DJ:
 
     def skip_done(self) -> str | None:
         return self._skip("done")
+
+    def skip_archive(self) -> str | None:
+        return self._skip("archive")
 
     def defer_current(self) -> str | None:
         """Hold the playing episode in Up Next rather than sending it back to
@@ -1022,8 +1027,9 @@ class DJ:
     def drop_from_queue(self, episode_id: int,
                         disposition: str = "later") -> str | None:
         """Remove an upcoming episode from Up Next. "later" recycles it to
-        the new pool — the DJ will pick it again another day; "done" marks it
-        played so it never comes back. Same dispositions as Skip, minus
+        the new pool — the DJ will pick it again another day; "archive" sends
+        it to the back catalog; "done" marks it played so it never comes
+        back. Same dispositions as Skip, minus
         "defer": a queued episode is already waiting its turn. The current
         track isn't droppable (that's what Skip is for)."""
         with self._lock:
@@ -1042,6 +1048,8 @@ class DJ:
                         self._finish(ep, never=True)
                     else:
                         self.db.revert_to_new(ep["id"])
+                        if disposition == "archive":
+                            self.db.unrelease_episode(ep["id"])
                     self.db.remove_from_up_next(ep["id"])
                     return None
             if disposition == "done":  # news listed off air, not yet staged
@@ -1060,12 +1068,21 @@ class DJ:
             self.db.remove_from_up_next(episode_id)
             return None
 
-    def review_episodes(self, episode_ids: list[int], decision: str) -> int:
-        """Apply a review decision (db.REVIEW_WRITES) and return how many rows
-        moved. Queued rows are ineligible, so nothing here touches the speaker;
-        the lock covers the queue state an episode leaving rotation must leave."""
+    def review_episodes(self, episode_ids: list[int],
+                        decision: str) -> tuple[int, int]:
+        """Apply a review decision (db.REVIEW_WRITES). Returns how many rows
+        moved and how many were held back. An episode on the speaker leaves
+        it before it leaves rotation, so the one on air, and every one while
+        the speaker can't be reached, stays put. The lock covers the queue
+        state an episode leaving rotation must leave."""
         with self._lock:
-            moved, local_paths = self.db.review_episodes(episode_ids, decision)
+            queued = (set() if decision == "keep"
+                      else {e["id"] for e in self.db.episodes_with_status("queued")}
+                      & set(episode_ids))
+            player, cur_idx, staged, unqueued = self._unqueue(queued)
+            held = queued - unqueued
+            moved, local_paths = self.db.review_episodes(
+                [i for i in episode_ids if i not in held], decision)
             if decision != "keep":
                 gone = set(moved)
                 order = self.db.up_next_order()
@@ -1075,7 +1092,38 @@ class DJ:
                     self.db.kv_del("resume_episode_id")
             for path in local_paths:
                 audio.delete_local(path)
-            return len(moved)
+            if player is not None and unqueued:  # after the decision: no re-pick
+                try:
+                    self._top_up(player, cur_idx, staged)
+                except Exception:  # the decision stands; the next tick refills
+                    logger.exception("review: refill after unqueue failed")
+                    self._invalidate_player()
+            return len(moved), len(held)
+
+    def _unqueue(self, episode_ids: set[int]
+                 ) -> tuple["SonosPlayer | None", int, set[int], set[int]]:
+        """Take these episodes off the speaker's queue, back to 'new', leaving
+        the one on air alone. Returns (player, needle index, ids still staged,
+        ids taken off) for the refill that follows."""
+        if not episode_ids:
+            return None, 0, set(), set()
+        unqueued: set[int] = set()
+        try:
+            player = self.get_player()
+            if player is None:
+                return None, 0, set(), unqueued
+            _, matches, cur_idx, _cur = self._match_queue(player)
+            slots = [i for i in range(cur_idx + 1, len(matches))
+                     if matches[i] is not None and matches[i]["id"] in episode_ids]
+            for i in reversed(slots):  # back to front, so earlier slots keep their index
+                player.remove_from_queue(i)
+                unqueued.add(matches[i]["id"])
+                self.db.revert_to_new(matches[i]["id"])
+        except Exception:
+            logger.exception("review: could not take episodes off the speaker")
+            self._invalidate_player()
+            return None, 0, set(), unqueued
+        return player, cur_idx, ids_of(matches) - unqueued, unqueued
 
     # How close to the end a remote 'play' action must land to count as
     # finished. Matches the slack AntennaPod itself applies (its default
