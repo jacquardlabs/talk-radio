@@ -250,6 +250,12 @@ label.chk input { accent-color: var(--ink); width: 18px; height: 18px; }
 .ep-row .qmeta .pri { color: var(--tally); }
 .ep-row .qmeta .disc { margin-left: -10px; }
 .ep-row .qdesc { grid-column: 1 / -1; margin: 4px 0; }
+/* a selection's verbs stay in reach however far down the page you are */
+.bulk {
+  position: sticky; bottom: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 10px 0 calc(10px + env(safe-area-inset-bottom)); background: var(--paper); border-top: 1px solid var(--hair);
+}
+.bulk .count { color: var(--slate); font-family: var(--figures); }
 .pagination { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 14px; color: var(--slate); }
 
 {% block style %}{% endblock %}
@@ -368,12 +374,20 @@ function flash(msg, ok = false, action = null) {
     el.append(btn);
   }
   el.className = ok ? "ok" : "";
-  // Above whatever is docked to the bottom edge, never over it: on a phone
-  // that is the transport, and a message there hid the controls for 4s.
-  const dock = [...document.querySelectorAll("[data-dock]")].map((d) => d.getBoundingClientRect())
-    .find((r) => r.height && r.top < innerHeight && r.bottom >= innerHeight - 1);
-  el.style.bottom = dock ? `${innerHeight - dock.top + 12}px` : "";
+  el.style.bottom = "";
   el.style.display = "block";
+  // Never over a dock: on a phone that is the transport, and a message
+  // there hid the controls for 4s. Placed, then lifted clear of whatever it
+  // landed on, once per dock, since two can stack (a selection bar on the
+  // mini transport).
+  const docks = [...document.querySelectorAll("[data-dock]")]
+    .map((d) => d.getBoundingClientRect()).filter((r) => r.height);
+  for (const _ of docks) {
+    const me = el.getBoundingClientRect();
+    const under = docks.filter((r) => r.top < me.bottom && r.bottom > me.top);
+    if (!under.length) break;
+    el.style.bottom = `${innerHeight - Math.min(...under.map((r) => r.top)) + 12}px`;
+  }
   clearTimeout(flashTimer);
   flashTimer = setTimeout(() => { el.style.display = "none"; }, action ? 8000 : 4000);
 }

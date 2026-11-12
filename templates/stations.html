@@ -9,6 +9,7 @@
 .lib input[type="search"] { width: min(420px, 100%); }
 .lib-row { display: flex; align-items: center; gap: 4px 16px; flex-wrap: wrap; margin-bottom: 12px; }
 .lib-sum { color: var(--slate); }
+.lib-row .end { margin-left: auto; }
 #manage-block { margin: 8px 0 28px; padding: 22px 24px; border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
 #manage-block h2 { font-size: 20px; font-weight: 600; margin-bottom: 12px; }
 #manage-block .seg { display: inline-flex; gap: 6px; margin-bottom: 10px; }
@@ -45,6 +46,17 @@ form.inline input[type="url"], form.inline input[type="text"] { flex: 1 1 260px;
 .tile .tnm { font-size: 14px; font-weight: 500; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .tile .theld { color: var(--tally); font-size: 13px; font-weight: 600; margin-top: -6px; }
 .shelf.off .tile img, .shelf.off .tile .noart { opacity: .55; }
+/* selecting: every tile shows where its mark goes, and a picked one is ringed */
+.selecting .tile .cov::after { content: ""; position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--panel); border: 2px solid var(--slate); }
+.selecting .tile.picked .cov::after { border-color: var(--ink); background: var(--ink) center / 14px no-repeat
+  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E"); }
+.selecting .tile.picked img, .selecting .tile.picked .noart { box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--ink); }
+#station-bulk .grow { flex: 1; }
+#station-bulk select { min-height: 44px; font-size: 15px; }
+.recut { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.flap-field .recut select { flex: 1 1 140px; width: auto; min-width: 0; }
+.flap-field .recut input { flex: none; width: 72px; }
 @media (prefers-reduced-motion: reduce) { .tile img, .tile .noart { transition: none; } }
 
 /* the station sheet: one open show, its settings and its episodes */
@@ -126,6 +138,8 @@ button.sheet-more { display: none; }
   .mini-transport a { flex: 1; min-width: 0; display: grid; text-decoration: none; }
   .mini-transport a b { font-weight: 500; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mini-transport a .m { color: var(--slate); font-size: 13px; }
+  /* above the mini transport, which keeps the bottom edge */
+  #station-bulk { bottom: calc(73px + env(safe-area-inset-bottom)); padding-bottom: 10px; }
 }
 {% endblock %}
 
@@ -142,6 +156,7 @@ button.sheet-more { display: none; }
   <button type="button" class="bc-toggle" id="off-toggle" role="switch" aria-checked="false" hidden>
     <span class="sw" id="off-switch"><span class="knob"></span></span>Turned off <span class="n" id="off-count"></span>
   </button>
+  <span class="end"><button type="button" class="tab small" id="btn-select" aria-pressed="false">Select</button></span>
 </div>
 
 <!-- Library admin, monthly at most: adding stations and categories. -->
@@ -156,16 +171,9 @@ button.sheet-more { display: none; }
   <input type="search" id="podcast-search-input" placeholder="Podcast name" aria-label="Podcast name" style="width:100%">
   <div class="svc" id="podcast-search-results"></div>
 </div>
-<div id="podcast-picked-block" style="display:none">
-  <div class="svc-row">
-    <img class="pod-art" id="podcast-picked-art" alt="">
-    <b id="podcast-picked-title"></b>
-    <span class="spacer"></span>
-    <button type="button" class="tab small" id="podcast-picked-change">Change</button>
-  </div>
-</div>
-<form class="inline" id="add-feed">
-  <input type="url" id="feed-url" placeholder="Feed URL, or an Apple Podcasts link" aria-label="Feed URL" style="display:none">
+<!-- A pasted link is the one case with nothing to tap, so it keeps the form. -->
+<form class="inline" id="add-feed" hidden>
+  <input type="url" id="feed-url" placeholder="Feed URL, or an Apple Podcasts link" aria-label="Feed URL" required>
   <label class="chk"><input type="checkbox" id="feed-news"> News</label>
   <select id="feed-include" aria-label="Which episodes join rotation">
     <option value="latest" selected>Latest episode</option>
@@ -196,6 +204,7 @@ button.sheet-more { display: none; }
   <div id="global-search-pagination"></div>
 </div>
 
+<div class="bulk" id="station-bulk" data-dock hidden></div>
 <div class="mini-transport" id="mini-transport" data-dock hidden>
   <button type="button" class="tab" id="mini-playpause" aria-label="Play or pause"></button>
   <a href="/" id="mini-now" title="Open On air"><b>Off air</b></a>
@@ -229,6 +238,10 @@ function shelfCounts(c) {
 // A station is off because it isn't wanted now, so it stays out of the crate
 // until asked for, and one choice holds until changed.
 let showTurnedOff = localStorage.getItem("showTurnedOff") === "1";
+// Filing stations in bulk: every on/off and re-file in the usage log was
+// scripted, one request each, because the page did one station per sheet.
+let selecting = false;
+const picked = new Set();   // feed ids
 
 function episodeState(feedId) {
   return stationSearch[feedId] || (stationSearch[feedId] = { q: "", page: 1 });
@@ -343,8 +356,9 @@ function tileHTML(f) {
   const art = f.image_url
     ? `<img src="${esc(f.image_url)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'), {className: 'noart'}))">`
     : `<span class="noart"></span>`;
-  return `<button type="button" class="tile${open ? " open" : ""}${f.enabled ? "" : " held"}" ` +
-    `data-tile="${f.id}" aria-expanded="${open}" title="${esc(f.title)}">` +
+  const pick = selecting ? ` aria-pressed="${picked.has(f.id)}"` : ` aria-expanded="${open}"`;
+  return `<button type="button" class="tile${open ? " open" : ""}${f.enabled ? "" : " held"}` +
+    `${selecting && picked.has(f.id) ? " picked" : ""}" data-tile="${f.id}"${pick} title="${esc(f.title)}">` +
     `<span class="cov">${art}` +
     (u > 0 ? `<span class="bdg" aria-label="${u} to hear">${u.toLocaleString()}</span>` : "") + `</span>` +
     `<span class="tnm">${esc(f.title)}</span>` +
@@ -381,6 +395,15 @@ function settingsMenu(f, categories) {
     `<select data-feed-category="${f.id}">${categoryOptions}</select></label>` +
     `<label class="flap-field"><span>Skip titles starting with, separated by commas</span>` +
     `<input type="text" data-feed-skip="${f.id}" value="${esc(f.skip_titles.join(", "))}"></label>` +
+    // An action, not a setting: it re-sorts what is unplayed, once, the way
+    // Add station cut it. Armed, since New episodes only archives the lot.
+    `<div class="flap-field"><span>Re-cut what's in rotation</span><span class="recut">` +
+    `<select data-recut-include="${f.id}" aria-label="Which episodes stay in rotation">` +
+    `<option value="latest">Latest episode</option><option value="last_n">Last few episodes</option>` +
+    `<option value="all">Every episode</option><option value="new_only">New episodes only</option></select>` +
+    `<input type="number" data-recut-count="${f.id}" min="1" value="5" aria-label="How many" hidden>` +
+    `<button type="button" class="tab small" data-recut="${f.id}" data-confirm="1">Re-cut</button></span>` +
+    `<span>The rest of its unplayed episodes are archived. Heard and queued ones stay as they are.</span></div>` +
     `<button type="button" data-feed="${f.id}/playback">` +
     `${random ? "Play in order" : "Play in random order"} <i>now ${random ? "random" : "oldest first"}</i></button>` +
     `<button type="button" data-feed="${f.id}/news">` +
@@ -481,7 +504,7 @@ function buildGroups(s) {
 }
 
 function renderStations(s) {
-  const sig = JSON.stringify([s.stations, s.categories, stationFilter, expandedFeedId, showTurnedOff]);
+  const sig = JSON.stringify([s.stations, s.categories, stationFilter, expandedFeedId, showTurnedOff, selecting, [...picked]]);
   if (sig === lastStationsSig) return;   // nothing changed: keep DOM (and focus) intact
   lastStationsSig = sig;
 
@@ -633,8 +656,43 @@ function renderPage(s) {
   $("off-switch").classList.toggle("on", showTurnedOff);
   if (!s.stations.length && !managing) setManaging(true);   // first run: adding is the only job
   renderStations(s);
+  renderStationBulk(s);
   renderMiniTransport(s);
   if (!openedFromHash) { openedFromHash = true; openFromHash(); }   // first status only
+}
+
+// The selection's bar. Signature-guarded like the shelves: it holds a
+// dropdown, and a repaint every poll would close it under a finger.
+let lastBulkSig = "";
+function renderStationBulk(s) {
+  const bar = $("station-bulk");
+  $("station-groups").classList.toggle("selecting", selecting);
+  $("btn-select").setAttribute("aria-pressed", String(selecting));
+  $("btn-select").classList.toggle("live", selecting);
+  $("btn-select").textContent = selecting ? "Done" : "Select";
+  bar.hidden = !selecting;
+  const sig = JSON.stringify([selecting, picked.size, s.categories]);
+  if (!selecting || sig === lastBulkSig) return;
+  lastBulkSig = sig;
+  const none = picked.size ? "" : " disabled";
+  bar.innerHTML =
+    `<span class="count">${picked.size.toLocaleString()} selected</span><span class="grow"></span>` +
+    `<button type="button" class="tab small" data-bulk-feeds="off"${none}>Turn off</button>` +
+    `<button type="button" class="tab small" data-bulk-feeds="on"${none}>Turn on</button>` +
+    `<select id="bulk-category" aria-label="Move the selection to a category"${none}>` +
+    `<option value="" selected>Move to</option>` +
+    (s.categories || []).map((cat) => `<option value="${cat.id}">${esc(cat.name)}</option>`).join("") +
+    `<option value="none">Uncategorized</option></select>` +
+    `<button type="button" class="tab small red" data-bulk-feeds="delete" data-confirm="1"${none}>Remove</button>`;
+}
+
+const BULK_DONE = { off: "turned off", on: "turned on", category: "moved", delete: "removed" };
+async function bulkFeeds(action, category_id, btn) {
+  const data = await post("/feeds/bulk", { ids: [...picked], action, category_id }, btn);
+  if (!data) return;
+  flash(`${data.moved.toLocaleString()} station${data.moved === 1 ? "" : "s"} ${BULK_DONE[action]}`, true);
+  picked.clear();
+  renderPage(status);
 }
 
 // the phone remote: pausing from this page shouldn't mean navigating back
@@ -699,36 +757,30 @@ function toggleManage(id) {
 }
 
 // ── podcast search (add station) ──────────────────────────────────
-let addMode = "search";
-let pickedPodcast = null;
+// A result is added where it is found, with its latest episode: choosing
+// it, setting options, and pressing Add station again was three steps for
+// the default nearly everyone wants. The sheet's Settings re-cut it or
+// mark it as news afterwards. A pasted link has nothing to tap, so it
+// keeps the form and its options.
 let podcastResults = [];
+const addedUrls = new Set();
 
 function setAddMode(mode) {
-  addMode = mode;
   $("mode-search").classList.toggle("live", mode === "search");
   $("mode-url").classList.toggle("live", mode === "url");
-  $("podcast-search-block").style.display = mode === "search" && !pickedPodcast ? "" : "none";
-  $("podcast-picked-block").style.display = mode === "search" && pickedPodcast ? "" : "none";
-  $("feed-url").style.display = mode === "url" ? "" : "none";
-  // required only while it shows: hidden, it blocked the submit with a
-  // message the browser had nowhere to put
-  $("feed-url").required = mode === "url";
-  if (mode === "url") {
-    pickedPodcast = null;
-    $("feed-url").value = "";
-  } else {
-    $("podcast-search-input").value = "";
-    $("podcast-search-results").innerHTML = "";
-    if (!pickedPodcast) $("feed-url").value = "";
-  }
+  $("podcast-search-block").hidden = mode !== "search";
+  $("add-feed").hidden = mode !== "url";
+  $(mode === "url" ? "feed-url" : "podcast-search-input").focus({ preventScroll: true });
 }
 
 function podcastResultRow(p, i) {
+  const have = addedUrls.has(p.feed_url) || !!(status && status.stations.some((f) => f.url === p.feed_url));
   return `<div class="svc-row">` +
     `<img class="pod-art" src="${esc(p.artwork_url)}" alt="">` +
     `<span><b>${esc(p.title)}</b><br><span class="m">${esc(p.author)}</span></span>` +
     `<span class="spacer"></span>` +
-    `<button type="button" class="tab small" data-pick-podcast="${i}">Choose</button>` +
+    (have ? `<span class="m">In your stations</span>`
+      : `<button type="button" class="tab small" data-add-podcast="${i}" aria-label="Add ${esc(p.title)}">Add</button>`) +
     `</div>`;
 }
 
@@ -741,13 +793,13 @@ async function runPodcastSearch(term) {
   results.innerHTML = podcastResults.map(podcastResultRow).join("") || '<div class="empty">No podcasts match.</div>';
 }
 
-function pickPodcast(p) {
-  pickedPodcast = p;
-  $("feed-url").value = p.feed_url;
-  $("podcast-picked-art").src = p.artwork_url;
-  $("podcast-picked-title").textContent = p.title;
-  $("podcast-search-block").style.display = "none";
-  $("podcast-picked-block").style.display = "";
+async function addPodcast(i, btn) {
+  const p = podcastResults[i];
+  btn.disabled = true;   // a feed can take seconds to fetch: one request, not two
+  if (!await post("/feeds", { url: p.feed_url, include: "latest" }, btn)) return void (btn.disabled = false);
+  addedUrls.add(p.feed_url);
+  flash(`${p.title} added, with its latest episode in rotation`, true);
+  $("podcast-search-results").innerHTML = podcastResults.map(podcastResultRow).join("");
 }
 
 // ── wire up ────────────────────────────────────────────────────────
@@ -771,6 +823,11 @@ document.addEventListener("click", (ev) => {
   }
   if (btn.dataset.catmenu) {
     return void setCatMenuOpen(openCatMenuId === btn.dataset.catmenu ? null : btn.dataset.catmenu);
+  }
+  if (btn.dataset.tile && selecting) {   // a tap picks; the sheet waits for Done
+    const id = Number(btn.dataset.tile);
+    if (!picked.delete(id)) picked.add(id);
+    return void renderPage(status);
   }
   if (btn.dataset.tile) return void toggleManage(Number(btn.dataset.tile));
   if ("closeSheet" in btn.dataset) return void closeSheet();
@@ -825,13 +882,24 @@ document.addEventListener("click", (ev) => {
     return;
   }
   if (btn.dataset.addMode) return void setAddMode(btn.dataset.addMode);
-  if (btn.dataset.pickPodcast) return void pickPodcast(podcastResults[Number(btn.dataset.pickPodcast)]);
-  if (btn.id === "podcast-picked-change") {
-    pickedPodcast = null;
-    $("feed-url").value = "";
-    $("podcast-picked-block").style.display = "none";
-    $("podcast-search-block").style.display = "";
-    return;
+  if (btn.dataset.addPodcast) return void addPodcast(Number(btn.dataset.addPodcast), btn);
+  if (btn.id === "btn-select") {
+    selecting = !selecting;
+    picked.clear();
+    if (selecting && expandedFeedId != null) closeSheet();
+    return void renderPage(status);
+  }
+  if (btn.dataset.bulkFeeds) return void bulkFeeds(btn.dataset.bulkFeeds, null, btn);
+  if (btn.dataset.recut) {
+    const id = btn.dataset.recut;
+    const include = document.querySelector(`[data-recut-include="${id}"]`).value;
+    const count = document.querySelector(`[data-recut-count="${id}"]`).value;
+    return void post(`/feeds/${id}/backfill`, { include, count }, btn).then((ok) => {
+      if (!ok) return;
+      setSettingsOpen(null);
+      flash("Rotation re-cut", true);
+      renderEpisodePanel(Number(id));
+    });
   }
   if (btn.dataset.category) {
     if (btn.dataset.category.endsWith("/delete")) setCatMenuOpen(null);
@@ -903,6 +971,13 @@ document.addEventListener("change", (ev) => {
       renderEpisodePanel(id);
     });
   }
+  const recut = ev.target.closest("select[data-recut-include]");
+  if (recut) {
+    return void (document.querySelector(`[data-recut-count="${recut.dataset.recutInclude}"]`).hidden = recut.value !== "last_n");
+  }
+  if (ev.target.id === "bulk-category" && ev.target.value) {
+    return void bulkFeeds("category", ev.target.value === "none" ? null : Number(ev.target.value));
+  }
   const sel = ev.target.closest("select[data-feed-category]");
   if (sel) {
     post(`/feeds/${sel.dataset.feedCategory}/category`, { category_id: sel.value || null });
@@ -914,10 +989,6 @@ $("feed-include").addEventListener("change", (ev) => {
 });
 $("add-feed").addEventListener("submit", async (ev) => {
   ev.preventDefault();
-  if (!$("feed-url").value) {
-    flash("Search for a podcast and choose it, or paste a link");
-    return void $("podcast-search-input").focus();
-  }
   const ok = await post("/feeds", {
     url: $("feed-url").value,
     is_news: $("feed-news").checked,
@@ -926,10 +997,6 @@ $("add-feed").addEventListener("submit", async (ev) => {
   });
   if (ok) {
     $("feed-url").value = "";
-    pickedPodcast = null;
-    $("podcast-search-input").value = "";
-    $("podcast-search-results").innerHTML = "";
-    setAddMode(addMode);
     flash("Station added", true);
   }
 });

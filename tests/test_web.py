@@ -737,6 +737,7 @@ def test_a_message_sits_above_whatever_is_docked(no_sonos_client) -> None:
     assert b'id="mini-transport" data-dock' in c.get("/stations").data
     assert b'id="review-bulk" data-dock' in c.get("/settings").data
     assert b'querySelectorAll("[data-dock]")' in c.get("/").data
+    assert b'id="station-bulk" data-dock hidden' in c.get("/stations").data
 
 
 def test_phone_menus_name_what_they_act_on(no_sonos_client) -> None:
@@ -807,13 +808,30 @@ def test_review_shows_two_lines_of_notes_and_keeps_its_place_in_the_address(no_s
     assert b"String(f.id) === review.feed" in body
 
 
-def test_add_station_with_nothing_chosen_says_what_to_do(no_sonos_client) -> None:
-    """The URL field was required while hidden, so the browser blocked the
-    submit and had nowhere to show why: the button did nothing."""
+def test_a_directory_result_is_added_where_it_is_found(no_sonos_client) -> None:
+    """Adding was search, Choose, options, Add station, and with nothing
+    chosen the last button did nothing: its required URL field was hidden,
+    so the browser blocked the submit with nowhere to say why. A result now
+    carries its own Add, and the form shows only for a pasted link, where
+    its URL field is in view."""
     body = no_sonos_client[0].get("/stations").data
-    assert b'aria-label="Feed URL" style="display:none">' in body
-    assert b'$("feed-url").required = mode === "url";' in body
-    assert b'flash("Search for a podcast and choose it, or paste a link")' in body
+    assert b'data-add-podcast="${i}"' in body and b"data-pick-podcast" not in body
+    assert b'post("/feeds", { url: p.feed_url, include: "latest" }, btn)' in body
+    assert b'<form class="inline" id="add-feed" hidden>' in body
+    assert b'aria-label="Feed URL" required>' in body
+    assert b'$("add-feed").hidden = mode !== "url";' in body
+
+
+def test_a_sheet_can_re_cut_its_rotation_and_shelves_take_a_selection(no_sonos_client) -> None:
+    """Both were done by script: /backfill 130 times with no control for it,
+    and every on/off and re-file one request at a time."""
+    body = no_sonos_client[0].get("/stations").data
+    assert b'data-recut="${f.id}" data-confirm="1">Re-cut</button>' in body
+    assert b'post(`/feeds/${id}/backfill`, { include, count }, btn)' in body
+    assert b'id="btn-select" aria-pressed="false">Select</button>' in body
+    assert b'post("/feeds/bulk", { ids: [...picked], action, category_id }, btn)' in body
+    assert b'data-bulk-feeds="delete" data-confirm="1"' in body
+    assert b"if (btn.dataset.tile && selecting) {" in body
 
 
 
