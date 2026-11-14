@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import json
 import logging
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -191,6 +192,16 @@ def media_key_of(audio_url: str) -> str:
     scheme and host. Computed once at ingest — see episodes.media_key."""
     parts = urlsplit(audio_url)
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path, "", ""))
+
+
+_URL_SCHEME = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def guid_identity(guid: str) -> str:
+    """What makes two guids the same episode: a feed that moves to https
+    rewrites every guid that is a URL, and those are the episodes it already
+    offered."""
+    return _URL_SCHEME.sub("", guid)
 
 
 class EpisodeSeed(NamedTuple):
@@ -497,12 +508,18 @@ class Database:
         rewrite history here, and a second full refresh is a no-op.
 
         A skipped title is decided here, on arrival, and only then: an existing
-        row is ignored, so one released by hand is never sent back."""
+        row is ignored, so one released by hand is never sent back.
+
+        An episode already here under its guid's http form, or https, is not
+        inserted again (guid_identity): it would arrive undecided and in
+        rotation."""
         if not episodes:
             return 0
         with self._conn() as c:
             feed = c.execute("SELECT skip_titles FROM feeds WHERE id=?", (feed_id,)).fetchone()
             prefixes = skip_titles_of(feed) if feed else []
+            known = {guid_identity(r["guid"]) for r in c.execute(
+                "SELECT guid FROM episodes WHERE feed_id=?", (feed_id,))}
             before = c.total_changes
             c.executemany(
                 "INSERT OR IGNORE INTO episodes"
@@ -512,7 +529,7 @@ class Database:
                 [(feed_id, e.guid, e.title, e.audio_url, e.published_at,
                   e.duration_seconds, e.description, media_key_of(e.audio_url),
                   "archived" if title_is_skipped(e.title, prefixes) else "new")
-                 for e in episodes],
+                 for e in episodes if guid_identity(e.guid) not in known],
             )
             inserted = c.total_changes - before
             c.executemany(
