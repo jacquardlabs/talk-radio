@@ -40,6 +40,19 @@ def test_insert_episode_dedupes_on_guid(db: Database) -> None:
     assert db.insert_episode(fid, "g1", "A again", "https://a/1.mp3", "2026-01-01T00:00:00Z") is False
 
 
+def test_insert_episodes_ignores_a_guid_moved_to_https(db: Database) -> None:
+    """A feed that moves its guids from http to https is offering the same
+    episodes: inserting them again would put decided ones back in Review."""
+    fid = db.add_feed("https://ex.com/rss", "Show", None, False)
+    db.insert_episodes(fid, [EpisodeSeed("http://ex.com/?p=1", "A", "http://a/1.mp3",
+                                         "2026-01-01T00:00:00Z")])
+    moved = EpisodeSeed("HTTPS://ex.com/?p=1", "A", "https://a/1.mp3", "2026-01-01T00:00:00Z")
+    fresh = EpisodeSeed("https://ex.com/?p=2", "B", "https://a/2.mp3", "2026-01-02T00:00:00Z")
+    assert db.insert_episodes(fid, [moved, fresh]) == 1
+    assert [e["guid"] for e in db.episodes_with_status("new")] == [
+        "http://ex.com/?p=1", "https://ex.com/?p=2"]
+
+
 def test_oldest_new_for_feed_orders_by_published(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     _ep(db, fid, 3)
