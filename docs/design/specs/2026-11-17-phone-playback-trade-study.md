@@ -119,6 +119,24 @@ on Tailscale being switched back on. Excluding Android Auto from Tailscale
 (app split tunneling) may lift the limit; unconfirmed on this phone, and the
 design does not rely on it.
 
+### Reaching the server without Tailscale (proposed by the owner)
+
+Exposing a sync endpoint to the internet lets the phone sync on cellular, in
+the car included. It reopens the "No internet exposure" non-goal
+(`PRODUCT.md`), so it carries conditions:
+
+- **Expose the sync API only.** Every other route is an unauthenticated
+  control over the speakers, and stays LAN- and tailnet-only.
+- **Token auth and TLS on what is exposed**, the same narrow exception
+  `gpodder.py` already makes for `/api/2/*`.
+- **Audio does not go through it.** A native app downloads from the podcast
+  hosts directly, so the exposed surface is small JSON.
+
+Two ways to expose it: a router port-forward (needs a stable name for the home
+address and a TLS-terminating proxy on mothership), or Tailscale Funnel
+(public HTTPS on the existing `ts.net` name, no router change; ports 443,
+8443, and 10000 only; relayed, with bandwidth limits). Not chosen yet.
+
 ## Recommendation
 
 - **Phone: S.** Answers 2 and 3 rule out W on the phone, so its untested
