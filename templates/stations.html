@@ -288,6 +288,8 @@ function epMenu(e) {
       ? `<button type="button" data-episode="${e.id}/unrelease">Archive <i>won't play unless you add it back</i></button>` : "") +
     (e.status === "new" || e.status === "skipped"
       ? `<button type="button" class="danger" data-episode="${e.id}/done">Mark heard <i>counts as a listen</i></button>` : "") +
+    (e.status === "played"
+      ? `<button type="button" data-episode="${e.id}/unheard">Mark unheard <i>back in rotation</i></button>` : "") +
     `</div></div>`;
 }
 

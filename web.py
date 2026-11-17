@@ -509,6 +509,14 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             return result("only an unplayed episode can be archived")
         return result()
 
+    @app.post("/episodes/<int:episode_id>/unheard")
+    def mark_episode_unheard(episode_id: int):
+        if db.get_episode(episode_id) is None:
+            return result("no such episode"), 404
+        if not db.mark_unheard(episode_id):
+            return result("only a heard episode can be marked unheard")
+        return result()
+
     @app.post("/episodes/<int:episode_id>/done")
     def drop_episode_for_good(episode_id: int):
         if db.get_episode(episode_id) is None:

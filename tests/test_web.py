@@ -341,6 +341,18 @@ def test_skip_archive_route(client) -> None:
     assert data["ok"] is False and "episode" in data["error"]  # nothing on air
 
 
+def test_unheard_episode_route(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    heard = _add_episode(db, fid, 1)
+    db.mark_played(heard, "2026-01-09T00:00:00Z")
+    assert c.post(f"/episodes/{heard}/unheard").get_json()["ok"] is True
+    assert db.get_episode(heard)["status"] == "new"
+    data = c.post(f"/episodes/{heard}/unheard").get_json()
+    assert data["ok"] is False and "heard" in data["error"]
+    assert c.post("/episodes/999/unheard").status_code == 404
+
+
 def test_release_episodes_bulk_route(client) -> None:
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X", None, False)

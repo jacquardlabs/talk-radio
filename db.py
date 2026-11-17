@@ -970,6 +970,17 @@ class Database:
             )
             return cur.rowcount == 1
 
+    def mark_unheard(self, episode_id: int) -> bool:
+        """Put a heard episode back in rotation, as a Keep. Only 'played'
+        moves: anything else is already unheard or the queue's."""
+        with self._conn() as c:
+            cur = c.execute(
+                "UPDATE episodes SET status='new', played_at=NULL, review='keep'"
+                " WHERE id=? AND status='played'",
+                (episode_id,),
+            )
+            return cur.rowcount == 1
+
     def release_episodes(self, episode_ids: list[int]) -> int:
         if not episode_ids:
             return 0

@@ -247,6 +247,28 @@ def test_release_episode_only_affects_archived(db: Database) -> None:
     assert db.get_episode(archived_id)["status"] == "new"
 
 
+def test_mark_unheard_returns_a_heard_episode_to_rotation(db: Database) -> None:
+    fid = db.add_feed("https://ex.com/rss", "Show", None, False)
+    heard = _ep(db, fid, 1)
+    db.mark_queued(heard, "u")
+    db.mark_played(heard, utcnow_iso())
+    assert db.mark_unheard(heard) is True
+    row = db.get_episode(heard)
+    assert (row["status"], row["played_at"], row["review"]) == ("new", None, "keep")
+    assert db.oldest_new_for_feed(fid)["id"] == heard
+
+
+@pytest.mark.parametrize("status", ["new", "queued", "archived", "skipped"])
+def test_mark_unheard_moves_only_heard_episodes(db: Database, status: str) -> None:
+    fid = db.add_feed("https://ex.com/rss", "Show", None, False)
+    eid = _ep(db, fid, 1)
+    {"new": lambda: None, "queued": lambda: db.mark_queued(eid, "u"),
+     "archived": lambda: db.archive_episode(eid),
+     "skipped": lambda: db.mark_skipped(eid)}[status]()
+    assert db.mark_unheard(eid) is False
+    assert db.get_episode(eid)["status"] == status
+
+
 def test_release_episodes_bulk_only_releases_archived(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     ids = [_ep(db, fid, i) for i in range(1, 4)]
