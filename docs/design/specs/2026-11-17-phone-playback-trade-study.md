@@ -168,3 +168,51 @@ Untested for S:
    stays.
 2. **Android shell.** Native player, auto-download, outbox, Android Auto.
 3. **Delete `gpodder.py` and its tests; retire AntennaPod.**
+
+## Adversarial review (fresh-context agent, same day)
+
+The recommendation above is contested. Findings, most serious first:
+
+1. **The study has no "fix the sync, keep AntennaPod" column.** All 16 stale
+   entries trace to server-side defects. AntennaPod marks a remote play as
+   played by comparing the reported position with its *own* file's duration,
+   with no upper bound, and removes it from the queue (confirmed in
+   AntennaPod's `SyncService.java`, `develop` branch, not the 3.12.3 tag). A
+   played report with an overshooting position fixes the 5; a decision-time
+   timestamp for Never play fixes the 11. Archive is never sent either
+   (`db.py:603`, `status='played'` only). AntennaPod already meets the car,
+   auto-download, and offline requirements.
+2. **"Required by W, S, and B" overstates the virtual player for the phone.**
+   Offline, the phone plays a snapshot and replays an outbox — a second
+   mechanism. No conflict rule is stated for Up Next changing on the server
+   meanwhile.
+3. **"The DJ runs unchanged" and "wake alarm unaffected" fail once the output
+   is switched.** Wake schedules use the one `get_player`; with the switch on
+   "This device" an alarm would start a queue on a closed laptop. Needs an
+   ownership rule: alarms pinned to Sonos.
+4. **"One set of screens" fails in the car.** Android Auto shows a native
+   browse tree, not web pages. S drifts toward B.
+5. **Distribution.** A Play internal test track avoids Android Auto's
+   *Unknown sources* setting; the study omitted it.
+6. **Tailscale's docs say Android Auto is excluded from the VPN by default.**
+   The owner's observation stands; the cause is unexplained.
+7. **Internet exposure is not tied to S and may not be needed.** Episodes
+   download from the podcast hosts, so sync on home Wi-Fi alone works.
+
+Alternatives the study missed:
+
+- **Fix the sync, keep AntennaPod.** About a day of Python. Fails laptop
+  playback; the phone still orders its own queue; news stays off the phone.
+- **One synthetic "Up Next" feed** whose dates encode the server's order,
+  news included, with AntennaPod's queue kept sorted by date. Unverified:
+  whether the queue re-sorts when dates change, and what happens to items
+  that leave the feed.
+- **Thin laptop page**: an audio element over the banked Up Next and
+  `/stream`, reporting through `apply_remote_action`. No news insertion or
+  top-up while Sonos is off air.
+- **Subsonic API subset with an existing client.** Offline play reports
+  unconfirmed.
+
+Reviewer's recommendation: fix the sync now and re-measure after a week;
+build the laptop player separately; defer the Android app unless the
+remaining gap is queue order and the synthetic feed fails.
