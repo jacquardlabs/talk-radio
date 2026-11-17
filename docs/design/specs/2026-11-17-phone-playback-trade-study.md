@@ -107,6 +107,17 @@ V = verified this session. D = from vendor docs, untested here. U = untested.
 2. **AntennaPod downloads automatically.** Unattended restocking is a
    requirement. W cannot meet it.
 3. **Listening happens through Android Auto.** W cannot meet it.
+4. **Android Auto does not connect while Tailscale is on.** In the car the
+   phone has no route to the server.
+
+Consequence of 4: the car is the offline case, not a special one. The app
+plays saved episodes, records progress and decisions in the outbox, and
+replays them when the server is next reachable. Two requirements follow for
+S: it never needs the server to start or continue playback, and at home it
+reaches the server at the LAN address so restocking and replay do not depend
+on Tailscale being switched back on. Excluding Android Auto from Tailscale
+(app split tunneling) may lift the limit; unconfirmed on this phone, and the
+design does not rely on it.
 
 ## Recommendation
 
