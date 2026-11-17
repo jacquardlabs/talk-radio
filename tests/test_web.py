@@ -764,6 +764,10 @@ def test_a_sheet_rows_button_follows_the_row(no_sonos_client) -> None:
     assert (b'e.status === "archived"\n      ? `<button type="button" class="tab small" '
             b'data-episode="${e.id}/release" title="The DJ may pick it">Add to rotation</button>`') in body
     assert b'data-episode="${e.id}/play_next">Play next <i>after what\'s on</i></button>` : "") +' in body
+    # a heard row goes back to rotation the same way
+    assert (b'e.status === "played"\n      ? `<button type="button" class="tab small" '
+            b'data-episode="${e.id}/unheard" title="Back in rotation">Mark unheard</button>`') in body
+    assert b'(e.status === "archived" || e.status === "played"\n      ? `<button type="button" data-episode="${e.id}/play_next">' in body
 
 
 def test_the_sheet_sends_bulk_adding_to_review(no_sonos_client) -> None:

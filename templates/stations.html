@@ -277,8 +277,8 @@ function epMenu(e) {
     `aria-label="More actions for ${esc(e.title)}">${MORE_SVG}</button>` +
     `<div class="flap" data-epflap="${e.id}"${open ? "" : " hidden"}>` +
     `<span class="flap-title">${esc(e.title)}</span>` +
-    // an archived row's own button adds it to rotation, so Play next moves in here
-    (e.status === "archived"
+    // an archived or heard row's own button puts it back in rotation, so Play next moves in here
+    (e.status === "archived" || e.status === "played"
       ? `<button type="button" data-episode="${e.id}/play_next">Play next <i>after what's on</i></button>` : "") +
     `<button type="button" data-episode="${e.id}/play_now">Play now <i>interrupts what's on</i></button>` +
     `<button type="button" data-episode="${e.id}/play_last">Play last <i>end of Up next</i></button>` +
@@ -288,8 +288,6 @@ function epMenu(e) {
       ? `<button type="button" data-episode="${e.id}/unrelease">Archive <i>won't play unless you add it back</i></button>` : "") +
     (e.status === "new" || e.status === "skipped"
       ? `<button type="button" class="danger" data-episode="${e.id}/done">Mark heard <i>counts as a listen</i></button>` : "") +
-    (e.status === "played"
-      ? `<button type="button" data-episode="${e.id}/unheard">Mark unheard <i>back in rotation</i></button>` : "") +
     `</div></div>`;
 }
 
@@ -325,10 +323,13 @@ function episodeRow(e, opts) {
         `No sound ${e.failures}&times;</span>` : "",
   ].filter(Boolean).join("");
   // The button says what this row is for. An archived one is waiting to be
-  // let into rotation, which is what people did with it; the rest queue.
+  // let into rotation, which is what people did with it, and a heard one goes
+  // back there; the rest queue.
   const primary = onAir ? ""
     : e.status === "archived"
       ? `<button type="button" class="tab small" data-episode="${e.id}/release" title="The DJ may pick it">Add to rotation</button>`
+      : e.status === "played"
+      ? `<button type="button" class="tab small" data-episode="${e.id}/unheard" title="Back in rotation">Mark unheard</button>`
       : `<button type="button" class="tab small" data-episode="${e.id}/play_next" title="Play after current">Play next</button>`;
   return `<div class="ep-row st-${e.status}">` +
     `<div class="qmain"><div class="ep-title">${esc(e.title)}</div>` +
