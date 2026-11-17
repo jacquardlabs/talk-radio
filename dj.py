@@ -610,8 +610,9 @@ class DJ:
                 if here is not None:
                     self.db.record_observed(here["id"], cur.position)
                     # A show with no itunes:duration can never produce a
-                    # valid gpodder `total`, so backfill it from the one
-                    # place a length can still come from: Sonos's own read.
+                    # valid gpodder `total` for a paused position, so
+                    # backfill it from the one place a length can still
+                    # come from: Sonos's own read.
                     if cur.duration:
                         self.db.set_duration_if_unknown(here["id"], cur.duration)
             # everything before the current position has been listened past —

@@ -521,6 +521,95 @@ def test_never_play_can_be_taken_back(db) -> None:
     assert row["status"] == "new" and row["review"] == "keep" and row["played_at"] is None
 
 
+def test_decided_at_column_added_to_an_existing_database(tmp_path) -> None:
+    path = str(tmp_path / "old.db")
+    db = Database(path)
+    db.init()
+    with db._conn() as c:
+        c.execute("ALTER TABLE episodes DROP COLUMN decided_at")
+    db.init()
+    with db._conn() as c:
+        assert "decided_at" in {r["name"] for r in c.execute("PRAGMA table_info(episodes)")}
+
+
+def _decided(db: Database, episode_id: int) -> str | None:
+    return db.get_episode(episode_id)["decided_at"]
+
+
+def test_decisions_that_leave_rotation_are_dated_now(db) -> None:
+    """decided_at is what a phone's sync selects on and reports: played_at is
+    the publish date on a Never play, and NULL on an archive."""
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    before = utcnow_iso()
+    db.review_episodes([fresh], "never")
+    db.review_episodes([old], "back_catalog")
+    assert _decided(db, fresh) >= before and _decided(db, old) >= before
+    assert db.get_episode(fresh)["played_at"] == "2026-11-01T00:00:00Z"  # unchanged
+
+
+def test_unrelease_is_dated(db) -> None:
+    show, _ = _review_library(db)
+    fresh = _by_guid(db, show, "fresh")["id"]
+    before = utcnow_iso()
+    assert db.unrelease_episode(fresh)
+    assert _decided(db, fresh) >= before
+
+
+def test_cuts_and_prunes_are_not_dated(db) -> None:
+    """None of these is the listener retiring an episode from rotation, and
+    a prune is where the batches big enough to flood a sync are."""
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    db.set_rotation_depth(show, 1)
+    assert db.get_episode(old)["status"] == "archived" and _decided(db, old) is None
+    db.review_episodes([old], "never")
+    assert db.get_episode(old)["review"] == "pruned" and _decided(db, old) is None
+    db.review_episodes([old], "back_catalog")  # undoing a prune isn't a decision
+    assert _decided(db, old) is None
+    db.set_feed_skip_titles(show, ["Fresh"])
+    assert db.get_episode(fresh)["status"] == "archived" and _decided(db, fresh) is None
+
+
+def test_every_way_back_clears_decided_at(db) -> None:
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    undo = [
+        lambda: db.review_episodes([fresh], "keep"),
+        lambda: db.release_episode(fresh),
+        lambda: db.release_episodes([fresh]),
+        lambda: db.unarchive_feed(show),
+    ]
+    for back in undo:
+        db.unrelease_episode(fresh)
+        back()
+        assert db.get_episode(fresh)["status"] == "new" and _decided(db, fresh) is None
+    db.review_episodes([old], "never")
+    assert db.mark_unheard(old)
+    assert _decided(db, old) is None
+    db.review_episodes([old], "never")
+    db.mark_played(old, "2026-11-03T00:00:00Z")  # heard after all
+    assert _decided(db, old) is None
+
+
+def test_episodes_played_since_reports_decisions_by_when_they_were_made(db) -> None:
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    db.insert_episode(show, "heard", "Heard", "https://x/c.mp3", "2020-01-01T00:00:00Z")
+    heard = _by_guid(db, show, "heard")["id"]
+    db.mark_played(heard, "2026-11-05T00:00:00Z")
+    db.review_episodes([fresh], "never")
+    db.unrelease_episode(old)
+    with db._conn() as c:  # pin the decision times so the order is known
+        c.execute("UPDATE episodes SET decided_at='2026-11-06T00:00:00Z' WHERE id=?", (fresh,))
+        c.execute("UPDATE episodes SET decided_at='2026-11-04T00:00:00Z' WHERE id=?", (old,))
+    rows = db.episodes_played_since("2026-11-04T00:00:00Z")
+    assert [(r["id"], r["reported_at"]) for r in rows] == [
+        (old, "2026-11-04T00:00:00Z"), (heard, "2026-11-05T00:00:00Z"),
+        (fresh, "2026-11-06T00:00:00Z")]
+    assert [r["id"] for r in db.episodes_played_since("2026-11-05T00:00:01Z")] == [fresh]
+
+
 def test_review_shows_count_decisions_and_drop_undone_ones(db) -> None:
     show, news = _review_library(db)
     fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]

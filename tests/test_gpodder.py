@@ -16,9 +16,9 @@ NOW_STR = "2026-09-01T00:00:00Z"
 
 def test_played_action_matches_antennapod_first_sync_shape() -> None:
     row = {"duration_seconds": 1800, "audio_url": "https://cdn/x.mp3",
-          "guid": "g1", "played_at": "2026-09-08T11:00:00Z"}
+          "guid": "g1", "reported_at": "2026-09-08T11:00:00Z"}
     a = gpodder.played_action(row, "https://feed/rss")
-    assert a["started"] == a["position"] == a["total"] == 1800
+    assert a["started"] == a["position"] == a["total"] == gpodder.PLAYED_POSITION
     assert a["action"] == "play"
     assert a["podcast"] == "https://feed/rss"
     assert a["episode"] == "https://cdn/x.mp3"
@@ -26,12 +26,24 @@ def test_played_action_matches_antennapod_first_sync_shape() -> None:
     assert a["timestamp"] == "2026-09-08T11:00:00"
 
 
-def test_played_action_none_without_duration() -> None:
+def test_played_action_overshoots_the_phones_own_copy() -> None:
+    """AntennaPod marks a remote play finished only when position reaches
+    its own file's length less 30s, and ignores total. The phone's copy can
+    run minutes longer than ours (other inserted ads), so reporting our
+    duration left it "paused near the end" and in the queue."""
+    row = {"duration_seconds": 1800, "audio_url": "x", "guid": "g",
+          "reported_at": "2026-09-08T11:00:00Z"}
+    position = gpodder.played_action(row, "feed")["position"]
+    assert position >= 24 * 3600            # past any episode's real length
+    assert position * 1000 < 2 ** 31        # AntennaPod's int milliseconds
+
+
+def test_played_action_needs_no_duration() -> None:
     row = {"duration_seconds": None, "audio_url": "x", "guid": "g",
-          "played_at": "2026-09-08T11:00:00Z"}
-    assert gpodder.played_action(row, "feed") is None
-    row["duration_seconds"] = 0
-    assert gpodder.played_action(row, "feed") is None
+          "reported_at": "2026-09-08T11:00:00Z"}
+    a = gpodder.played_action(row, "feed")
+    # AntennaPod drops the fields unless started>=0, position>0, total>0
+    assert a["started"] >= 0 and a["position"] > 0 and a["total"] > 0
 
 
 def test_resume_action_reports_mid_position() -> None:
@@ -175,13 +187,114 @@ def test_since_filters_out_earlier_plays(gclient) -> None:
     assert len(resp2.get_json()["actions"]) == 1
 
 
-def test_played_episode_with_no_duration_is_skipped_outbound(gclient) -> None:
+def test_played_episode_with_no_duration_is_reported(gclient) -> None:
     c, db, dj, player = gclient
     make_feed(db, "showa", 1, duration=None)
     ep = db.episodes_with_status("new")[0]
     db.mark_played(ep["id"], "2026-09-01T00:00:00Z")
     resp = c.get("/api/2/episodes/radio.json?since=0", headers=basic_header())
-    assert resp.get_json()["actions"] == []
+    [a] = resp.get_json()["actions"]
+    assert a["guid"] == ep["guid"] and a["position"] == gpodder.PLAYED_POSITION
+
+
+# ── listener decisions reach the phone as played ──────────────────────
+#
+# A phone that synced after an episode came out asks with a `since` later
+# than its publish date — the publish date a Never play records as played_at.
+
+def _synced_after_publish() -> int:
+    since = gpodder._now() - 60
+    assert gpodder._epoch(NOW_STR) < since  # the premise every test below needs
+    return since
+
+
+def _actions(c, since: int) -> list[dict]:
+    resp = c.get(f"/api/2/episodes/radio.json?since={since}", headers=basic_header())
+    return resp.get_json()["actions"]
+
+
+def _review(c, ids: list[int], decision: str) -> None:
+    assert c.post("/episodes/review", json={"ids": ids, "decision": decision}).get_json()["ok"]
+
+
+def _played(actions: list[dict]) -> list[str]:
+    return [a["guid"] for a in actions if a["position"] == gpodder.PLAYED_POSITION]
+
+
+def _recent(a: dict, since: int) -> bool:
+    return gpodder._epoch(a["timestamp"] + "Z") >= since
+
+
+@pytest.mark.parametrize("decision", ["never", "back_catalog"])
+def test_review_decision_reaches_a_phone_synced_after_publish(gclient, decision) -> None:
+    """Dated when decided, not when published: otherwise the row never
+    passes `since`, and its timestamp loses to the phone's own actions."""
+    c, db, *_ = gclient
+    make_feed(db, "showa", 2)
+    ep, _ = db.episodes_with_status("new")
+    since = _synced_after_publish()
+    _review(c, [ep["id"]], decision)
+    actions = _actions(c, since)
+    assert _played(actions) == [ep["guid"]]
+    assert _recent(actions[0], since)
+
+
+@pytest.mark.parametrize("archive", ["unrelease_route", "skip_archive", "drop_archive"])
+def test_archive_decision_is_sent_as_played(gclient, archive) -> None:
+    c, db, dj, player = gclient
+    make_feed(db, "showa", 4)
+    since = _synced_after_publish()
+    if archive == "unrelease_route":
+        ep = db.episodes_with_status("new")[0]
+        assert c.post(f"/episodes/{ep['id']}/unrelease").get_json()["ok"]
+    else:
+        dj.start()
+        if archive == "skip_archive":
+            ep = current_episode(db, player)
+            assert dj.skip_archive() is None
+        else:
+            ep = next_queued_episode(db, player)
+            assert dj.drop_from_queue(ep["id"], "archive") is None
+    assert db.get_episode(ep["id"])["status"] == "archived"
+    actions = [a for a in _actions(c, since) if a["guid"] == ep["guid"]]
+    assert _played(actions) == [ep["guid"]] and _recent(actions[0], since)
+
+
+def test_archives_nobody_decided_are_not_sent(gclient) -> None:
+    """A depth cut, a skipped title, and a prune of what the cut left were
+    never the listener retiring an episode the phone was playing."""
+    c, db, *_ = gclient
+    fid = make_feed(db, "showa", 3)
+    db.set_rotation_depth(fid, 1)                    # cuts 1 and 2, keeps 3
+    assert db.set_feed_skip_titles(fid, ["showa 3"]) == 1
+    cut = [e["id"] for e in db.episodes_with_status("archived")]
+    assert len(cut) == 3
+    since = _synced_after_publish()
+    assert _actions(c, since) == []
+    _review(c, cut, "never")  # Never play from the back catalog: a prune
+    assert _actions(c, since) == []
+
+
+def test_a_decision_taken_back_is_not_sent(gclient) -> None:
+    c, db, *_ = gclient
+    make_feed(db, "showa", 3)
+    a, b, d = (e["id"] for e in db.episodes_with_status("new"))
+    _review(c, [a, b], "back_catalog")
+    _review(c, [d], "never")
+    assert c.post(f"/episodes/{a}/release").get_json()["ok"]
+    _review(c, [b, d], "keep")
+    assert _actions(c, 0) == []
+
+
+def test_a_listen_after_a_decision_reports_when_it_was_heard(gclient) -> None:
+    c, db, *_ = gclient
+    make_feed(db, "showa", 1)
+    ep = db.episodes_with_status("new")[0]
+    _review(c, [ep["id"]], "never")
+    _review(c, [ep["id"]], "keep")
+    db.mark_played(ep["id"], "2026-09-02T10:00:00Z")
+    [a] = _actions(c, 0)
+    assert a["timestamp"] == "2026-09-02T10:00:00"
 
 
 def test_post_play_action_sets_resume(gclient) -> None:

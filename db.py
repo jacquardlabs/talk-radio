@@ -94,6 +94,16 @@ CREATE TABLE IF NOT EXISTS episodes (
     -- undecided. A finished listen clears it (mark_played). 'pruned' is a
     -- Never play from the back catalog: housekeeping, not a verdict on the show.
     review TEXT,
+    -- When the listener's decision took this episode out of rotation (Never
+    -- play, or sent to the back catalog). The gpodder sync API's `since` and
+    -- `timestamp` for it: played_at is the publish date on a Never play (see
+    -- Database.review_episodes) and NULL on an archive, so neither would
+    -- ever reach a phone that synced after the episode came out, and an old
+    -- timestamp would lose to the phone's own newer action anyway. NULL for
+    -- anything a listener didn't decide, so a cut or a prune never reaches
+    -- the phone. Cleared by a listen and by every listener action that puts
+    -- the episode back in rotation.
+    decided_at TEXT,
     UNIQUE (feed_id, guid)
 );
 CREATE INDEX IF NOT EXISTS idx_episodes_feed_status ON episodes (feed_id, status);
@@ -146,18 +156,23 @@ REVIEW_ELIGIBLE = {
     "back_catalog": f"(status='new' OR {_TAKEN_BACK})",
     "never": "status IN ('new','archived')",
 }
+# utcnow_iso() in SQL, for the statements below that can't take a parameter.
+_SQL_NOW = "strftime('%Y-%m-%dT%H:%M:%SZ','now')"
 REVIEW_WRITES = {
     # Keeping one already on the speaker leaves it there.
     "keep": "status=CASE status WHEN 'queued' THEN 'queued' ELSE 'new' END,"
-            " played_at=NULL, review='keep'",
+            " played_at=NULL, review='keep', decided_at=NULL",
     # A pruned episode going back was never a decision to leave rotation.
     "back_catalog": "status='archived', played_at=NULL,"
-                    " review=CASE review WHEN 'pruned' THEN NULL ELSE 'back_catalog' END",
+                    " review=CASE review WHEN 'pruned' THEN NULL ELSE 'back_catalog' END,"
+                    f" decided_at=CASE review WHEN 'pruned' THEN NULL ELSE {_SQL_NOW} END",
     # mark_played and clear_failures' fields, in the one statement a batch needs.
+    # Only one leaving rotation is dated: a pruned one was never on the phone.
     "never": "status='played', played_at=published_at, resume_seconds=NULL,"
              " resume_at=NULL, play_uri=NULL, local_path=NULL, observed_seconds=NULL,"
              " failure_count=0, pinned=0,"
-             " review=CASE status WHEN 'archived' THEN 'pruned' ELSE 'never' END",
+             " review=CASE status WHEN 'archived' THEN 'pruned' ELSE 'never' END,"
+             f" decided_at=CASE status WHEN 'archived' THEN NULL ELSE {_SQL_NOW} END",
 }
 
 
@@ -309,6 +324,11 @@ class Database:
                 c.execute("ALTER TABLE episodes ADD COLUMN media_key TEXT")
             if "resume_at" not in cols:
                 c.execute("ALTER TABLE episodes ADD COLUMN resume_at TEXT")
+            # No backfill: a decision made before this column existed has no
+            # time to give it, and dating them all now would send every one
+            # to the phone in a single sync.
+            if "decided_at" not in cols:
+                c.execute("ALTER TABLE episodes ADD COLUMN decided_at TEXT")
             c.execute(
                 "CREATE INDEX IF NOT EXISTS idx_episodes_media_key"
                 " ON episodes (media_key)"
@@ -593,16 +613,22 @@ class Database:
             ).fetchone()
 
     def episodes_played_since(self, since_iso: str, limit: int = 5000) -> list[sqlite3.Row]:
-        """Rows to report as gpodder 'play' actions with position==total.
-        `>=` on played_at, not `>`: since is second-granularity, and an
-        episode played in the same second as a prior sync must not be lost."""
+        """Rows to report to a phone as finished: the heard, and the ones the
+        listener took out of rotation (decided_at), each as of `reported_at`.
+        An archive goes as played too — gpodder has no other way to take an
+        episode off a phone's queue — so a later "Add to rotation" brings it
+        back here but cannot un-play it there.
+        `>=`, not `>`: since is second-granularity, and an episode played in
+        the same second as a prior sync must not be lost."""
         with self._conn() as c:
             return c.execute(
-                "SELECT e.*, f.url AS feed_url FROM episodes e"
+                "SELECT e.*, f.url AS feed_url,"
+                " COALESCE(e.decided_at, e.played_at) AS reported_at FROM episodes e"
                 " JOIN feeds f ON f.id=e.feed_id"
-                " WHERE e.status='played' AND e.played_at>=?"
-                " ORDER BY e.played_at ASC LIMIT ?",
-                (since_iso, limit),
+                " WHERE (e.status='played' AND COALESCE(e.decided_at, e.played_at)>=?)"
+                " OR (e.status='archived' AND e.decided_at>=?)"
+                " ORDER BY reported_at ASC LIMIT ?",
+                (since_iso, since_iso, limit),
             ).fetchall()
 
     def episodes_with_resume_since(self, since_iso: str) -> list[sqlite3.Row]:
@@ -697,7 +723,7 @@ class Database:
             c.execute(
                 "UPDATE episodes SET status='played', played_at=?, resume_seconds=NULL,"
                 " resume_at=NULL, play_uri=NULL, local_path=NULL,"
-                " observed_seconds=NULL, review=? WHERE id=?",
+                " observed_seconds=NULL, review=?, decided_at=NULL WHERE id=?",
                 (played_at, "never" if never else None, episode_id),
             )
             return row["local_path"] if row else None
@@ -717,9 +743,9 @@ class Database:
         """Fill duration_seconds from the speaker's own read when the feed
         never supplied itunes:duration. Guarded on IS NULL, same convention
         as the other feed backfills — this never overwrites a value the feed
-        did provide. Gpodder sync needs a valid `total` to report an episode
-        played at all; a show with no itunes:duration could otherwise never
-        get one."""
+        did provide. Gpodder sync needs a valid `total` to report a position
+        part-way through an episode; a show with no itunes:duration could
+        otherwise never get one."""
         with self._conn() as c:
             c.execute(
                 "UPDATE episodes SET duration_seconds=? WHERE id=?"
@@ -893,7 +919,7 @@ class Database:
     def unarchive_feed(self, feed_id: int) -> int:
         with self._conn() as c:
             cur = c.execute(
-                "UPDATE episodes SET status='new', review='keep'"
+                "UPDATE episodes SET status='new', review='keep', decided_at=NULL"
                 " WHERE feed_id=? AND status='archived'",
                 (feed_id,),
             )
@@ -952,7 +978,7 @@ class Database:
     def release_episode(self, episode_id: int) -> bool:
         with self._conn() as c:
             cur = c.execute(
-                "UPDATE episodes SET status='new', review='keep'"
+                "UPDATE episodes SET status='new', review='keep', decided_at=NULL"
                 " WHERE id=? AND status='archived'",
                 (episode_id,),
             )
@@ -961,12 +987,13 @@ class Database:
     def unrelease_episode(self, episode_id: int) -> bool:
         """Send an unplayed episode back to the back catalog. Only 'new'
         moves: one in Up Next is the queue's to drop, and a heard one would
-        lose its history."""
+        lose its history. A decision, so it is dated for the phone
+        (episodes.decided_at)."""
         with self._conn() as c:
             cur = c.execute(
-                "UPDATE episodes SET status='archived', review='back_catalog'"
-                " WHERE id=? AND status='new'",
-                (episode_id,),
+                "UPDATE episodes SET status='archived', review='back_catalog',"
+                " decided_at=? WHERE id=? AND status='new'",
+                (utcnow_iso(), episode_id),
             )
             return cur.rowcount == 1
 
@@ -975,8 +1002,8 @@ class Database:
         moves: anything else is already unheard or the queue's."""
         with self._conn() as c:
             cur = c.execute(
-                "UPDATE episodes SET status='new', played_at=NULL, review='keep'"
-                " WHERE id=? AND status='played'",
+                "UPDATE episodes SET status='new', played_at=NULL, review='keep',"
+                " decided_at=NULL WHERE id=? AND status='played'",
                 (episode_id,),
             )
             return cur.rowcount == 1
@@ -987,7 +1014,8 @@ class Database:
         with self._conn() as c:
             placeholders = ",".join("?" * len(episode_ids))
             cur = c.execute(
-                f"UPDATE episodes SET status='new', review='keep' WHERE status='archived'"
+                f"UPDATE episodes SET status='new', review='keep', decided_at=NULL"
+                f" WHERE status='archived'"
                 f" AND id IN ({placeholders})",
                 episode_ids,
             )
@@ -1060,8 +1088,11 @@ class Database:
         before it can leave rotation.
 
         Never play sets played_at to the publish date, as the stale-news
-        migration does, so a batch doesn't flood a phone's sync, whose `since`
-        query is capped at 5000 rows."""
+        migration does, so a batch doesn't bury Recently played or flood a
+        phone's sync, whose `since` query is capped at 5000 rows. What the
+        phone needs instead is decided_at, set only on rows leaving rotation:
+        a prune from the back catalog was never on the phone, and that is
+        where the large batches are."""
         moved: list[int] = []
         paths: list[str] = []
         with self._conn() as c:

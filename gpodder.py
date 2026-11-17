@@ -19,8 +19,11 @@ Verified against AntennaPod's own source (net/sync/service*), not assumed:
 - A PLAY action needs started>=0, position>0, total>0 together, or the
   fields are dropped entirely (EpisodeAction.readFromJsonObject) and the app
   writes a negative position (AntennaPod #5380).
-- "Played" is expressed as a PLAY action whose position sits within
-  smartMarkAsPlayedSecs (default 30s) of total, not as its own action type.
+- "Played" is expressed as a PLAY action, not as its own action type. The
+  phone marks it played, and takes it off its queue, when position reaches
+  within smartMarkAsPlayedSecs (default 30s) of the duration of its *own*
+  copy of the file — `total` is ignored, and position is never capped
+  (SyncService.processEpisodeActions). See PLAYED_POSITION.
 - Timestamps are "yyyy-MM-dd'T'HH:mm:ss" UTC, no trailing Z
   (EpisodeAction.writeToJsonObject/PATTERN_ISO_DATEFORMAT) — a remote action
   with a timestamp that doesn't parse loses to any local one, silently.
@@ -63,7 +66,7 @@ def _epoch(iso_z: str) -> int:
 
 
 def _fmt_ts(iso_z: str | None) -> str:
-    """played_at/resume_at are stored as '...Z'; gpodder wants the same UTC
+    """Our timestamps are stored as '...Z'; gpodder wants the same UTC
     instant with no zone suffix at all."""
     if not iso_z:
         return datetime.now(timezone.utc).strftime(_TS_FORMAT)
@@ -72,23 +75,31 @@ def _fmt_ts(iso_z: str | None) -> str:
 
 # ── pure mappers: DB row -> gpodder action ──────────────────────────────
 
-def played_action(episode, feed_url: str) -> dict | None:
-    """A finished episode, in the shape AntennaPod's own first-sync upload
-    uses: started == position == total == duration. None when there is no
-    valid total to report — see dj.tick()'s duration_seconds backfill,
-    which is what shrinks that set over time."""
-    duration = episode["duration_seconds"]
-    if not duration:
-        return None
+# Where a finished episode is reported to have stopped: past the end of any
+# copy of it a phone could hold. Our duration_seconds won't do — the phone's
+# file is often minutes longer (different inserted ads), and a position that
+# falls short of its own length reads as paused near the end. A week clears
+# any episode, and stays far below the 2,147,483s at which AntennaPod's
+# `position * 1000` overflows its int milliseconds.
+PLAYED_POSITION = 7 * 24 * 3600
+
+
+def played_action(episode, feed_url: str) -> dict:
+    """A finished episode — heard, or taken out of rotation — as of its
+    `reported_at` (db.episodes_played_since), in the shape AntennaPod's own
+    first-sync upload uses: started == position == total. Needs no
+    duration, so a show without itunes:duration is reported too. A phone
+    that hasn't read its copy's length yet (duration 0) still won't mark it
+    played; nothing sent from here can change that."""
     return {
         "podcast": feed_url,
         "episode": episode["audio_url"],
         "guid": episode["guid"],
         "action": "play",
-        "timestamp": _fmt_ts(episode["played_at"]),
-        "started": duration,
-        "position": duration,
-        "total": duration,
+        "timestamp": _fmt_ts(episode["reported_at"]),
+        "started": PLAYED_POSITION,
+        "position": PLAYED_POSITION,
+        "total": PLAYED_POSITION,
     }
 
 
@@ -378,11 +389,8 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
     def get_episode_actions(username: str):
         floor = datetime.fromtimestamp(_since_arg(), tz=timezone.utc) \
             .strftime("%Y-%m-%dT%H:%M:%SZ")
-        actions: list[dict] = []
-        for row in db.episodes_played_since(floor):
-            a = played_action(row, _url(feed_path(row["feed_id"])))
-            if a is not None:
-                actions.append(a)
+        actions: list[dict] = [played_action(row, _url(feed_path(row["feed_id"])))
+                               for row in db.episodes_played_since(floor)]
         for row in db.episodes_with_resume_since(floor):
             a = resume_action(row, _url(feed_path(row["feed_id"])))
             if a is not None:

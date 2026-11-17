@@ -209,7 +209,11 @@ sets `usesCleartextTraffic="true"`. Enter the credentials above, and the
 station list arrives as subscriptions.
 
 What syncs: played/unplayed and playback position, both directions, for
-every enabled non-news feed. Subscriptions are one-way, station → phone — the
+every enabled non-news feed. An episode you take out of rotation here —
+Never play, or sent to the back catalog — reaches the phone as played, so it
+leaves the phone's queue too; putting it back in rotation later can't
+un-play it there. Episodes a station's rotation depth or skipped titles
+leave out are not sent. Subscriptions are one-way, station → phone — the
 phone can't add or remove stations here, since it knows nothing about a
 feed's category, rotation, or news flag. The phone mirrors the radio: turning
 a station off, deleting it, or flagging it as news unsubscribes the phone at
