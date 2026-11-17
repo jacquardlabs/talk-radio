@@ -107,9 +107,9 @@ def html_to_text(raw: str | None, limit: int = EPISODE_DESCRIPTION_MAX) -> str |
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return _truncate(text, limit) or None
 
-# ── arc detection ────────────────────────────────────────────────────
+# ── series detection ─────────────────────────────────────────────────
 # Leading episode numbering is show-level info ("437. ", "Show 66 - ",
-# "10.91- "): stripped, but never counts as an arc marker.
+# "10.91- "): stripped, but never counts as a part marker.
 _LEADING_NUM_RE = re.compile(
     r"^\s*(?:(?:show|episode|ep\.?|#)\s*)?\d+(?:\.\d+)?\s*[.\-–—:]\s*",
     re.IGNORECASE,
@@ -146,58 +146,18 @@ def _tidy(text: str) -> str | None:
     return re.sub(r"\s+", " ", text).strip(" \t-–—:.,!?'\"()").lower() or None
 
 
-def arc_key(title: str) -> str | None:
-    """Grouping key for multi-part arcs, or None when the title carries no
-    part marker (the episode stands alone). Grouping is only ever done
-    between equal non-None keys within one feed's unplayed episodes.
-
-    Deliberately loose: it truncates at the first separator so per-part
-    subtitles ("The Fall of the Aztecs: The Great Escape") still group. That
-    suits the rotation guard, where over-grouping only ever costs a redirect
-    to some other story's part one. Use series_key() for anything that acts on
-    the whole group."""
-    text, found = _strip_part_marker(title)
-    if not found:
-        return None
-    # per-part subtitles truncate at the first real separator; plain hyphens
-    # are too common inside titles to count
-    positions = [i for i in (text.find(s) for s in (":", "–", "—")) if i > 0]
-    if positions:
-        text = text[:min(positions)]
-    return _tidy(text)
-
-
 def series_key(title: str) -> str | None:
     """Strict grouping key: the whole title minus its part marker.
 
-    arc_key's truncation is wrong the moment something acts on every member,
-    because plenty of shows lead with a banner rather than the story —
-    "SYMHC Classics: Palmer Raids Pt. 1" truncates to "symhc classics", which
-    collapses sixteen unrelated stories into one arc. Keeping the full title
+    Truncating at the first separator would be wrong, because plenty of shows
+    lead with a banner rather than the story — "SYMHC Classics: Palmer Raids
+    Pt. 1" would truncate to "symhc classics", collapsing sixteen unrelated
+    stories into one arc. Keeping the full title
     separates them ("symhc classics: palmer raids" against "symhc classics:
     irish famine") while still matching real siblings, whose titles differ
     only by the marker."""
     text, found = _strip_part_marker(title)
     return _tidy(text) if found else None
-
-
-SEQUENTIAL_TITLE_THRESHOLD = 0.5
-
-
-def detect_playback_mode(parsed) -> str:
-    """in_order when the feed declares itunes:type=serial or when at least
-    half its titles carry show numbering / part markers; random otherwise.
-    Classification errors land on the safe side: in_order is the
-    pre-feature behavior, and the per-station toggle fixes any miss."""
-    if (parsed.feed.get("itunes_type") or "").lower() == "serial":
-        return "in_order"
-    titles = [e.get("title", "") for e in parsed.entries]
-    if not titles:
-        return "in_order"
-    numbered = sum(
-        1 for t in titles
-        if _LEADING_NUM_RE.match(t or "") or arc_key(t) is not None)
-    return "in_order" if numbered / len(titles) >= SEQUENTIAL_TITLE_THRESHOLD else "random"
 
 
 class FeedError(Exception):
@@ -365,7 +325,6 @@ def add_feed_from_parsed(db: Database, parsed, url: str, is_news: bool,
     title = entry_title(parsed.feed) or url
     image = (parsed.feed.get("image") or {}).get("href")
     feed_id = db.add_feed(url, title, image, is_news,
-                          playback_mode=detect_playback_mode(parsed),
                           description=feed_description(parsed))
     ingest_entries(db, feed_id, parsed)
     db.set_rotation_depth(feed_id, rotation_depth(include, last_n))

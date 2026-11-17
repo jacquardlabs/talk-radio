@@ -14,13 +14,8 @@ speakers like a personal talk-radio station — forever.
    shelf on *Stations* — without pausing or removing its stations. Force-play (*Play next*, *Play now*) ignores
    rotation settings, and an episode already queued when you switch a
    category off still plays out.
-2. **Multi-part episodes stay in order.** Shows set to *In order* play their
-   oldest unplayed episode. Shows set to *Random* draw any unplayed episode,
-   but an arc guard still applies: when a draw belongs to a multi-part story
-   ("Part 3", "(2/4)", a trailing "II"), the story's oldest unplayed part
-   plays first, so a series arrives 1 → 2 → 3. New shows are classified on
-   add — declared serials and heavily numbered feeds start *In order* — and
-   any show can be flipped from its station sheet's *Settings*.
+2. **Every show plays in order.** Within a show, the DJ plays the oldest
+   unplayed episode in rotation, so a multi-part story arrives 1 → 2 → 3.
 3. **News always plays first.** Feeds flagged "news" jump to the front of
    Up Next as they arrive, oldest first, and wait there until you play them,
    drop them, or move them down.

@@ -1,7 +1,7 @@
 import pytest
 import sqlite3
 
-from db import Database, EpisodeSeed, utcnow_iso
+from db import SCHEMA, Database, EpisodeSeed, utcnow_iso
 
 
 def _ep(db: Database, feed_id: int, n: int, status: str = "new") -> int:
@@ -325,34 +325,52 @@ def test_rotation_feeds_excludes_rotation_disabled_category(db: Database) -> Non
     assert off_feed not in ids
 
 
-def test_playback_mode_default_and_toggle(db: Database) -> None:
-    fid = db.add_feed("https://ex.com/rss", "Show", None, False)
-    assert db.get_feed(fid)["playback_mode"] == "in_order"
-    db.toggle_feed_playback(fid)
-    assert db.get_feed(fid)["playback_mode"] == "random"
-    db.toggle_feed_playback(fid)
-    assert db.get_feed(fid)["playback_mode"] == "in_order"
+_OLD_PLAYBACK_COLUMN = ("    playback_mode TEXT NOT NULL DEFAULT 'in_order'\n"
+                        "        CHECK (playback_mode IN ('in_order','random')),\n")
 
 
-def test_add_feed_with_playback_mode(db: Database) -> None:
-    fid = db.add_feed("https://ex.com/rss", "Show", None, False, playback_mode="random")
-    assert db.get_feed(fid)["playback_mode"] == "random"
+def _database_with_playback_mode(tmp_path, built_in: bool) -> Database:
+    """A database from before random mode was retired, in either shape a live
+    one can have: the column in the original CREATE TABLE, mid-table with
+    commented columns after it, or added later by ALTER TABLE."""
+    path = str(tmp_path / "old.db")
+    with sqlite3.connect(path) as c:
+        if built_in:
+            anchor = "ON DELETE SET NULL,\n"
+            at = SCHEMA.index(anchor, SCHEMA.index("CREATE TABLE IF NOT EXISTS feeds")) + len(anchor)
+            c.executescript(SCHEMA[:at] + _OLD_PLAYBACK_COLUMN + SCHEMA[at:])
+        else:
+            c.executescript(SCHEMA)
+            c.execute("ALTER TABLE feeds ADD COLUMN playback_mode TEXT NOT NULL"
+                      " DEFAULT 'in_order' CHECK (playback_mode IN ('in_order','random'))")
+        c.execute("INSERT INTO feeds (url, title, added_at, playback_mode)"
+                  " VALUES ('https://x/rss', 'Shuffled', '2026-01-01T00:00:00Z', 'random')")
+        c.execute("INSERT INTO episodes (feed_id, guid, title, audio_url, published_at)"
+                  " VALUES (1, 'g1', 'Ep 1', 'https://cdn/1.mp3', '2026-01-01T00:00:00Z')")
+    return Database(path)
 
 
-def test_playback_mode_check_constraint(db: Database) -> None:
-    with pytest.raises(sqlite3.IntegrityError):
-        db.add_feed("https://ex.com/rss", "Show", None, False, playback_mode="chaos")
+@pytest.mark.parametrize("built_in", [True, False], ids=["create-table", "alter-table"])
+def test_init_retires_random_playback_mode(tmp_path, built_in: bool) -> None:
+    db = _database_with_playback_mode(tmp_path, built_in)
+
+    db.init()
+    db.init()  # and stays retired: nothing re-adds the column
+
+    with db._conn() as c:
+        assert "playback_mode" not in {r["name"] for r in c.execute("PRAGMA table_info(feeds)")}
+    assert db.get_feed(1)["title"] == "Shuffled"
+    assert db.oldest_new_for_feed(1)["guid"] == "g1"
+    assert db.get_feed(db.add_feed("https://y/rss", "Next", None, False))["title"] == "Next"
 
 
-def test_new_episodes_for_feed_ordering_and_filter(db: Database) -> None:
+def test_oldest_new_for_feed_skips_heard_episodes(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     _ep(db, fid, 3)
-    _ep(db, fid, 1)
-    played = _ep(db, fid, 2)
+    played = _ep(db, fid, 1)
     db.mark_queued(played, "u")
     db.mark_played(played, utcnow_iso())
-    rows = db.new_episodes_for_feed(fid)
-    assert [r["guid"] for r in rows] == [f"guid-{fid}-1", f"guid-{fid}-3"]
+    assert db.oldest_new_for_feed(fid)["guid"] == f"guid-{fid}-3"
 
 
 # ── review ──────────────────────────────────────────────────────────

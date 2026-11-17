@@ -6,8 +6,8 @@ import pytest
 
 from config import Config
 from db import Database
-from feeds import (FeedFetch, add_feed_from_parsed, detect_playback_mode,
-                   ingest_entries, refresh_all, refresh_news)
+from feeds import (FeedFetch, add_feed_from_parsed, ingest_entries, refresh_all,
+                   refresh_news)
 from rss_fixtures import rss
 
 NOW = datetime.now(timezone.utc)
@@ -314,43 +314,6 @@ def test_search_podcasts_handles_missing_fields(monkeypatch) -> None:
     monkeypatch.setattr(feeds_mod.requests, "get", lambda *a, **k: _FakeItunesResponse(payload))
     results = feeds_mod.search_podcasts("x", "TestAgent/1.0")
     assert results == [{"title": "", "author": "", "artwork_url": "", "feed_url": "https://example/feed.xml"}]
-
-
-class _ParsedStub:
-    """Minimal stand-in for a feedparser result: .feed and entries support .get."""
-    def __init__(self, itunes_type: str | None = None, titles: tuple[str, ...] = ()):
-        self.feed = {"itunes_type": itunes_type} if itunes_type else {}
-        self.entries = [{"title": t} for t in titles]
-
-
-def test_detect_declared_serial_is_in_order() -> None:
-    parsed = _ParsedStub(itunes_type="serial", titles=("Anything", "At all"))
-    assert detect_playback_mode(parsed) == "in_order"
-
-
-def test_detect_numbered_titles_is_in_order() -> None:
-    parsed = _ParsedStub(titles=("1. Alpha", "2. Beta", "3. Gamma", "Bonus chat"))
-    assert detect_playback_mode(parsed) == "in_order"  # 3/4 numbered >= 50%
-
-
-def test_detect_plain_titles_is_random() -> None:
-    parsed = _ParsedStub(titles=("The Mothman", "Owls", "A chat with Sam", "Cheese"))
-    assert detect_playback_mode(parsed) == "random"
-
-
-def test_detect_empty_feed_is_in_order() -> None:
-    assert detect_playback_mode(_ParsedStub()) == "in_order"
-
-
-def test_add_feed_from_parsed_sets_detected_mode(db: Database) -> None:
-    items = "".join(
-        f"<item><title>{i}. Chapter {i}</title><guid>g{i}</guid>"
-        f"<enclosure url='https://cdn/x/{i}.mp3' type='audio/mpeg'/></item>"
-        for i in range(1, 5))
-    parsed = feedparser.parse(
-        f"<rss version='2.0'><channel><title>Serialized</title>{items}</channel></rss>")
-    fid = add_feed_from_parsed(db, parsed, "https://x/rss", False, include="all")
-    assert db.get_feed(fid)["playback_mode"] == "in_order"
 
 
 def test_an_apple_show_page_resolves_to_its_feed(monkeypatch) -> None:

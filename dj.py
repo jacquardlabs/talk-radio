@@ -27,13 +27,12 @@ def retry_cutoff_iso(minutes: int) -> str:
 
 def pick_next(db: Database, retry_after_iso: str | None = None) -> sqlite3.Row | None:
     """Random enabled non-news feed with unplayed episodes, avoiding
-    last_feed_id when an alternative exists. Within the show: the oldest
-    new episode for in_order feeds; a random unplayed episode for random
-    feeds, arc-guarded so a multi-part story never starts mid-arc.
+    last_feed_id when an alternative exists; within the show, its oldest
+    new episode.
 
     retry_after_iso holds back episodes that just failed to play, so a dead
-    link on an in_order feed doesn't get re-picked on the next top-up and
-    spend its whole retry budget in under a minute."""
+    link doesn't get re-picked on the next top-up and spend its whole retry
+    budget in under a minute."""
     candidates = db.rotation_feeds_with_new(retry_after_iso)
     if not candidates:
         return None
@@ -41,27 +40,7 @@ def pick_next(db: Database, retry_after_iso: str | None = None) -> sqlite3.Row |
     others = [f for f in candidates if str(f["id"]) != last]
     feed = random.choice(others or candidates)
     db.kv_set("last_feed_id", str(feed["id"]))
-    if feed["playback_mode"] == "random":
-        return _random_pick(db, feed["id"], retry_after_iso)
     return db.oldest_new_for_feed(feed["id"], retry_after_iso)
-
-
-def _random_pick(db: Database, feed_id: int,
-                 retry_after_iso: str | None = None) -> sqlite3.Row | None:
-    """Draw a random unplayed episode; if its title carries an arc marker,
-    play the arc's oldest unplayed member instead — never Part 3 before an
-    unplayed Part 1. The episode list is oldest-first, so the first key
-    match IS the arc's oldest unplayed member (the draw itself when nothing
-    earlier matches). Also makes started arcs likelier to finish: any arc
-    member drawn redirects to the next unplayed part."""
-    episodes = db.new_episodes_for_feed(feed_id, retry_after_iso)
-    if not episodes:
-        return None
-    draw = random.choice(episodes)
-    key = feeds.arc_key(draw["title"])
-    if key is None:
-        return draw
-    return next(ep for ep in episodes if feeds.arc_key(ep["title"]) == key)
 
 
 def current_index(queue: list[str], matches: list, cur) -> int:
@@ -1430,9 +1409,9 @@ class DJ:
         rest, but no other played part, so replaying part 3 doesn't drag parts
         1 and 2 back out of the archive.
 
-        Grouped by series_key, not the rotation's looser arc_key: acting on a
-        whole group cannot afford arc_key's truncation, which collapses every
-        "SYMHC Classics: …" episode into one sixteen-part arc."""
+        Grouped by series_key, which keeps the whole title: truncating at the
+        first separator would collapse every "SYMHC Classics: …" episode into
+        one sixteen-part arc."""
         key = feeds.series_key(episode["title"])
         if key is None:
             return []
@@ -1610,7 +1589,6 @@ class DJ:
                     "description": f["description"],
                     "is_news": bool(f["is_news"]), "enabled": bool(f["enabled"]),
                     "category_id": f["category_id"],
-                    "playback_mode": f["playback_mode"],
                     "skip_titles": skip_titles_of(f),
                     "counts": {s: counts.get(f["id"], {}).get(s, 0)
                                for s in ("new", "queued", "played", "skipped", "archived")},

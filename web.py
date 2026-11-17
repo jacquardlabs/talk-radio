@@ -399,8 +399,6 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             db.set_feed_news(feed_id, not feed["is_news"])
         elif action == "unarchive":
             db.unarchive_feed(feed_id)
-        elif action == "playback":
-            db.toggle_feed_playback(feed_id)
         else:
             return result(f"unknown action: {action}"), 404
         return result()

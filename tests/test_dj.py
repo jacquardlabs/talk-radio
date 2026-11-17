@@ -647,7 +647,7 @@ def test_staging_proxies_a_url_too_long_for_sonos(db, cfg, player, monkeypatch) 
 
     dj = DJ(db, cfg, lambda: player)
     make_feed(db, "bbc", 1)
-    episode = db.new_episodes_for_feed(db.list_feeds()[0]["id"])[0]
+    episode = db.oldest_new_for_feed(db.list_feeds()[0]["id"])
 
     long_url = "https://cdn.example/ep.mp3?sig=" + "z" * 2000
     monkeypatch.setattr(audio, "resolve_audio_url", lambda url, ua: long_url)
@@ -668,7 +668,7 @@ def test_staging_leaves_a_normal_url_alone(db, cfg, player, monkeypatch) -> None
 
     dj = DJ(db, cfg, lambda: player)
     make_feed(db, "showa", 1)
-    episode = db.new_episodes_for_feed(db.list_feeds()[0]["id"])[0]
+    episode = db.oldest_new_for_feed(db.list_feeds()[0]["id"])
 
     direct = "https://cdn.example/showa/1.mp3?token=abc"
     monkeypatch.setattr(audio, "resolve_audio_url", lambda url, ua: direct)
@@ -686,7 +686,7 @@ def test_staging_at_exactly_the_limit_is_not_proxied(db, cfg, player, monkeypatc
 
     dj = DJ(db, cfg, lambda: player)
     make_feed(db, "showa", 1)
-    episode = db.new_episodes_for_feed(db.list_feeds()[0]["id"])[0]
+    episode = db.oldest_new_for_feed(db.list_feeds()[0]["id"])
 
     base = "https://cdn.example/x.mp3?s="
     exact = base + "y" * (audio.SONOS_URI_LIMIT - len(base))
@@ -800,7 +800,7 @@ class TestPlaybackVerification:
         """A CDN blip must not count against an episode that later plays —
         otherwise three unlucky nights retire it permanently."""
         fid = make_feed(db, "showa", 3)
-        first = db.new_episodes_for_feed(fid)[0]
+        first = db.oldest_new_for_feed(fid)
         db.mark_failed(first["id"], "2026-01-01T00:00:00Z", 3)
         assert db.get_episode(first["id"])["failure_count"] == 1
 
@@ -832,8 +832,8 @@ def make_arc_feed(db: Database) -> int:
 
 
 class TestQueueArc:
-    """arc_key already stops the rotation starting a story at part three.
-    This is the same grouping offered as a deliberate action."""
+    """Queue series: a story's unheard parts appended to Up Next on one tap,
+    in published order."""
 
     def test_queues_every_part_in_published_order(self, db, cfg, player, dj) -> None:
         make_arc_feed(db)
@@ -1039,7 +1039,7 @@ class TestDurableUpNext:
         """Signed CDN URLs expire in hours, so staging a long queue deep into
         Sonos would rot it. The speaker holds queue_ahead; the rest waits."""
         fid = make_feed(db, "showa", 60)
-        wanted = [ep["id"] for ep in db.new_episodes_for_feed(fid)[:40]]
+        wanted = [ep["id"] for ep in reversed(db.episodes_for_feed(fid))][:40]
         db.set_up_next(wanted)
 
         dj.start()
@@ -1088,7 +1088,7 @@ class TestPinAndRefresh:
         fid = make_feed(db, "showa", 20)
         make_feed(db, "showb", 20)
         dj.start()
-        wanted = db.new_episodes_for_feed(fid)[0]
+        wanted = db.oldest_new_for_feed(fid)
 
         assert dj.play_episode(wanted["id"], "last") is None
 
@@ -1238,7 +1238,7 @@ class TestRemovalLeavesTheList:
         dj.start()
         dj.tick()
         outgoing = db.up_next_order()[0]
-        elsewhere = db.new_episodes_for_feed(2)[0]
+        elsewhere = db.oldest_new_for_feed(2)
 
         assert dj.play_episode(elsewhere["id"], "now") is None
         dj.tick()

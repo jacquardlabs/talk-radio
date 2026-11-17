@@ -326,7 +326,7 @@ def test_stream_never_serves_html_on_our_origin(client, monkeypatch) -> None:
     c, db = client
     fid = db.add_feed("http://93.184.216.34/rss", "Show", None, False)
     db.insert_episode(fid, "g-1", "Ep 1", CDN, "2026-01-01T00:00:00Z")
-    episode_id = db.new_episodes_for_feed(fid)[0]["id"]
+    episode_id = db.oldest_new_for_feed(fid)["id"]
     serve(monkeypatch, {CDN: FakeResponse(
         200, {"Content-Type": "text/html"}, body=b"<script>steal()</script>")})
 
@@ -343,7 +343,7 @@ def test_stream_will_not_proxy_an_internal_episode_url(client, monkeypatch) -> N
     c, db = client
     fid = db.add_feed("http://93.184.216.34/rss", "Show", None, False)
     db.insert_episode(fid, "g-1", "Ep 1", INTERNAL, "2026-01-01T00:00:00Z")
-    episode_id = db.new_episodes_for_feed(fid)[0]["id"]
+    episode_id = db.oldest_new_for_feed(fid)["id"]
     fetched = serve(monkeypatch, {})
 
     resp = c.get(f"/stream/{episode_id}.mp3")

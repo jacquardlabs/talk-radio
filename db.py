@@ -29,8 +29,6 @@ CREATE TABLE IF NOT EXISTS feeds (
     enabled INTEGER NOT NULL DEFAULT 1,
     added_at TEXT NOT NULL,
     category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-    playback_mode TEXT NOT NULL DEFAULT 'in_order'
-        CHECK (playback_mode IN ('in_order','random')),
     -- Title prefixes, one per line, that send a new episode straight to the
     -- back catalog: a feed's reruns and spin-offs stay reachable but don't
     -- join rotation. NULL skips nothing.
@@ -276,11 +274,11 @@ class Database:
                     "ALTER TABLE feeds ADD COLUMN category_id INTEGER"
                     " REFERENCES categories(id) ON DELETE SET NULL"
                 )
-            if "playback_mode" not in feed_cols:
-                c.execute(
-                    "ALTER TABLE feeds ADD COLUMN playback_mode TEXT NOT NULL"
-                    " DEFAULT 'in_order' CHECK (playback_mode IN ('in_order','random'))"
-                )
+            # Every show plays oldest-first now that rotation holds a curated
+            # backlog rather than whole back catalogs; the per-show random
+            # mode is gone.
+            if "playback_mode" in feed_cols:
+                c.execute("ALTER TABLE feeds DROP COLUMN playback_mode")
             # migration for databases created before conditional refresh.
             # NULL means "never asked" — the first refresh fetches in full
             # and fills them in.
@@ -340,14 +338,12 @@ class Database:
 
     # ── feeds ─────────────────────────────────────────────────────────
     def add_feed(self, url: str, title: str, image_url: str | None, is_news: bool,
-                 playback_mode: str = "in_order",
                  description: str | None = None) -> int:
         with self._conn() as c:
             cur = c.execute(
                 "INSERT INTO feeds (url, title, image_url, is_news, added_at,"
-                " playback_mode, description) VALUES (?,?,?,?,?,?,?)",
-                (url, title, image_url, int(is_news), utcnow_iso(), playback_mode,
-                 description),
+                " description) VALUES (?,?,?,?,?,?)",
+                (url, title, image_url, int(is_news), utcnow_iso(), description),
             )
             return int(cur.lastrowid)
 
@@ -402,14 +398,6 @@ class Database:
     def toggle_feed(self, feed_id: int) -> None:
         with self._conn() as c:
             c.execute("UPDATE feeds SET enabled = 1 - enabled WHERE id=?", (feed_id,))
-
-    def toggle_feed_playback(self, feed_id: int) -> None:
-        with self._conn() as c:
-            c.execute(
-                "UPDATE feeds SET playback_mode = CASE playback_mode"
-                " WHEN 'in_order' THEN 'random' ELSE 'in_order' END WHERE id=?",
-                (feed_id,),
-            )
 
     def set_feed_news(self, feed_id: int, is_news: bool) -> None:
         with self._conn() as c:
@@ -631,7 +619,7 @@ class Database:
     def _cooling(retry_after_iso: str | None, prefix: str = "") -> tuple[str, tuple]:
         """SQL excluding episodes that failed to play too recently to be worth
         retrying. An episode put back to 'new' the instant it fails is the
-        oldest unplayed row on its feed, so an in_order station would re-pick
+        oldest unplayed row on its feed, so its station would re-pick
         it on the very next top-up and burn its whole retry budget inside a
         minute — which turns a CDN hiccup into a permanent retirement."""
         if retry_after_iso is None:
@@ -648,16 +636,6 @@ class Database:
                 f"{cool} ORDER BY published_at ASC, id ASC LIMIT 1",
                 (feed_id, *params),
             ).fetchone()
-
-    def new_episodes_for_feed(self, feed_id: int,
-                              retry_after_iso: str | None = None) -> list[sqlite3.Row]:
-        cool, params = self._cooling(retry_after_iso)
-        with self._conn() as c:
-            return c.execute(
-                "SELECT * FROM episodes WHERE feed_id=? AND status='new'"
-                f"{cool} ORDER BY published_at ASC, id ASC",
-                (feed_id, *params),
-            ).fetchall()
 
     def rotation_feeds_with_new(self,
                                 retry_after_iso: str | None = None) -> list[sqlite3.Row]:

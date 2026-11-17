@@ -536,23 +536,12 @@ def test_set_feed_category_invalid_category_errors(client) -> None:
     assert resp.get_json()["ok"] is False
 
 
-def test_feed_playback_toggle_route(client) -> None:
+def test_playback_mode_is_retired(client) -> None:
+    """Every show plays oldest-first; there is no per-station random mode."""
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X", None, False)
-    assert c.post(f"/feeds/{fid}/playback").get_json()["ok"] is True
-    assert db.get_feed(fid)["playback_mode"] == "random"
-    data = c.get("/api/status").get_json()
-    station = next(s for s in data["stations"] if s["id"] == fid)
-    assert station["playback_mode"] == "random"
-    assert c.post(f"/feeds/{fid}/playback").get_json()["ok"] is True
-    assert db.get_feed(fid)["playback_mode"] == "in_order"
-
-
-def test_status_playback_mode_defaults_in_order(client) -> None:
-    c, db, _ = client
-    db.add_feed("https://x/rss", "X", None, False)
-    data = c.get("/api/status").get_json()
-    assert data["stations"][0]["playback_mode"] == "in_order"
+    assert c.post(f"/feeds/{fid}/playback").status_code == 404
+    assert "playback_mode" not in c.get("/api/status").get_json()["stations"][0]
 
 
 def test_reorder_route_validates_its_arguments(client) -> None:
@@ -872,7 +861,7 @@ def _episode(db: Database) -> int:
     fid = db.add_feed("https://bbc/rss", "In Our Time", None, False)
     db.insert_episode(fid, "g-1", "P v NP", "https://open.bbc/redir/p037611x.mp3",
                       "2015-11-05T00:00:00Z")
-    return db.new_episodes_for_feed(fid)[0]["id"]
+    return db.oldest_new_for_feed(fid)["id"]
 
 
 def test_stream_proxies_upstream_bytes(client, monkeypatch) -> None:
@@ -957,7 +946,7 @@ def _feed_with(db: Database, titles: list[str]) -> int:
 def test_pin_route_toggles(client) -> None:
     c, db, _ = client
     fid = _feed_with(db, ["Solo Episode"])
-    ep = db.new_episodes_for_feed(fid)[0]
+    ep = db.oldest_new_for_feed(fid)
 
     assert c.post(f"/episodes/{ep['id']}/pin").get_json()["ok"] is True
     assert db.get_episode(ep["id"])["pinned"] == 1
@@ -970,7 +959,7 @@ def test_pin_route_accepts_an_explicit_value(client) -> None:
     want is idempotent where a blind toggle isn't."""
     c, db, _ = client
     fid = _feed_with(db, ["Solo Episode"])
-    ep = db.new_episodes_for_feed(fid)[0]
+    ep = db.oldest_new_for_feed(fid)
 
     c.post(f"/episodes/{ep['id']}/pin", json={"pinned": True})
     c.post(f"/episodes/{ep['id']}/pin", json={"pinned": True})
@@ -1026,7 +1015,7 @@ def test_queue_arc_route_queues_the_series(client) -> None:
 def test_queue_arc_route_reports_a_standalone_episode(client) -> None:
     c, db, _ = client
     fid = _feed_with(db, ["Solo Episode"])
-    solo = db.new_episodes_for_feed(fid)[0]
+    solo = db.oldest_new_for_feed(fid)
 
     body = c.post(f"/episodes/{solo['id']}/queue_arc").get_json()
 
@@ -1037,7 +1026,7 @@ def test_queue_arc_route_reports_a_standalone_episode(client) -> None:
 def test_status_reports_failures(client) -> None:
     c, db, _ = client
     fid = _feed_with(db, ["Solo Episode", "Another One"])
-    dead, wanted = db.new_episodes_for_feed(fid)
+    dead, wanted = reversed(db.episodes_for_feed(fid))
     db.mark_failed(dead["id"], "2026-01-01T00:00:00Z", 3)
 
     body = c.get("/api/status").get_json()

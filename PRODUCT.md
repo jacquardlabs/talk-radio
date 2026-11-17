@@ -40,15 +40,12 @@ prompt is history — see *Superseded* below.
 
 1. **Random show rotation, with a no-repeat guard.** The DJ picks a random
    *show*, then an episode within it, and avoids `last_feed_id` whenever another
-   show has unplayed episodes [code, dj.py:37-46]. Only enabled non-news feeds
-   whose category has rotation on are candidates [code, db.py:407-418].
-2. **Multi-part stories stay in order.** `in_order` shows play their oldest
-   unplayed episode; `random` shows draw freely, but if the draw carries an arc
-   marker the arc's oldest unplayed member plays instead — never Part 3 before an
-   unplayed Part 1 [code, dj.py:49-64]. Rotation's guard uses the loose
-   `feeds.arc_key`; the deliberate *Queue series* action uses the stricter
-   `series_key`, because acting on a whole group cannot afford the truncation
-   that collapses every "SYMHC Classics: …" into one arc [code, dj.py:1140-1143].
+   show has unplayed episodes [code, dj.py:28-43]. Only enabled non-news feeds
+   whose category has rotation on are candidates [code, db.py:640-651].
+2. **Every show plays in order.** Within a show the DJ plays the oldest
+   unplayed episode in rotation, so a multi-part story arrives 1 → 2 → 3
+   [code, dj.py:43]. *Queue series* groups a story's parts by `feeds.series_key`,
+   the whole title minus its part marker [code, dj.py:1401-1422].
 3. **News plays first, unconditionally.** Every tick — 15s by default — if fresh
    news exists and the slot after the needle is not already news, the news is
    inserted there, oldest first [code, dj.py:654-666]. News never expires: it
@@ -157,14 +154,11 @@ an issue, not here.
 
 `docs/original-build-prompt.md` is a historical artifact — the prompt the app was
 built from, not a current spec. Its "Product rules (non-negotiable)" heading is
-now misleading in at least three places:
+now misleading in at least two places:
 
 - "Parts of a series … must NOT be forced back-to-back" [build prompt, rule 2] —
   *Queue series* appends a whole story to Up Next in order on one tap
   [code, dj.py:1152-1213].
-- "Within a show, always play that show's *oldest unplayed* episode"
-  [build prompt, rule 2] — shows can be set to `random`, which draws any unplayed
-  episode subject only to the arc guard [code, dj.py:44-45].
 - `QUEUE_AHEAD` default 3 [build prompt, "Configuration"] — it is 10
   [code, config.py:42].
 
