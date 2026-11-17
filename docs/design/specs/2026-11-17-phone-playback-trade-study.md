@@ -1,7 +1,7 @@
 # Phone and laptop playback: trade study
 
-Status: no decision. Two untested go/no-gos and three owner answers stand
-between this and a recommendation.
+Status: recommendation — the server stays the brain; the phone gets option S,
+the laptop gets W's browser player. Owner's answers are recorded below.
 
 ## Inventory
 
@@ -100,17 +100,42 @@ V = verified this session. D = from vendor docs, untested here. U = untested.
    not a flag. And W does not remove sync; it replaces gpodder's with a smaller
    one.
 
-## Open questions for the owner
+## Owner's answers
 
-1. Is NordVPN normally the active VPN on the phone? Android allows one at a
-   time. If yes, W cannot load its offline-capable address even at home.
-2. How do episodes get onto the phone today — AntennaPod auto-download? If
-   unattended restocking matters, W alone falls short and S is the floor.
-3. Does phone listening happen through Android Auto?
+1. **Tailscale is the VPN used to reach the server.** The HTTPS address is
+   reachable from the phone; the one-VPN limit does not block it.
+2. **AntennaPod downloads automatically.** Unattended restocking is a
+   requirement. W cannot meet it.
+3. **Listening happens through Android Auto.** W cannot meet it.
 
-## Proposed next step
+## Recommendation
 
-Half-day spike on the Pixel, no production code: play 2 short episodes through
-`/stream` from the HTTPS address with the screen off; save 1, go to airplane
-mode, play and seek it. Pass → build the virtual player, then W. Fail → build
-the virtual player, then S.
+- **Phone: S.** Answers 2 and 3 rule out W on the phone, so its untested
+  screen-off question no longer needs a spike: a native player answers it. S
+  keeps one set of screens for phone, laptop, and tablet; B would rebuild them
+  in Kotlin for no requirement on this list.
+- **Laptop: W's browser player**, which S's pages contain anyway.
+- **Not A.** Finding 1 stands, and its overnight go/no-go is still untested.
+
+S's native side, all standard Android components (D): a Media3 player and
+`MediaLibraryService` (lock screen, headset, Android Auto), a downloader that
+restocks the head of Up Next on Wi-Fi, a store for saved episodes, and the
+outbox that replays offline events.
+
+Untested for S:
+
+- **Android Auto with a sideloaded app.** Media apps need *Unknown sources*
+  enabled in Android Auto's developer settings; reports say Android Auto
+  updates can reset it. Not confirmed on this phone or car.
+- **Offline screens.** The pages come from the server. What the app shows with
+  no connection — a native list of saved episodes, or cached pages — is a
+  design decision, not yet made.
+- **Toolchain.** A first Kotlin/Gradle project in a Python repo, built locally.
+
+## Build order
+
+1. **Virtual player + output switch + browser player.** Server and web only.
+   Ships laptop playback, and phone playback with the app open. AntennaPod
+   stays.
+2. **Android shell.** Native player, auto-download, outbox, Android Auto.
+3. **Delete `gpodder.py` and its tests; retire AntennaPod.**
