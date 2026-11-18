@@ -1387,6 +1387,15 @@ class TestPlayOnThisDevice:
     def _listed(self, dj) -> list[int]:
         return [e["episode_id"] for e in dj.status()["up_next"]]
 
+    def test_a_skip_reported_on_air_stays_dismissed(self, db, cfg, player, dj) -> None:
+        """A finish from elsewhere counts as heard, but a Skip is still a
+        dismissal, even when it lands while the speakers are on air."""
+        make_feed(db, "showa", 10, duration=1800)
+        dj.start()
+        upcoming = db.up_next_order()[2]
+        dj.report_from_device(upcoming, 400, "skip")
+        assert db.get_episode(upcoming)["review"] == "never"
+
     def test_off_air_the_deck_names_what_play_will_start(
             self, db, cfg, player, dj) -> None:
         """Off air the stopped speaker still holds the last session. Once its

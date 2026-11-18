@@ -1021,7 +1021,8 @@ class DJ:
         """Remove an upcoming episode from Up Next. "later" recycles it to
         the new pool — the DJ will pick it again another day; "archive" sends
         it to the back catalog; "done" marks it played so it never comes
-        back. Same dispositions as Skip, minus
+        back; "heard" is "done" for a listen made elsewhere (the phone), so
+        it counts as heard rather than dismissed. Same dispositions as Skip, minus
         "defer": a queued episode is already waiting its turn. The current
         track isn't droppable (that's what Skip is for). Off air, a saved row
         the stopped speaker doesn't hold only has to leave the saved order
@@ -1041,8 +1042,8 @@ class DJ:
                     # refill BEFORE reverting: the target is still 'queued'
                     # here, so the top-up can't immediately re-pick it
                     self._top_up(player, cur_idx, ids_of(matches))
-                    if disposition == "done":
-                        self._finish(ep, never=True)
+                    if disposition in ("done", "heard"):
+                        self._finish(ep, never=disposition == "done")
                     else:
                         self.db.revert_to_new(ep["id"])
                         if disposition == "archive":
@@ -1228,7 +1229,8 @@ class DJ:
                                 " air (%s)", episode_id)
                     return
                 if (player is not None
-                        and self.drop_from_queue(episode_id, "done") is None):
+                        and self.drop_from_queue(
+                            episode_id, "done" if never else "heard") is None):
                     return
             self._finish(episode, never)
             # Out of the saved order explicitly, as every removal is: status

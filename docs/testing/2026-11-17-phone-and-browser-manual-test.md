@@ -161,6 +161,12 @@ Sync on demand with AntennaPod → Settings → Synchronization → *Synchronize
 1. On air with episode R playing on the speakers, finish R in AntennaPod and run *Synchronize now*. `[hands]`
 - Expect: ignored. R keeps playing on the speakers and stays `queued`. Expected, not a bug: the track on air leaves only by Skip or Play now. `[curl]`
 
+**A11. A trip: several Up Next episodes finished on the phone, one sync**
+1. Tailscale off. In AntennaPod, finish 2–3 episodes that are in server Up Next (let each end, or seek to its last 30s). `[hands]`
+2. Run once with the station off air, and once with the speakers playing something else.
+3. Tailscale on, *Synchronize now*.
+- Expect: every one is gone from the web UI's Up Next, and listed in Recently played (heard, not dismissed). `[curl]` In the DB each is `played` with `review` NULL. `[db]` On air, the speakers' queue no longer holds them, and the track the speakers are playing is untouched.
+
 ## H. Handoff between the web player and AntennaPod
 
 The rule under test: off air, whatever was played last on the phone or in a browser leads Up Next, pinned, at its place. On air, the speakers' list stands and only the place is kept. AntennaPod never jumps to an episode by itself; you open it, and it resumes at the synced place.

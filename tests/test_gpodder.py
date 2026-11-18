@@ -497,6 +497,36 @@ def test_post_play_action_on_queued_episode_drops_it_from_sonos_and_up_next(gcli
     assert target["id"] not in db.up_next_order()
 
 
+@pytest.mark.parametrize("on_air", [False, True], ids=["off-air", "on-air"])
+def test_a_trip_of_finished_episodes_leaves_up_next_as_heard(gclient, on_air) -> None:
+    """Travelling: several Up Next episodes heard on the phone over a few
+    hours, uploaded in one sync. Each leaves Up Next and counts as heard
+    (Recently played), whether or not the speakers are on air — except the
+    one the speakers are playing, which only Skip or Play now take off."""
+    c, db, dj, player = gclient
+    make_feed(db, "showa", 8)
+    make_feed(db, "showb", 8)
+    dj.start()
+    if not on_air:
+        dj.stop_off_air()
+    order = db.up_next_order()
+    heard = order[1:4]
+    body = [{"podcast": "x", "episode": db.get_episode(i)["audio_url"],
+             "guid": db.get_episode(i)["guid"], "action": "play",
+             "timestamp": f"2026-09-08T1{n}:00:00",
+             "started": 0, "position": 1790, "total": 1800}
+            for n, i in enumerate(heard)]
+    c.post("/api/2/episodes/radio.json", json=body, headers=basic_header())
+    for i in heard:
+        row = db.get_episode(i)
+        assert (row["status"], row["review"]) == ("played", None), "heard, not dismissed"
+        assert i not in db.up_next_order()
+    listed = [e["episode_id"] for e in dj.status()["up_next"]]
+    assert not set(heard) & set(listed)
+    recent = {e["title"] for e in dj.status()["recently_played"]}
+    assert {db.get_episode(i)["title"] for i in heard} <= recent
+
+
 def test_post_play_action_ignores_the_episode_on_air(gclient) -> None:
     c, db, dj, player = gclient
     make_feed(db, "showa", 2)
