@@ -186,20 +186,30 @@ Run each case with the station **off air**. "Sync" means AntennaPod → *Synchro
 **H4. Phone not yet synced**
 1. Play P in AntennaPod to about 40:00 and pause, but do **not** sync.
 2. Laptop: Play on this device.
-- Expect: the browser starts at the last *synced* place (H3's), not 40:00. Expected, not a bug: the server only knows what the phone has sent. Then sync, pause the browser, reload: the browser's report and the phone's compete, and the newer one wins. Record which.
+- Expect: the browser starts at the last *synced* place (H3's), not 40:00. Expected, not a bug: the server only knows what the phone has sent.
+3. Let the browser play on to about 42:00 and pause. Now sync the phone (its 40:00 was reached earlier).
+- Expect: the place stays at 42:00 and P stays at the head (`[curl]`). A late phone sync never overwrites a newer listen. Then in AntennaPod the episode should resume at about 42:00 after a second sync. `[adb]`
 
 **H5. Episode with no known duration**
 1. With the H-episode whose `duration_seconds` is NULL: play it in the browser to about 5:00, pause, Sync.
 - Expect: AntennaPod resumes it at about 5:00. (Before this fix the place was never sent.)
 
 **H6. Near the end**
-1. In AntennaPod, play P to 45s before its end, pause, Sync.
+1. In AntennaPod, play P to about 3 minutes before its end, pause, Sync.
 2. Laptop: Play on this device; let it end.
-- Expect: the browser plays the last seconds and ends; P is `played`, out of Up Next, and after the next Sync it is played and out of AntennaPod's queue. Then confirm the phone did not mark it finished early: in step 1 it should still be in AntennaPod's queue.
+- Expect: the browser plays the last minutes and ends; P is `played`, out of Up Next, and after the next Sync it is played and out of AntennaPod's queue.
+3. Variant: in AntennaPod, stop another episode 45s from its end and Sync.
+- Expect: the server reads it as finished (a phone place within 60s of the end counts as heard), so it never reaches the browser. Expected, not a bug.
 
 **H7. Ad offset**
 1. Pick a show with dynamically inserted ads. In AntennaPod, stop at a recognisable sentence about 20 minutes in. Sync, Play on this device.
 - Expect: the browser starts within a minute or two of that sentence. Record the gap; this is the size of the "pick up where I left off" error no code can remove.
+
+**H7b. Car case: phone syncs late**
+1. Tailscale off. In AntennaPod, play Q to 10:00, pause.
+2. Laptop: Play on this device on a different episode R for a couple of minutes, pause.
+3. Tailscale on (or home Wi-Fi), Sync.
+- Expect: R stays at the head (its listen is newer); Q's place (10:00) is saved and Q sits behind it. `[curl]`
 
 **H8. Two phone episodes in one sync**
 1. In AntennaPod, play A to 5:00, then B to 7:00, pause. Sync once.

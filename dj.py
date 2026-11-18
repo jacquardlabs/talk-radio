@@ -1156,7 +1156,7 @@ class DJ:
     _REMOTE_DONE_SLACK = 60
 
     def apply_remote_action(self, episode_id: int, position: int,
-                            total: int | None) -> None:
+                            total: int | None, at: str | None = None) -> None:
         """Apply a playback report from an external client (the gpodder sync
         API) through the same functions the DJ itself uses for a Sonos
         listen, so rotation's no-repeat guard and the in_order/arc logic
@@ -1165,9 +1165,10 @@ class DJ:
         Only a 'play' action reaches this — see gpodder.py, which maps
         'new'/'download'/'delete' to nothing before calling in. The phone
         says nothing about finishing, so it is read off how close to the end
-        the position landed."""
+        the position landed. `at` is when the phone says it got there
+        ('...Z'); a late upload must not beat a place banked since."""
         finished = total is not None and total - position <= self._REMOTE_DONE_SLACK
-        self._apply_listen(episode_id, position, finished)
+        self._apply_listen(episode_id, position, finished, at=at)
 
     def report_from_device(self, episode_id: int, position: int,
                            event: Literal["progress", "ended", "skip"]) -> None:
@@ -1180,14 +1181,19 @@ class DJ:
                            never=event == "skip")
 
     def _apply_listen(self, episode_id: int, position: int, finished: bool,
-                      never: bool = False) -> None:
+                      never: bool = False, at: str | None = None) -> None:
         """Bank a listen that happened somewhere other than the speaker:
         a resume position, or the episode heard and out of Up Next.
 
         Off air, a resume also puts the episode at the head of the saved Up
         Next, pinned: whatever you were last listening to, on the phone or in
         a browser, is what the next device — browser or speakers — picks up.
-        On air the speakers' own list stands; only the place is kept."""
+        On air the speakers' own list stands; only the place is kept.
+
+        A place reached before the one already banked (`at` older than the
+        episode's resume_at) is stale — the phone syncing late — and is
+        dropped, as AntennaPod drops an older remote action. It leads Up Next
+        only if it is newer than the place of the episode leading now."""
         with self._lock:
             episode = self.db.get_episode(episode_id)
             if episode is None or episode["status"] in ("played", "archived"):
@@ -1202,8 +1208,11 @@ class DJ:
                             episode_id)
                 return
             if not finished:
-                self.db.set_resume(episode_id, max(0, position))
-                if not on_air and position > 0:
+                if at is not None and (episode["resume_at"] or "") > at:
+                    logger.info("ignoring a stale remote place for %s", episode_id)
+                    return
+                self.db.set_resume(episode_id, max(0, position), at)
+                if not on_air and position > 0 and self._newer_than_head(at):
                     self._lead_up_next(episode)
                 return
             # Only on air is a queued episode really on the speaker. Off air
@@ -1225,6 +1234,15 @@ class DJ:
             # Out of the saved order explicitly, as every removal is: status
             # alone would put it back the moment Undo or Keep made it 'new'.
             self.db.remove_from_up_next(episode_id)
+
+    def _newer_than_head(self, at: str | None) -> bool:
+        """Whether a place reached at `at` (None: now) is later than the one
+        the head of the saved Up Next carries. A head with no place yields."""
+        if at is None:
+            return True
+        order = self.db.up_next_order()
+        head = self.db.get_episode(order[0]) if order else None
+        return head is None or (head["resume_at"] or "") <= at
 
     def _lead_up_next(self, episode) -> None:
         """Put an episode at the head of the saved Up Next, pinned so Refresh

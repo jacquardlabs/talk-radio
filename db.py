@@ -1135,11 +1135,14 @@ class Database:
                 " HAVING heard + kept + back_catalog + never > 0"
             ).fetchall()
 
-    def set_resume(self, episode_id: int, seconds: int | None) -> None:
+    def set_resume(self, episode_id: int, seconds: int | None,
+                   at: str | None = None) -> None:
         """resume_at tracks resume_seconds in lockstep — it is the gpodder
         sync API's evidence of which of two conflicting positions (ours, the
-        phone's) is newer, so every writer of one writes the other."""
-        resume_at = utcnow_iso() if seconds is not None else None
+        phone's) is newer, so every writer of one writes the other. `at` is
+        when the place was reached, for a report that arrives late (the
+        phone's own timestamp); default now."""
+        resume_at = (at or utcnow_iso()) if seconds is not None else None
         with self._conn() as c:
             c.execute(
                 "UPDATE episodes SET resume_seconds=?, resume_at=? WHERE id=?",

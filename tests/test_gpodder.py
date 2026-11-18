@@ -346,7 +346,7 @@ def test_post_play_action_sets_resume(gclient) -> None:
 def _play(ep, position: int, ts: str) -> dict:
     return {"podcast": "https://showa/rss", "episode": ep["audio_url"],
             "guid": ep["guid"], "action": "play", "timestamp": ts,
-            "started": 0, "position": position, "total": 1800}
+            "started": 0, "position": position, "total": 7200}
 
 
 def test_the_phones_latest_listen_leads_up_next_whatever_the_upload_order(gclient) -> None:
@@ -382,10 +382,50 @@ def test_phone_then_browser_picks_up_where_the_phone_left_off(gclient) -> None:
     dj.start()
     dj.stop_off_air()
     elsewhere = db.episodes_with_status("new")[0]
-    c.post("/api/2/episodes/radio.json", json=[_play(elsewhere, 754, "2026-09-08T11:00:00")],
+    # after the speakers' Off air banked their own place, as a real pause is
+    c.post("/api/2/episodes/radio.json", json=[_play(elsewhere, 754, "2999-01-01T00:00:00")],
            headers=basic_header())
     head = dj.status()["up_next"][0]
     assert head["episode_id"] == elsewhere["id"] and head["resume"] == 754
+
+
+def _off_air_with_two_new(db, dj):
+    make_feed(db, "showa", 15)
+    dj.start()
+    dj.stop_off_air()
+    return db.episodes_with_status("new")[:2]
+
+
+def test_a_late_phone_upload_does_not_overwrite_a_newer_browser_place(gclient) -> None:
+    """The car case: the phone syncs an hour later than it listened. The
+    browser played on since; the browser's place stands."""
+    c, db, dj, player = gclient
+    p, _ = _off_air_with_two_new(db, dj)
+    dj.report_from_device(p["id"], 3000, "progress")
+    c.post("/api/2/episodes/radio.json", json=[_play(p, 2400, "2000-01-01T00:00:00")],
+           headers=basic_header())
+    assert db.get_episode(p["id"])["resume_seconds"] == 3000
+
+
+def test_a_late_phone_listen_does_not_take_the_head_from_a_newer_one(gclient) -> None:
+    c, db, dj, player = gclient
+    p, q = _off_air_with_two_new(db, dj)
+    dj.report_from_device(p["id"], 3000, "progress")
+    c.post("/api/2/episodes/radio.json", json=[_play(q, 600, "2000-01-01T00:00:00")],
+           headers=basic_header())
+    assert db.up_next_order()[0] == p["id"]
+    assert db.get_episode(q["id"])["resume_seconds"] == 600   # its own place is still kept
+
+
+def test_a_newer_phone_listen_takes_the_place_and_the_head(gclient) -> None:
+    c, db, dj, player = gclient
+    p, q = _off_air_with_two_new(db, dj)
+    dj.report_from_device(p["id"], 3000, "progress")
+    c.post("/api/2/episodes/radio.json",
+           json=[_play(p, 3300, "2999-01-01T00:00:00"), _play(q, 600, "2999-01-01T00:00:01")],
+           headers=basic_header())
+    assert db.get_episode(p["id"])["resume_seconds"] == 3300
+    assert db.up_next_order()[:2] == [q["id"], p["id"]]
 
 
 def test_browser_then_phone_gets_the_browsers_place(gclient) -> None:

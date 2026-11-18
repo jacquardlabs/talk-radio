@@ -65,6 +65,15 @@ def _epoch(iso_z: str) -> int:
                .replace(tzinfo=timezone.utc).timestamp())
 
 
+def _iso_z(gpodder_ts) -> str | None:
+    """A phone action's timestamp in our '...Z' form, or None when it is
+    missing or not gpodder's shape (the report is then treated as now)."""
+    try:
+        return datetime.strptime(str(gpodder_ts), _TS_FORMAT).strftime(_TS_FORMAT) + "Z"
+    except ValueError:
+        return None
+
+
 def _fmt_ts(iso_z: str | None) -> str:
     """Our timestamps are stored as '...Z'; gpodder wants the same UTC
     instant with no zone suffix at all."""
@@ -451,7 +460,8 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
                            item.get("episode"))
                 continue
             dj.apply_remote_action(episode["id"], position,
-                                   total if isinstance(total, int) and total > 0 else None)
+                                   total if isinstance(total, int) and total > 0 else None,
+                                   _iso_z(item.get("timestamp")))
         return jsonify({"timestamp": _now(),
                         "update_urls": []})
 
