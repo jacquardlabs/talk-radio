@@ -244,6 +244,8 @@ form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; ma
           <div class="spk-list" id="speakers" role="group" aria-label="Speakers"></div>
           <button type="button" id="btn-scan">Scan for speakers <i>takes a few seconds</i></button>
           <button type="button" data-player="group_all">Group all <i>every room plays</i></button>
+          <!-- Up Next in this browser instead: the speakers go off air. -->
+          <button type="button" id="btn-device"></button>
         </div>
       </span>
     </div>
@@ -308,6 +310,8 @@ form.inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; ma
       </div>
     </div>
   </div>
+  <!-- Play on this device: no controls of its own, the deck above drives it -->
+  <audio id="device-audio" preload="auto"></audio>
 </section>
 
 <div class="sect"><h2>Up next</h2><span class="aside" id="until"></span>
@@ -547,7 +551,13 @@ $("np-more").addEventListener("click", () => {
   setDeckDescription(status && status.now_playing);
 });
 
-function renderPage(s) {
+function renderPage(raw) {
+  // Playing on this device, the deck shows the browser's audio rather than
+  // the speaker: the page reads `status` throughout, so it is swapped for
+  // that view once here instead of every reader learning two sources.
+  rawStatus = raw;
+  deviceWatch(raw);
+  const s = status = deviceView(raw);
   const np = s.now_playing;
   const playing = isPlaying(s);
   const paused = s.transport === "PAUSED_PLAYBACK";
@@ -598,7 +608,15 @@ function renderPage(s) {
   // the speaker is doing anything at all: it stops it whatever we believe.
   for (const sel of ["#btn-skip", "#btn-skip-more", '[data-player="back_15"]', '[data-player="fwd_30"]'])
     document.querySelector(sel).disabled = !np;
-  $("btn-sleep").disabled = s.dj_state !== "playing" && (!s.transport || s.transport === "STOPPED");
+  // On this device the speakers are already off air, and the caret's three
+  // ways to keep an episode are moves on the speaker's queue.
+  $("btn-skip-more").disabled ||= device.on;
+  $("btn-sleep").disabled = device.on
+    || (s.dj_state !== "playing" && (!s.transport || s.transport === "STOPPED"));
+  const deviceLabel = device.on
+    ? "Play on the speakers <i>from where this is</i>"
+    : "Play on this device <i>speakers go off air</i>";
+  if ($("btn-device").innerHTML !== deviceLabel) $("btn-device").innerHTML = deviceLabel;
 
   // one primary control: Play when anything but playing, Pause while playing
   const pp = $("btn-playpause");
@@ -742,13 +760,13 @@ function renderSpeakers(s) {
 
   // Signature-guarded like the station shelves: this repaints every 5s, and
   // rewriting the list under a pointer would eat the click that caused it.
-  const sig = JSON.stringify(rows);
+  const sig = JSON.stringify([rows, device.on]);
   if (sig === lastSpeakerSig) return;
   lastSpeakerSig = sig;
 
   const station = s.speaker ? s.speaker.ip : null;
   const hearing = rows.filter(([, r]) => r.member).length;
-  const where = s.speaker
+  const where = device.on ? "This device" : s.speaker
     ? s.speaker.name + (hearing > 1 ? ` and ${hearing - 1} more` : "")
     : "No speaker";
   $("btn-rooms").innerHTML = SPEAKER_SVG + `<span class="lbl">${esc(where)}</span>`;
@@ -913,9 +931,15 @@ $("vol").addEventListener("pointerdown", (ev) => {
   volFromEvent(ev);
 });
 $("vol").addEventListener("pointermove", (ev) => { if (volDrag) volFromEvent(ev); });
+// On this device the level is the browser's own (a phone may ignore it and
+// keep to its hardware buttons); otherwise it is the speaker's.
+function sendVol(v) {
+  if (device.on) { audio.volume = v / 100; renderPage(rawStatus); }
+  else post("/player/volume", { volume: v });
+}
 $("vol").addEventListener("pointerup", () => {
   volDrag = false;
-  if (volPct != null) post("/player/volume", { volume: volPct });
+  if (volPct != null) sendVol(volPct);
 });
 $("vol").addEventListener("keydown", (ev) => {
   if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
@@ -923,13 +947,305 @@ $("vol").addEventListener("keydown", (ev) => {
   const cur = status && status.volume != null ? status.volume : 50;
   const next = Math.max(0, Math.min(100, cur + (ev.key === "ArrowRight" ? 5 : -5)));
   setVol(next);
-  post("/player/volume", { volume: next });
+  sendVol(next);
+});
+
+// ── play on this device ────────────────────────────────────────────
+// Up Next in this browser instead of on the speakers: a laptop over the VPN,
+// a phone's browser. The station goes off air the ordinary way, which banks
+// Up Next and the place in it; this then plays the head of the off-air list
+// (fresh news first, then the saved order) over /stream, and reports what it
+// hears so the speakers can pick up from there. No offline, no queue of its
+// own — the server's list is the list.
+//
+// The speakers win. Anything that puts the station back on air — Play from
+// another room, a wake alarm — and this pauses, reports where it got to, and
+// hands back.
+const audio = $("device-audio");
+const device = {
+  on: false,
+  since: 0,          // when this device took over: polls sent earlier predate it
+  entry: null,       // the Up Next row playing here
+  seekTo: null,      // where to start it, once its length is known
+  pendingId: null,   // started but not yet at its place: nothing to report
+  reportedAt: 0,
+  picking: false,
+  // finished or skipped here: the server has dropped them, but a poll sent
+  // a moment earlier still lists them
+  gone: new Set(),
+};
+let rawStatus = null;
+const DEVICE_REPORT_MS = 15000;
+const DEVICE_STEPS = { back_15: -15, fwd_30: 30, restart: null };
+// A fraction of a second of silence. Played inside the tap that switches over,
+// before anything is awaited: a browser lets a page start audio by itself only
+// on an element that has already played once from a gesture.
+const SILENCE = "data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==";
+const media = "mediaSession" in navigator ? navigator.mediaSession : null;
+
+// The status the page renders while this device plays: the deck, transport
+// and level are the audio element's, and Up Next is the rest of the list.
+function deviceView(s) {
+  if (!device.on) return s;
+  const e = device.entry;
+  const known = Number.isFinite(audio.duration) && audio.duration > 0;
+  return {
+    ...s,
+    transport: !e ? "STOPPED" : audio.paused ? "PAUSED_PLAYBACK" : "PLAYING",
+    now_playing: e && { ...e, position: Math.floor(audio.currentTime || 0),
+                        duration: known ? Math.round(audio.duration) : e.duration },
+    up_next: e ? s.up_next.filter((x) => x.episode_id !== e.episode_id) : s.up_next,
+    volume: Math.round(audio.volume * 100),
+    sleep: null,
+  };
+}
+
+// Fire and forget, like track(): keepalive carries it through a closing tab,
+// and a lost report costs at most fifteen seconds of place.
+function deviceReport(entry, event, position) {
+  // Until its metadata is in, an episode sits at 0 rather than its place, and
+  // reporting that would lose the place the server already holds.
+  if (event === "progress" && device.pendingId === entry.episode_id) return Promise.resolve();
+  device.reportedAt = performance.now();
+  return fetch("/device/report", {
+    method: "POST", keepalive: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ episode_id: entry.episode_id, event,
+                           position: Math.floor(position ?? audio.currentTime ?? 0) }),
+  }).catch(() => {});
+}
+
+// What plays next: the head of the list, news first, as last polled.
+function deviceSuccessor() {
+  const list = (rawStatus && rawStatus.up_next) || [];
+  return list.find((e) => !device.gone.has(e.episode_id)
+    && (!device.entry || e.episode_id !== device.entry.episode_id)) || null;
+}
+
+// With the speakers off there is no top-up, so when nothing follows the
+// episode starting now, ask the rotation for one. Quiet: an empty library
+// only matters when there is nothing left to play, and that says so itself.
+async function deviceTopUp() {
+  if (device.picking || deviceSuccessor()) return;
+  device.picking = true;
+  try {
+    await fetch("/device/next", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    await poll();
+  } catch (err) { /* the next track asks again */ }
+  finally { device.picking = false; }
+}
+
+function devicePlay(entry, at) {
+  const out = device.entry;
+  if (out && out.episode_id !== entry.episode_id && !audio.ended) deviceReport(out, "progress");
+  device.entry = entry;
+  // the speaker's own resume backs up ten seconds for context; so does this
+  device.seekTo = at ?? Math.max(0, (entry.resume || 0) - 10);
+  device.pendingId = entry.episode_id;
+  device.reportedAt = performance.now();   // the first heartbeat is 15s in
+  audio.src = `/stream/${entry.episode_id}.mp3`;
+  audio.play().catch(devicePlayFailed);
+  deviceMediaSession(entry);
+  renderPage(rawStatus);
+  deviceTopUp();
+}
+
+function devicePlayFailed(err) {
+  if (err && err.name === "AbortError") return;   // a newer src replaced it
+  flash(err && err.name === "NotAllowedError"
+    ? "This browser wants a tap first: press Play" : "This browser couldn't play that");
+}
+
+// On to the next one, or the rotation's next pick when the list is spent.
+async function deviceAdvance() {
+  let next = deviceSuccessor();
+  if (!next) {
+    const resp = await fetch("/device/next", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+      .then((r) => r.json()).catch(() => null);
+    await poll();
+    next = deviceSuccessor();
+    if (!next) {
+      device.entry = null;
+      audio.removeAttribute("src");
+      renderPage(rawStatus);
+      flash((resp && resp.error) || "Nothing left to play");
+      return null;
+    }
+  }
+  devicePlay(next);
+  return next;
+}
+
+async function playHere() {
+  audio.src = SILENCE;
+  audio.play().catch(() => {});
+  closeFlaps(null);
+  // Off air the normal way, which banks Up Next and the place in it. Only
+  // when on air: off air there is nothing to bank, and the list stands.
+  if (rawStatus && rawStatus.dj_state === "playing") {
+    if (!await post("/player/stop", {})) return;
+  } else await poll();
+  device.on = true;
+  device.since = performance.now();
+  device.gone.clear();
+  track("device");
+  if (!await deviceAdvance()) device.on = false;
+  lastSpeakerSig = "";
+  renderPage(rawStatus);
+}
+
+// Back to the speakers: stop here, bank the place, and go on air, where
+// start() resumes the head of Up Next from what was just reported.
+async function playOnSpeakers(btn) {
+  const entry = device.entry, at = audio.currentTime;
+  deviceRelease();
+  closeFlaps(null);
+  if (entry) await deviceReport(entry, "progress", at);
+  await post("/player/play", {}, btn);
+}
+
+// Stand this device down without reporting anything further.
+function deviceRelease() {
+  device.on = false;
+  device.entry = null;
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.load();
+  if (media) { media.metadata = null; media.playbackState = "none"; }
+  lastSpeakerSig = "";
+}
+
+// The speakers win: a poll sent after this device took over that finds the
+// station on air means someone pressed Play, or an alarm went off.
+function deviceWatch(s) {
+  if (!device.on || s.dj_state !== "playing" || statusAt < device.since) return;
+  const entry = device.entry, at = audio.currentTime;
+  deviceRelease();
+  if (entry) deviceReport(entry, "progress", at);
+  track("device_yield");
+  flash("The speakers took over", false, { label: "Play here", run: playHere });
+}
+
+function deviceToggle() {
+  if (!device.entry) return void deviceAdvance();
+  if (audio.paused) audio.play().catch(devicePlayFailed);
+  else audio.pause();
+}
+
+function deviceSeek(t) {
+  if (!device.entry) return;
+  const d = audio.duration;
+  audio.currentTime = Math.max(0, Number.isFinite(d) ? Math.min(t, d - 1) : t);
+}
+function deviceStep(action) {
+  const delta = DEVICE_STEPS[action];
+  deviceSeek(delta == null ? 0 : audio.currentTime + delta);
+}
+
+// Skip here is Skip on air: marked heard, the next one starts, and the
+// confirmation carries Undo, which plays it again from where it stopped.
+async function skipOnDevice() {
+  const entry = device.entry;
+  if (!entry || skipping) return;
+  const at = Math.floor(audio.currentTime);
+  skipping = true;
+  try {
+    device.entry = null;          // so the pause below reports nothing
+    device.gone.add(entry.episode_id);
+    audio.pause();
+    await deviceReport(entry, "skip", at);
+    await deviceAdvance();
+  } finally { skipping = false; }
+  flash("Skipped and marked heard", true, { label: "Undo", run: async () => {
+    if (!await post("/episodes/review", { ids: [entry.episode_id], decision: "keep" })) return;
+    device.gone.delete(entry.episode_id);
+    if (device.on) devicePlay(entry, at);
+  } });
+}
+
+// The lock screen and the notification shade: what is playing, and the
+// same verbs as the deck. Each handler is tried alone — a browser throws on
+// the actions it does not know.
+function deviceMediaSession(entry) {
+  if (!media) return;
+  try {
+    media.metadata = new MediaMetadata({
+      title: entry.title, artist: entry.show, album: "Talk Radio",
+      artwork: entry.image_url ? [{ src: entry.image_url }] : [],
+    });
+  } catch (err) { /* metadata is a nicety */ }
+}
+function deviceMediaPosition() {
+  const d = audio.duration;
+  if (!media || !media.setPositionState || !Number.isFinite(d) || d <= 0) return;
+  try {
+    media.setPositionState({ duration: d, playbackRate: audio.playbackRate || 1,
+                             position: Math.min(Math.max(0, audio.currentTime), d) });
+  } catch (err) { /* a position the browser won't take is not worth a crash */ }
+}
+if (media) {
+  const handlers = {
+    play: () => device.on && audio.paused && deviceToggle(),
+    pause: () => device.on && audio.pause(),
+    seekbackward: (ev) => device.on && deviceSeek(audio.currentTime - (ev.seekOffset || 15)),
+    seekforward: (ev) => device.on && deviceSeek(audio.currentTime + (ev.seekOffset || 30)),
+    seekto: (ev) => device.on && deviceSeek(ev.seekTime),
+    nexttrack: () => device.on && skipOnDevice(),
+  };
+  for (const [action, fn] of Object.entries(handlers)) {
+    try { media.setActionHandler(action, fn); } catch (err) { /* unsupported here */ }
+  }
+}
+
+audio.addEventListener("loadedmetadata", () => {
+  if (device.seekTo) audio.currentTime = device.seekTo;
+  device.seekTo = null;
+  device.pendingId = null;
+  deviceMediaPosition();
+});
+audio.addEventListener("timeupdate", () => {
+  if (device.entry && !audio.paused
+      && performance.now() - device.reportedAt >= DEVICE_REPORT_MS) {
+    deviceReport(device.entry, "progress");
+  }
+});
+// 'pause' also fires as a track ends, just ahead of 'ended', which reports it
+audio.addEventListener("pause", () => {
+  if (device.entry && !audio.ended) deviceReport(device.entry, "progress");
+});
+audio.addEventListener("ended", () => {
+  const done = device.entry;
+  if (!done || !device.on) return;
+  deviceReport(done, "ended", audio.currentTime);
+  device.entry = null;
+  device.gone.add(done.episode_id);
+  deviceAdvance();
+});
+audio.addEventListener("error", () => {
+  if (device.entry && audio.src.includes("/stream/")) flash("This episode wouldn't play here. Skip to move on");
+});
+for (const ev of ["play", "pause", "seeked", "durationchange"]) {
+  audio.addEventListener(ev, () => {
+    if (!device.on || !device.entry) return;
+    if (media) media.playbackState = audio.paused ? "paused" : "playing";
+    deviceMediaPosition();
+    if (rawStatus) renderPage(rawStatus);
+  });
+}
+// a closing tab says where it got to, so the speakers can carry on from there
+addEventListener("pagehide", () => {
+  if (device.entry) deviceReport(device.entry, "progress");
+});
+$("btn-device").addEventListener("click", (ev) => {
+  if (device.on) playOnSpeakers(ev.currentTarget);
+  else playHere();
 });
 
 // ── wire up ────────────────────────────────────────────────────────
 // closeFlaps and the [data-flap] toggle live in base.html, shared with the
 // stations page.
 $("btn-playpause").addEventListener("click", (ev) => {
+  if (device.on) return void deviceToggle();
   const playing = status && isPlaying(status);
   post(`/player/${playing ? "pause" : "play"}`, {}, ev.currentTarget);
 });
@@ -986,7 +1302,8 @@ document.addEventListener("click", (ev) => {
     setRowMenuOpen(null);
     return void post(`/episodes/${id}/drop`, { disposition }, btn);
   }
-  if (btn.dataset.player === "skip_done") return void skipOnAir(btn);
+  if (device.on && btn.dataset.player in DEVICE_STEPS) return void deviceStep(btn.dataset.player);
+  if (btn.dataset.player === "skip_done") return void (device.on ? skipOnDevice() : skipOnAir(btn));
   // Off air now is the second press already: the menu was the first.
   if (btn.dataset.player) return void post(`/player/${btn.dataset.player}`, {}, btn);
   if (btn.dataset.sched) {
@@ -996,6 +1313,11 @@ document.addEventListener("click", (ev) => {
   if (btn.dataset.episode) {
     const [id, action] = btn.dataset.episode.split("/");
     setRowMenuOpen(null);
+    // Play now on this device plays it here: sent to the speaker it would
+    // put the house back on air, and the speakers would take the station.
+    const row = device.on && action === "play_now"
+      && rawStatus.up_next.find((e) => String(e.episode_id) === id);
+    if (row) return void devicePlay(row);
     return void post(`/episodes/${id}/${action}`, {}, btn);
   }
 });
@@ -1027,7 +1349,8 @@ $("track").addEventListener("pointerup", () => {
   seekDrag = false;
   const np = status && status.now_playing;
   if (np && np.duration && seekFrac != null) {
-    post("/player/seek", { seconds: Math.round(seekFrac * np.duration) });
+    if (device.on) deviceSeek(seekFrac * np.duration);
+    else post("/player/seek", { seconds: Math.round(seekFrac * np.duration) });
   }
 });
 $("track").addEventListener("pointercancel", () => { seekDrag = false; });
@@ -1077,7 +1400,7 @@ function wireDisclosure(lineId, panelId, event) {
     panel.hidden = !panel.hidden;
     if (!panel.hidden) track(event);
     $(lineId).setAttribute("aria-expanded", String(!panel.hidden));
-    if (status) renderPage(status);
+    if (rawStatus) renderPage(rawStatus);
   });
 }
 wireDisclosure("wake-line", "wake-editor", "wake");

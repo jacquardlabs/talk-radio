@@ -462,9 +462,17 @@ async function post(path, body, btn) {
     return data.ok && data;   // truthy on success, carrying what the route said
   } catch (err) { flash("Server unreachable"); return false; }
 }
+// When the poll behind `status` was sent. Polls overlap — every post() polls
+// on its way out, on top of the 5s timer — and one sent before an action can
+// answer after it, so an older answer never repaints over a newer one.
+let statusAt = 0;
 async function poll() {
+  const asked = performance.now();
   try {
-    status = await (await fetch("/api/status")).json();
+    const fresh = await (await fetch("/api/status")).json();
+    if (asked < statusAt) return;
+    status = fresh;
+    statusAt = asked;
     // the tally light is lit only while on air
     $("board-title").classList.toggle("live", status.dj_state === "playing");
     // absent from a server older than the page: no count, not a zero

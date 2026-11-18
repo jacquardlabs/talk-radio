@@ -417,7 +417,16 @@ class DJ:
     def _save_resume(self, player) -> int | None:
         """Bank where the listener is, so a later start() can put them back.
         Returns the episode banked, or None when there was nothing to bank —
-        which callers log, because a silent None means a lost place."""
+        which callers log, because a silent None means a lost place.
+
+        Only on air. Off air the speaker still holds the last session's
+        tracks and the place they stopped at, but the listener may have moved
+        on since — in a browser (Play on this device) or on the phone — and
+        reading the stopped speaker would put them back where Sonos left
+        off. stop_off_air() banked that place on its way out, while still on
+        air; anything newer came from somewhere else."""
+        if self.db.kv_get("dj_state") != "playing":
+            return None
         try:
             _, matches, cur_idx, cur = self._match_queue(player)
             episode = matches[cur_idx] if cur_idx < len(matches) else None
@@ -1118,29 +1127,72 @@ class DJ:
         honor it exactly as if it had played here.
 
         Only a 'play' action reaches this — see gpodder.py, which maps
-        'new'/'download'/'delete' to nothing before calling in."""
+        'new'/'download'/'delete' to nothing before calling in. The phone
+        says nothing about finishing, so it is read off how close to the end
+        the position landed."""
+        finished = total is not None and total - position <= self._REMOTE_DONE_SLACK
+        self._apply_listen(episode_id, position, finished)
+
+    def report_from_device(self, episode_id: int, position: int,
+                           event: Literal["progress", "ended", "skip"]) -> None:
+        """A playback report from a browser playing Up Next itself ("Play on
+        this device"). The browser knows when a track ended, so unlike the
+        phone it says so: a progress report in an episode's last minute is
+        not a finish, and an ended stream with no known length still is.
+        Skip marks it the way Skip on air does — dismissed, not heard."""
+        self._apply_listen(episode_id, position, event != "progress",
+                           never=event == "skip")
+
+    def _apply_listen(self, episode_id: int, position: int, finished: bool,
+                      never: bool = False) -> None:
+        """Bank a listen that happened somewhere other than the speaker:
+        a resume position, or the episode heard and out of Up Next."""
         with self._lock:
             episode = self.db.get_episode(episode_id)
             if episode is None or episode["status"] in ("played", "archived"):
                 return
-            if (self.db.kv_get("dj_state") == "playing"
-                    and self.db.kv_get("resume_episode_id") == str(episode_id)):
+            on_air = self.db.kv_get("dj_state") == "playing"
+            if on_air and self.db.kv_get("resume_episode_id") == str(episode_id):
                 # The track on air is not droppable by anything but Skip and
                 # Play now (PRODUCT.md's Up Next ladder, rung 1) — a remote
                 # report is neither, so it is heard and discarded rather than
                 # fighting the live position tick() is already tracking.
-                logger.info("gpodder: ignoring remote action for the episode"
-                           " on air (%s)", episode_id)
+                logger.info("ignoring remote report for the episode on air (%s)",
+                            episode_id)
                 return
-            finished = total is not None and total - position <= self._REMOTE_DONE_SLACK
             if not finished:
                 self.db.set_resume(episode_id, max(0, position))
                 return
-            if episode["status"] == "queued":
+            # Only on air is a queued episode really on the speaker. Off air
+            # the speaker still holds the last session's tracks, but start()
+            # throws them away, and dropping one there would top up a stopped
+            # speaker with episodes nobody is going to hear from it.
+            if episode["status"] == "queued" and on_air:
                 player = self.get_player()
-                if player is not None and self.drop_from_queue(episode_id, "done") is None:
+                if (player is not None
+                        and self.drop_from_queue(episode_id, "done") is None):
                     return
-            self._finish(episode)
+            self._finish(episode, never)
+            # Out of the saved order explicitly, as every removal is: status
+            # alone would put it back the moment Undo or Keep made it 'new'.
+            self.db.remove_from_up_next(episode_id)
+
+    def queue_rotation_pick(self) -> str | None:
+        """Add the rotation's next pick to the end of the saved Up Next, for
+        a browser playing it off air: with Sonos off there is no _top_up to
+        keep the list from running dry. Rung 6 of the ladder, the same pick
+        a top-up makes, and claimed the way _claim_batch claims one, so the
+        next ask cannot hand back the same episode. On air the speaker's own
+        top-up owns the list, so this declines."""
+        with self._lock:
+            if self.db.kv_get("dj_state") == "playing":
+                return "The speakers have the station"
+            episode = pick_next(self.db, retry_cutoff_iso(self._RETRY_COOLDOWN_MINUTES))
+            if episode is None:
+                return "Nothing to play — add a station first"
+            self.db.mark_queued(episode["id"], None)
+            self.db.set_up_next(self.db.up_next_order() + [episode["id"]])
+            return None
 
     def move_in_queue(self, episode_id: int, to_position: int) -> str | None:
         """Move an episode to `to_position` within Up Next.
@@ -1652,6 +1704,9 @@ class DJ:
                     "published_at": ep["published_at"],
                     "pinned": bool(ep["pinned"]),
                     "duration": ep["duration_seconds"],
+                    # where a listen elsewhere left off: what a browser
+                    # playing Up Next off air starts from
+                    "resume": ep["resume_seconds"],
                     "description": ep["description"]}
 
         # Off air Up Next still exists — it just isn't on the speaker. Show it
@@ -1728,6 +1783,8 @@ class DJ:
             # one: partymode moves coordination and leaves Sonos
             # mid-transition, and _save_resume banks nothing when it can't
             # see a current track. So this goes before the regroup, not after.
+            # Off air it banks nothing: stop_off_air() already did, and a
+            # browser or phone may have moved the place on since.
             interrupted = self._save_resume(player)
             # That same read answers the question the whole fire turns on: is
             # the station already on? An episode came back only if the track

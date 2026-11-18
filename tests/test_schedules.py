@@ -519,3 +519,27 @@ def test_a_regroup_that_blinds_the_speaker_is_not_read_as_silence(wake_env) -> N
     assert player.grouped is True
     assert player.queue_uris() == queue_before
     assert player.position == 700
+
+
+def test_fire_off_air_keeps_the_place_a_browser_reported(wake_env) -> None:
+    """Off air the speaker still holds the last session and the place it
+    stopped at. A browser playing Up Next (Play on this device) moved that
+    place on since, and the alarm must pick up from there — reading the
+    stopped speaker first put the listener back where Sonos left off."""
+    db, dj, player = wake_env
+    dj.start()
+    player.listen(300)
+    dj.tick()
+    dj.tick()
+    dj.stop_off_air()
+    head = db.up_next_order()[0]
+    assert db.get_episode(head)["resume_seconds"] == 300
+    dj.report_from_device(head, 1500, "progress")
+
+    make_schedule(db)
+    dj.check_schedules(now=MON_0803)
+    dj.tick()
+
+    assert player.state == "PLAYING"
+    assert playing_episode(db, player)["id"] == head
+    assert player.seeks[-1] == 1490      # the browser's place, less the usual 10s

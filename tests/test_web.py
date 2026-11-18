@@ -659,11 +659,12 @@ def test_skip_is_one_tap_and_its_caret_keeps_the_episode(no_sonos_client) -> Non
 def test_controls_go_dead_when_nothing_is_on_air(no_sonos_client) -> None:
     """Skip and the seek buttons act on the episode playing. Off air stops
     the speaker whatever the DJ believes, so it stays live until the speaker
-    is silent too."""
+    is silent too. Playing on this device the speakers are already off air,
+    so it has nothing to stop."""
     body = no_sonos_client[0].get("/").data
     assert b"""["#btn-skip", "#btn-skip-more", '[data-player="back_15"]', '[data-player="fwd_30"]']""" in body
-    assert (b'$("btn-sleep").disabled = s.dj_state !== "playing" && '
-            b'(!s.transport || s.transport === "STOPPED");') in body
+    assert (b'$("btn-sleep").disabled = device.on\n'
+            b'    || (s.dj_state !== "playing" && (!s.transport || s.transport === "STOPPED"));') in body
 
 
 def test_off_air_is_one_control_now_or_later(no_sonos_client) -> None:
@@ -1252,3 +1253,70 @@ def test_skip_titles_route_validates(client) -> None:
     assert c.post(f"/feeds/{fid}/skip_titles", json={"titles": "Selects"}).get_json()["ok"] is False
     assert c.post(f"/feeds/{fid}/skip_titles", json={"titles": [1]}).get_json()["ok"] is False
     assert c.post("/feeds/999/skip_titles", json={"titles": []}).status_code == 404
+
+
+# ── play on this device ────────────────────────────────────────────────
+def _device_episode(db) -> int:
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    db.insert_episode(fid, "d1", "One", "https://x/1.mp3", "2026-01-01T00:00:00Z",
+                      duration_seconds=1800)
+    ep = db.episodes_for_feed(fid)[0]["id"]
+    db.set_up_next([ep])
+    return ep
+
+
+def test_device_report_banks_a_position(client) -> None:
+    c, db, _ = client
+    ep = _device_episode(db)
+    body = c.post("/device/report", json={
+        "episode_id": ep, "position": 1795, "event": "progress"}).get_json()
+    assert body == {"ok": True, "error": None}
+    assert db.get_episode(ep)["resume_seconds"] == 1795
+    assert c.get("/api/status").get_json()["up_next"][0]["resume"] == 1795
+
+
+def test_device_report_ended_takes_it_off_up_next(client) -> None:
+    c, db, _ = client
+    ep = _device_episode(db)
+    c.post("/device/report", json={"episode_id": ep, "position": 1800, "event": "ended"})
+    assert db.get_episode(ep)["status"] == "played"
+    assert c.get("/api/status").get_json()["up_next"] == []
+
+
+def test_device_report_validates(client) -> None:
+    c, db, _ = client
+    ep = _device_episode(db)
+    assert c.post("/device/report", json={
+        "episode_id": ep, "position": 10, "event": "rewind"}).get_json()["ok"] is False
+    assert c.post("/device/report", json={
+        "episode_id": ep, "event": "progress"}).get_json()["ok"] is False
+    assert c.post("/device/report", json={
+        "episode_id": 999, "position": 1, "event": "progress"}).status_code == 404
+
+
+def test_device_next_appends_a_pick(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    db.insert_episode(fid, "d1", "One", "https://x/1.mp3", "2026-01-01T00:00:00Z")
+    assert c.post("/device/next").get_json()["ok"] is True
+    assert [e["title"] for e in c.get("/api/status").get_json()["up_next"]] == ["One"]
+    assert c.post("/device/next").get_json()["ok"] is False   # nothing left to pick
+
+
+def test_device_reports_are_not_usage_but_a_skip_is(client) -> None:
+    """The browser reports every 15 seconds; counting that would bury the
+    usage log under a player's clock. A skip is someone's choice."""
+    c, db, _ = client
+    ep = _device_episode(db)
+    c.post("/device/report", json={"episode_id": ep, "position": 60, "event": "progress"})
+    c.post("/device/report", json={"episode_id": ep, "position": 60, "event": "ended"})
+    c.post("/device/next")
+    db.mark_unheard(ep)
+    c.post("/device/report", json={"episode_id": ep, "position": 90, "event": "skip"})
+    actions = [r["action"] for r in db.usage_summary("2000-01-01T00:00:00Z")]
+    assert [a for a in actions if "/device/" in a] == ["POST /device/report/skip"]
+
+
+def test_on_air_offers_play_on_this_device(no_sonos_client) -> None:
+    page = no_sonos_client[0].get("/").data
+    assert b'id="btn-device"' in page and b'id="device-audio"' in page

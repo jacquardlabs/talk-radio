@@ -90,6 +90,15 @@ first:
    anything new [code, dj.py:231-246], so a hand-built list is spent before the
    DJ improvises.
 
+*Play on this device* adds no rung. It plays the off-air list in the order
+above, news first; its *Play now* interrupts here as rung 3 does on the
+speaker; and when the list runs dry it asks for one rotation pick, rung 6,
+appended behind everything else. The episode playing in the browser is left
+out of the Up Next it shows, so as on the speaker only Skip and Play now take
+it off (rung 1). Going back on air resumes the head of the saved list, which
+is that episode unless *Play now* chose one further down.
+[code, dj.py `report_from_device`, `queue_rotation_pick`]
+
 **Proposed rule for the next verb.** [inferred] A new queue verb must state its
 place on this ladder before it is built, and must not need a new one. If it
 cannot be expressed as "acts at rung N", it is a different feature wearing a

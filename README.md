@@ -74,6 +74,20 @@ pointer — and each row's menu offers *Play now* (interrupts immediately),
 Next row opens that episode's notes when the feed publishes them. On a phone
 every menu rises from the bottom, above the controls.
 
+**Play on this device.** The *Rooms* menu offers *Play on this device*, for a
+laptop on the tailnet or a phone's browser. The station goes off air the
+ordinary way, and the browser plays Up Next itself — news first, then the
+saved order, each from where it was left — through `/stream/<id>.mp3`. When
+the list runs out it asks the rotation for the next pick. It reports its
+place every 15 seconds, on pause, and when an episode ends, so the speakers
+pick up from there. Play/Pause, the seek bar, back 15 and forward 30 act on
+the browser, and so does Skip (marked heard, with Undo); a phone's lock
+screen gets the same controls. The speakers win: press Play anywhere else,
+or let a wake alarm fire, and the browser pauses and hands back. *Play on the
+speakers* in the same menu hands back on purpose. Alarms always ring on the
+speakers. There is no offline mode: close the tab and it stops, with its
+place saved.
+
 **Light and dark.** The page follows the device's setting; the button in the
 header steps through *match this device*, light and dark, and the choice is
 stored per device, so the wall tablet and the bedside phone can differ. The
@@ -249,9 +263,9 @@ credential because the gpodder protocol requires one — it protects nothing
 else, and only exists when `GPODDER_USER`/`GPODDER_PASSWORD` are set.
 
 It also runs Flask's development server — fine for a few LAN clients and one
-speaker, not for real traffic. Both `DOWNLOAD_MODE` and the automatic proxy
-below make that server the audio path, so whole episodes move through it while
-you listen.
+speaker, not for real traffic. `DOWNLOAD_MODE`, the automatic proxy below,
+and *Play on this device* all make that server the audio path, so whole
+episodes move through it while you listen.
 
 ## Audio delivery
 
@@ -310,7 +324,7 @@ from:
 ## Usage log
 
 Every action, search, and page view is counted in the database (polling is
-not), with the page it came from and whether it worked. Dropping an Up next
+not, nor are a browser's playback reports under *Play on this device*), with the page it came from and whether it worked. Dropping an Up next
 row and a review decision are counted by what they did. So are a menu
 opening, an appearance change, and the layout each page loaded in: narrow
 (760px and under), medium, or wide (1024px and up). Scripted calls like the
