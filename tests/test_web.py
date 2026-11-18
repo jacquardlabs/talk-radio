@@ -1184,8 +1184,10 @@ def test_review_route_reports_what_moved(client) -> None:
     c, db, _ = client
     _, ids = _review_seed(db)
     db.mark_queued(ids[2], "uri")
+    db.kv_set("dj_state", "playing")
     body = c.post("/episodes/review", json={"ids": ids, "decision": "back_catalog"}).get_json()
-    # queued but not on the speaker's queue: it can't be taken off, so it's held
+    # on air, queued but not on the speaker's queue: it can't be taken off,
+    # so it's held (off air nothing is on air, and it would move)
     assert body == {"ok": True, "error": None, "moved": 2, "held": 1}
     assert db.get_episode(ids[0])["status"] == "archived"
     assert db.get_episode(ids[2])["status"] == "queued"
@@ -1303,6 +1305,18 @@ def test_device_next_appends_a_pick(client) -> None:
     assert c.post("/device/next").get_json()["ok"] is False   # nothing left to pick
 
 
+def test_device_unskip_puts_it_back_in_up_next(client) -> None:
+    c, db, _ = client
+    ep = _device_episode(db)
+    c.post("/device/report", json={"episode_id": ep, "position": 90, "event": "skip"})
+    assert c.post("/device/unskip", json={"episode_id": ep, "position": 90}).get_json()["ok"]
+    [head] = c.get("/api/status").get_json()["up_next"]
+    assert head["episode_id"] == ep and head["resume"] == 90
+    assert c.post("/device/unskip", json={"episode_id": ep}).get_json()["ok"] is False
+    assert c.post("/device/unskip", json={
+        "episode_id": 999, "position": 1}).status_code == 404
+
+
 def test_device_reports_are_not_usage_but_a_skip_is(client) -> None:
     """The browser reports every 15 seconds; counting that would bury the
     usage log under a player's clock. A skip is someone's choice."""
@@ -1320,3 +1334,15 @@ def test_device_reports_are_not_usage_but_a_skip_is(client) -> None:
 def test_on_air_offers_play_on_this_device(no_sonos_client) -> None:
     page = no_sonos_client[0].get("/").data
     assert b'id="btn-device"' in page and b'id="device-audio"' in page
+
+
+def test_device_player_recovers_and_keeps_its_place(no_sonos_client) -> None:
+    """Markup only: the suite has no browser (checked by hand in Chromium).
+    A stream that failed rejects play() until it is loaded again, so Play
+    reloads it; Undo after a Skip here puts it back at the head of Up Next;
+    a paused tab closing reports nothing, since its place may be older
+    than one another device has reported since."""
+    body = no_sonos_client[0].get("/").data
+    assert b"if (audio.error) return void devicePlay(device.entry," in body
+    assert b'post("/device/unskip", { episode_id: entry.episode_id, position: at })' in body
+    assert b"if (device.entry && !audio.paused) deviceReport(device.entry, \"progress\");" in body

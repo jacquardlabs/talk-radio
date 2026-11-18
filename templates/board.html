@@ -1128,6 +1128,10 @@ function deviceWatch(s) {
 
 function deviceToggle() {
   if (!device.entry) return void deviceAdvance();
+  // A stream that failed won't play again until it is loaded again: from the
+  // place it reached, or the one it was headed for if it never started.
+  if (audio.error) return void devicePlay(device.entry,
+    device.pendingId === device.entry.episode_id ? device.seekTo : audio.currentTime);
   if (audio.paused) audio.play().catch(devicePlayFailed);
   else audio.pause();
 }
@@ -1156,10 +1160,13 @@ async function skipOnDevice() {
     await deviceReport(entry, "skip", at);
     await deviceAdvance();
   } finally { skipping = false; }
+  // Undo puts it back at the head of Up Next as well as in rotation: Keep
+  // alone would leave it out, and going back to the speakers would lose it.
   flash("Skipped and marked heard", true, { label: "Undo", run: async () => {
-    if (!await post("/episodes/review", { ids: [entry.episode_id], decision: "keep" })) return;
+    if (!device.on) return void post("/episodes/review", { ids: [entry.episode_id], decision: "keep" });
+    if (!await post("/device/unskip", { episode_id: entry.episode_id, position: at })) return;
     device.gone.delete(entry.episode_id);
-    if (device.on) devicePlay(entry, at);
+    devicePlay(entry, at);
   } });
 }
 
@@ -1222,7 +1229,7 @@ audio.addEventListener("ended", () => {
   deviceAdvance();
 });
 audio.addEventListener("error", () => {
-  if (device.entry && audio.src.includes("/stream/")) flash("This episode wouldn't play here. Skip to move on");
+  if (device.entry && audio.src.includes("/stream/")) flash("This episode wouldn't play here. Press Play to try again, or Skip to move on");
 });
 for (const ev of ["play", "pause", "seeked", "durationchange"]) {
   audio.addEventListener(ev, () => {
@@ -1232,9 +1239,11 @@ for (const ev of ["play", "pause", "seeked", "durationchange"]) {
     if (rawStatus) renderPage(rawStatus);
   });
 }
-// a closing tab says where it got to, so the speakers can carry on from there
+// a closing tab says where it got to, so the speakers can carry on from there.
+// Paused, it already said so: a place reported now could be older than one
+// another device has reported since.
 addEventListener("pagehide", () => {
-  if (device.entry) deviceReport(device.entry, "progress");
+  if (device.entry && !audio.paused) deviceReport(device.entry, "progress");
 });
 $("btn-device").addEventListener("click", (ev) => {
   if (device.on) playOnSpeakers(ev.currentTarget);

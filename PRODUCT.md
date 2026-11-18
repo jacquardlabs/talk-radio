@@ -96,8 +96,12 @@ speaker; and when the list runs dry it asks for one rotation pick, rung 6,
 appended behind everything else. The episode playing in the browser is left
 out of the Up Next it shows, so as on the speaker only Skip and Play now take
 it off (rung 1). Going back on air resumes the head of the saved list, which
-is that episode unless *Play now* chose one further down.
-[code, dj.py `report_from_device`, `queue_rotation_pick`]
+is that episode unless *Play now* chose one further down; Undo after a Skip
+here puts the skipped one back at the head. Off air, Back to rotation,
+Archive and Mark heard take any row out of the saved list, whether or not
+the stopped speaker still holds it.
+[code, dj.py `report_from_device`, `queue_rotation_pick`, `unskip_on_device`,
+`_drop_off_air`]
 
 **Proposed rule for the next verb.** [inferred] A new queue verb must state its
 place on this ladder before it is built, and must not need a new one. If it

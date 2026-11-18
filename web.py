@@ -354,6 +354,19 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
     def device_next():
         return result(dj.queue_rotation_pick())
 
+    @app.post("/device/unskip")
+    def device_unskip():
+        """{"episode_id", "position"}: Undo after a Skip here."""
+        body = request.get_json(silent=True) or {}
+        try:
+            episode_id = int(body["episode_id"])
+            position = int(body["position"])
+        except (KeyError, TypeError, ValueError):
+            return result("episode_id and position (ints) required")
+        if db.get_episode(episode_id) is None:
+            return result("no such episode"), 404
+        return result(dj.unskip_on_device(episode_id, position))
+
     @app.get("/api/podcasts/search")
     def api_podcast_search():
         q = (request.args.get("q") or "").strip()

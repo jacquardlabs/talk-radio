@@ -85,8 +85,9 @@ the browser, and so does Skip (marked heard, with Undo); a phone's lock
 screen gets the same controls. The speakers win: press Play anywhere else,
 or let a wake alarm fire, and the browser pauses and hands back. *Play on the
 speakers* in the same menu hands back on purpose. Alarms always ring on the
-speakers. There is no offline mode: close the tab and it stops, with its
-place saved.
+speakers. It plays only while the On air page is open: close the tab, or
+follow a link to Stations or Review, and it stops, with its place saved. There
+is no offline mode.
 
 **Light and dark.** The page follows the device's setting; the button in the
 header steps through *match this device*, light and dark, and the choice is

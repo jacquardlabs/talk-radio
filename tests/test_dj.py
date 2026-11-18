@@ -1488,6 +1488,109 @@ class TestPlayOnThisDevice:
         assert dj.queue_rotation_pick() is None
         assert len(self._listed(dj)) == 1
 
+    @pytest.mark.parametrize("disposition,status,review", [
+        ("later", "new", None), ("archive", "archived", "back_catalog"),
+        ("done", "played", "never")])
+    def test_a_pick_comes_out_of_up_next_off_air(
+            self, db, cfg, player, dj, disposition, status, review) -> None:
+        """A pick the browser asked for is claimed but never staged, so the
+        stopped speaker has nothing to drop: the row only leaves the list."""
+        self._off_air(db, player, dj)
+        assert dj.queue_rotation_pick() is None
+        pick = db.up_next_order()[-1]
+        before = player.queue_uris()
+        assert dj.drop_from_queue(pick, disposition) is None
+        row = db.get_episode(pick)
+        assert (row["status"], row["review"]) == (status, review)
+        assert pick not in db.up_next_order() and pick not in self._listed(dj)
+        assert player.queue_uris() == before
+
+    def test_the_row_the_speaker_stopped_on_comes_out_off_air(
+            self, db, cfg, player, dj) -> None:
+        """Off air nothing is on air, so the head of Up Next is a row like
+        any other — the one a browser is playing, say."""
+        head = self._off_air(db, player, dj)[0]
+        assert dj.drop_from_queue(head, "later") is None
+        assert head not in db.up_next_order()
+        assert db.get_episode(head)["status"] == "new"
+        assert db.kv_get("resume_episode_id") is None
+
+    def test_review_moves_a_pick_off_air(self, db, cfg, player, dj) -> None:
+        self._off_air(db, player, dj)
+        assert dj.queue_rotation_pick() is None
+        pick = db.up_next_order()[-1]
+        assert dj.review_episodes([pick], "back_catalog") == (1, 0)
+        assert db.get_episode(pick)["status"] == "archived"
+        assert pick not in db.up_next_order()
+
+    def test_a_finish_for_the_track_just_put_on_air_is_ignored(
+            self, db, cfg, player, dj) -> None:
+        """The browser finished one, then the speakers took over with the
+        next before the first tick named it: a finish reported for it now
+        would mark heard the track on the speaker and strand the needle."""
+        order = self._off_air(db, player, dj)
+        dj.report_from_device(order[0], 1800, "ended")
+        head = db.up_next_order()[0]
+        dj.start()
+        assert current_episode_row(db, player)["id"] == head
+        dj.report_from_device(head, 1800, "ended")
+        row = db.get_episode(head)
+        assert row["status"] == "queued" and row["play_uri"]
+
+    def test_on_air_a_finish_for_a_queued_row_off_the_speaker_still_counts(
+            self, db, cfg, player, dj) -> None:
+        self._off_air(db, player, dj)
+        dj.start()
+        dj.tick()
+        loose = db.episodes_with_status("new")[0]["id"]
+        db.mark_queued(loose, None)      # claimed, not staged
+        dj.report_from_device(loose, 1800, "ended")
+        assert db.get_episode(loose)["status"] == "played"
+
+    def test_undo_after_a_skip_puts_it_back_at_the_head(
+            self, db, cfg, player, dj) -> None:
+        """Keep alone would leave it out of Up Next, and going back to the
+        speakers would resume the next one instead."""
+        order = self._off_air(db, player, dj)
+        dj.report_from_device(order[0], 400, "skip")
+        assert dj.unskip_on_device(order[0], 400) is None
+        row = db.get_episode(order[0])
+        assert row["status"] == "queued" and row["review"] == "keep"
+        assert row["resume_seconds"] == 400
+        assert db.up_next_order()[0] == order[0] and self._listed(dj)[0] == order[0]
+        assert db.up_next_order().count(order[0]) == 1
+
+    def test_undo_on_device_is_not_picked_again(self, db, cfg, player, dj) -> None:
+        """Back in rotation it is its show's oldest unheard episode, which is
+        exactly what the next pick would choose, and list twice."""
+        order = self._off_air(db, player, dj)
+        dj.report_from_device(order[0], 400, "skip")
+        dj.unskip_on_device(order[0], 400)
+        for _ in range(6):
+            assert dj.queue_rotation_pick() is None
+        after = db.up_next_order()
+        assert len(after) == len(set(after))
+
+    def test_undo_on_device_declines_on_air(self, db, cfg, player, dj) -> None:
+        order = self._off_air(db, player, dj)
+        dj.report_from_device(order[0], 400, "skip")
+        dj.start()
+        assert dj.unskip_on_device(order[0], 400) is not None
+        assert db.get_episode(order[0])["status"] == "played"
+
+    def test_off_air_a_speaker_playing_anyway_still_banks_its_place(
+            self, db, cfg, player, dj) -> None:
+        """After Off air someone pressed play in the Sonos app. Its place is
+        the newest there is, and Off air again must keep it; only a stopped
+        speaker's stale place is left alone."""
+        order = self._off_air(db, player, dj)
+        player.play()
+        player.listen(900)
+        playing = current_episode_row(db, player)["id"]
+        dj.stop_off_air()
+        assert db.get_episode(playing)["resume_seconds"] == 900
+        assert playing in order
+
     def test_a_pick_with_nothing_to_pick_says_so(self, db, cfg, player, dj) -> None:
         assert dj.queue_rotation_pick() is not None
 

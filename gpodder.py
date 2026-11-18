@@ -83,6 +83,10 @@ def _fmt_ts(iso_z: str | None) -> str:
 # `position * 1000` overflows its int milliseconds.
 PLAYED_POSITION = 7 * 24 * 3600
 
+# Finished episodes per episode-actions GET. A first sync, or a bulk decision
+# on the Review page, can have tens of thousands; the rest follow on the next.
+PLAYED_PER_SYNC = 5000
+
 
 def played_action(episode, feed_url: str) -> dict:
     """A finished episode — heard, or taken out of rotation — as of its
@@ -389,8 +393,9 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
     def get_episode_actions(username: str):
         floor = datetime.fromtimestamp(_since_arg(), tz=timezone.utc) \
             .strftime("%Y-%m-%dT%H:%M:%SZ")
+        played = db.episodes_played_since(floor, PLAYED_PER_SYNC)
         actions: list[dict] = [played_action(row, _url(feed_path(row["feed_id"])))
-                               for row in db.episodes_played_since(floor)]
+                               for row in played]
         for row in db.episodes_with_resume_since(floor):
             a = resume_action(row, _url(feed_path(row["feed_id"])))
             if a is not None:
@@ -405,8 +410,13 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
                                        episode["audio_url"], episode["guid"])
                 if a is not None:
                     actions.append(a)
-        return jsonify({"actions": actions,
-                        "timestamp": _now()})
+        # The phone's next `since`. Cut short, the played list ends on a
+        # whole second (db.episodes_played_since), so the next sync starts
+        # just after it rather than now, which would skip the rest for good.
+        timestamp = _now()
+        if len(played) >= PLAYED_PER_SYNC:
+            timestamp = min(timestamp, _epoch(played[-1]["reported_at"]) + 1)
+        return jsonify({"actions": actions, "timestamp": timestamp})
 
     @bp.post("/api/2/episodes/<username>.json")
     @require_auth

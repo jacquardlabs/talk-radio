@@ -619,17 +619,26 @@ class Database:
         episode off a phone's queue — so a later "Add to rotation" brings it
         back here but cannot un-play it there.
         `>=`, not `>`: since is second-granularity, and an episode played in
-        the same second as a prior sync must not be lost."""
+        the same second as a prior sync must not be lost.
+
+        At most `limit` rows, in whole seconds: one bulk decision on the
+        Review page dates every row it moves the same second, so a cut inside
+        that second could only be resumed from it, and would send the same
+        rows forever. The rest of the last second goes too, however many."""
+        reported = "COALESCE(e.decided_at, e.played_at)"
+        query = (f"SELECT e.*, f.url AS feed_url, {reported} AS reported_at"
+                 " FROM episodes e JOIN feeds f ON f.id=e.feed_id"
+                 f" WHERE ((e.status='played' AND {reported}>=?)"
+                 " OR (e.status='archived' AND e.decided_at>=?))")
         with self._conn() as c:
-            return c.execute(
-                "SELECT e.*, f.url AS feed_url,"
-                " COALESCE(e.decided_at, e.played_at) AS reported_at FROM episodes e"
-                " JOIN feeds f ON f.id=e.feed_id"
-                " WHERE (e.status='played' AND COALESCE(e.decided_at, e.played_at)>=?)"
-                " OR (e.status='archived' AND e.decided_at>=?)"
-                " ORDER BY reported_at ASC LIMIT ?",
-                (since_iso, since_iso, limit),
-            ).fetchall()
+            rows = c.execute(query + " ORDER BY reported_at ASC, e.id ASC LIMIT ?",
+                             (since_iso, since_iso, limit)).fetchall()
+            if len(rows) < limit:
+                return rows
+            last = rows[-1]
+            return rows + c.execute(
+                query + f" AND {reported}=? AND e.id>? ORDER BY e.id ASC",
+                (since_iso, since_iso, last["reported_at"], last["id"])).fetchall()
 
     def episodes_with_resume_since(self, since_iso: str) -> list[sqlite3.Row]:
         with self._conn() as c:
@@ -1089,10 +1098,11 @@ class Database:
 
         Never play sets played_at to the publish date, as the stale-news
         migration does, so a batch doesn't bury Recently played or flood a
-        phone's sync, whose `since` query is capped at 5000 rows. What the
-        phone needs instead is decided_at, set only on rows leaving rotation:
-        a prune from the back catalog was never on the phone, and that is
-        where the large batches are."""
+        phone's sync. What the phone needs instead is decided_at, set only on
+        rows leaving rotation: a prune from the back catalog was never on the
+        phone. A batch leaving rotation still dates every row the same second
+        — Select all on the Rotation view can move thousands — which is why
+        episodes_played_since never splits a second."""
         moved: list[int] = []
         paths: list[str] = []
         with self._conn() as c:

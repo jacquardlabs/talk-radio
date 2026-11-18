@@ -286,6 +286,31 @@ def test_a_decision_taken_back_is_not_sent(gclient) -> None:
     assert _actions(c, 0) == []
 
 
+def test_a_bulk_decision_past_the_cap_reaches_the_phone_in_full(
+        gclient, monkeypatch) -> None:
+    """Select all on Review dates every row the same second. Cut at the cap
+    and answered with timestamp=now, the rest never passed `since`; a cut
+    inside the second, resumed from it, would resend the same rows forever."""
+    c, db, *_ = gclient
+    monkeypatch.setattr(gpodder, "PLAYED_PER_SYNC", 3)
+    make_feed(db, "showa", 6)
+    ids = [e["id"] for e in db.episodes_with_status("new")]
+    _review(c, ids[:5], "back_catalog")
+    with db._conn() as conn:   # one second for the batch, a later one for the last
+        conn.execute("UPDATE episodes SET decided_at='2026-11-17T10:00:00Z'"
+                     " WHERE decided_at IS NOT NULL")
+    _review(c, ids[5:], "never")
+    with db._conn() as conn:
+        conn.execute("UPDATE episodes SET decided_at='2026-11-17T10:00:05Z' WHERE id=?",
+                     (ids[5],))
+    body = c.get("/api/2/episodes/radio.json?since=0", headers=basic_header()).get_json()
+    first = {a["guid"] for a in body["actions"]}
+    assert len(first) == 5                            # the whole second, past the cap
+    assert body["timestamp"] == gpodder._epoch("2026-11-17T10:00:01Z")
+    rest = {a["guid"] for a in _actions(c, body["timestamp"])}
+    assert first | rest == {db.get_episode(i)["guid"] for i in ids}
+
+
 def test_a_listen_after_a_decision_reports_when_it_was_heard(gclient) -> None:
     c, db, *_ = gclient
     make_feed(db, "showa", 1)
