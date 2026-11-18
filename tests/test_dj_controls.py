@@ -795,14 +795,17 @@ def test_status_after_skip_when_the_queue_read_still_lags(db, cfg) -> None:
     assert started not in [e["episode_id"] for e in s["up_next"]]
 
 
-def test_status_off_air_stays_blank_when_sonos_reports_no_position(db, cfg) -> None:
+def test_status_off_air_never_reads_the_deck_off_the_speaker(db, cfg) -> None:
     """The mid-transition fallback must not fire off air: a stopped speaker
     also reports no track, and "queued" rows outlive a crash-restart, so
-    there the silence means idle — not a track about to start."""
+    there the speaker's needle is no guide. Off air the deck is the saved
+    Up Next's head at its own place — what Play will start — or blank."""
     player, dj = mid_session(db, cfg)
     db.kv_set("dj_state", "stopped")  # crashed off air, queue rows left behind
     player.blind = True
-    assert dj.status()["now_playing"] is None
+    s = dj.status()
+    head = s["up_next"][0] if s["up_next"] else None
+    assert s["now_playing"] == (head and {**head, "position": head["resume"] or 0})
 
 
 def test_tick_with_no_reported_position_finishes_nothing(db, cfg) -> None:

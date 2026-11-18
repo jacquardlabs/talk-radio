@@ -985,8 +985,13 @@ const media = "mediaSession" in navigator ? navigator.mediaSession : null;
 
 // The status the page renders while this device plays: the deck, transport
 // and level are the audio element's, and Up Next is the rest of the list.
+// Off air the server's list starts with the deck's own episode (a browser
+// plays it from its head), so it is left out here too: one episode, one place.
 function deviceView(s) {
-  if (!device.on) return s;
+  if (!device.on) {
+    const np = s.now_playing;
+    return np ? { ...s, up_next: s.up_next.filter((x) => x.episode_id !== np.episode_id) } : s;
+  }
   const e = device.entry;
   const known = Number.isFinite(audio.duration) && audio.duration > 0;
   return {

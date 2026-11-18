@@ -1387,6 +1387,21 @@ class TestPlayOnThisDevice:
     def _listed(self, dj) -> list[int]:
         return [e["episode_id"] for e in dj.status()["up_next"]]
 
+    def test_off_air_the_deck_names_what_play_will_start(
+            self, db, cfg, player, dj) -> None:
+        """Off air the stopped speaker still holds the last session. Once its
+        track is heard elsewhere, reading the deck off the speaker named the
+        next row with the old track's length at 0:00. The deck is the head of
+        Up Next, at its own place, as Play will start it."""
+        order = self._off_air(db, player, dj)
+        dj.report_from_device(order[0], 1800, "ended")
+        dj.report_from_device(order[1], 500, "progress")
+        s = dj.status()
+        np = s["now_playing"]
+        assert np["episode_id"] == s["up_next"][0]["episode_id"] == order[1]
+        assert np["position"] == 500
+        assert np["duration"] == db.get_episode(order[1])["duration_seconds"]
+
     def test_off_air_status_carries_the_resume_position(
             self, db, cfg, player, dj) -> None:
         order = self._off_air(db, player, dj)

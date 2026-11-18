@@ -1831,6 +1831,15 @@ class DJ:
             data["up_next"] = [entry(ep) for ep in news] + [
                 entry(ep) for ep in self.db.episodes_by_ids(self.db.up_next_order())
                 if ep["status"] in ("new", "queued") and ep["id"] not in leading]
+            # The deck names what Play will start — the head of that list, at
+            # its own place — not the stopped speaker's leftover needle, which
+            # points at another row once its track is heard elsewhere. The
+            # head stays in up_next too: a browser playing on this device
+            # plays the list from its head, and the page leaves the deck's
+            # episode out of the Up Next it draws.
+            if data["up_next"]:
+                head = data["up_next"][0]
+                data["now_playing"] = {**head, "position": head["resume"] or 0}
         try:
             player = self.get_player()
         except Exception:
@@ -1851,11 +1860,9 @@ class DJ:
             # cur is None while Sonos is mid-transition — right after a skip
             # or play-now, which is exactly when the dashboard polls. The
             # needle still sits on a real episode there, so name it rather
-            # than blanking the deck. Only while on air, though: a stopped
-            # speaker also reports no track, and "queued" rows can outlive a
-            # crash, so off air that silence means idle, not starting.
-            if episode is not None and (cur is not None
-                                        or data["dj_state"] == "playing"):
+            # than blanking the deck. Only while on air: off air the speaker's
+            # needle is a leftover, and the deck is the saved list's head.
+            if data["dj_state"] == "playing" and episode is not None:
                 # entry() seeds duration from the feed's itunes:duration; the
                 # live Sonos length overrides it only when Sonos actually has
                 # one. Some streams (Buzzsprout redirects, chunked CDNs) report
