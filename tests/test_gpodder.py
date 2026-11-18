@@ -544,6 +544,48 @@ def test_post_play_action_ignores_the_episode_on_air(gclient) -> None:
     assert player.seeks == []
 
 
+def _paused_on_air(db, dj, player):
+    make_feed(db, "showa", 4, duration=3600)
+    dj.start()
+    player.listen(600)
+    dj.tick()                 # banks resume_episode_id for the on-air track
+    assert dj.pause() is None
+    return current_episode(db, player)
+
+
+def test_a_phone_jump_moves_the_paused_speakers(gclient) -> None:
+    """Speakers paused on an episode, you carry on with it on the phone and
+    skip ahead: the phone's place wins, and the paused speaker moves there so
+    Play on the speakers, the web deck and the next phone sync all agree."""
+    c, db, dj, player = gclient
+    on_air = _paused_on_air(db, dj, player)
+    c.post("/api/2/episodes/radio.json",
+           json=[_play(on_air, 2400, "2999-01-01T00:00:00")], headers=basic_header())
+    assert player.seeks[-1:] == [2400]
+    assert dj.status()["now_playing"]["position"] == 2400
+    assert db.get_episode(on_air["id"])["status"] == "queued"   # still on the speakers
+
+
+def test_an_older_phone_place_does_not_move_the_paused_speakers(gclient) -> None:
+    c, db, dj, player = gclient
+    on_air = _paused_on_air(db, dj, player)
+    c.post("/api/2/episodes/radio.json",
+           json=[_play(on_air, 2400, "2000-01-01T00:00:00")], headers=basic_header())
+    assert player.seeks == []
+
+
+def test_paused_speakers_report_their_place_as_of_the_pause(gclient) -> None:
+    """A paused speaker's place is not news: stamped now on every sync, it
+    beat a later jump made on the phone. Paused, the phone gets the place the
+    pause banked, dated when it was banked."""
+    c, db, dj, player = gclient
+    on_air = _paused_on_air(db, dj, player)
+    actions = [a for a in c.get("/api/2/episodes/radio.json?since=0", headers=basic_header())
+               .get_json()["actions"] if a["guid"] == on_air["guid"]]
+    banked = db.get_episode(on_air["id"])["resume_at"].rstrip("Z")
+    assert [a["timestamp"] for a in actions] == [banked]
+
+
 def test_post_new_and_delete_actions_are_ignored(gclient) -> None:
     """AntennaPod itself never acts on a received new/download/delete —
     EpisodeActionFilter breaks on all three. We hold ourselves to the same

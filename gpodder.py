@@ -413,10 +413,13 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
                 actions.append(a)
         status = dj.status()
         now_playing = status.get("now_playing")
-        # Off air the speaker still reports the last session's track and a
-        # stale place, stamped now: sent, it would beat the place a browser
-        # or the phone itself banked since (resume_action above).
-        if now_playing is not None and status.get("dj_state") == "playing":
+        # Only while the speakers are actually playing is their place news.
+        # Off air they report the last session's track; paused, the place
+        # the pause banked. Either way stamped now, it would beat a place the
+        # phone or a browser reached since — resume_action above already
+        # sends the banked one, dated when it was banked.
+        if (now_playing is not None and status.get("dj_state") == "playing"
+                and status.get("transport") == "PLAYING"):
             episode = db.get_episode(now_playing["episode_id"])
             feed = db.get_feed(episode["feed_id"]) if episode else None
             if episode is not None and feed is not None:

@@ -1200,6 +1200,10 @@ class DJ:
             if episode is None or episode["status"] in ("played", "archived"):
                 return
             on_air = self.db.kv_get("dj_state") == "playing"
+            if (on_air and not finished
+                    and self.db.kv_get("resume_episode_id") == str(episode_id)
+                    and self._move_paused_speaker(episode, position, at)):
+                return
             if on_air and self.db.kv_get("resume_episode_id") == str(episode_id):
                 # The track on air is not droppable by anything but Skip and
                 # Play now (PRODUCT.md's Up Next ladder, rung 1) — a remote
@@ -1236,6 +1240,31 @@ class DJ:
             # Out of the saved order explicitly, as every removal is: status
             # alone would put it back the moment Undo or Keep made it 'new'.
             self.db.remove_from_up_next(episode_id)
+
+    def _move_paused_speaker(self, episode, position: int, at: str | None) -> bool:
+        """The speakers paused on this episode and you carried on elsewhere:
+        that place wins, and the paused speaker is moved there so the deck,
+        Play, and the next phone sync agree. Playing speakers win instead
+        (False: the caller ignores the report), as does a place older than
+        the one the pause banked. Caller holds the lock."""
+        player = self.get_player()
+        if player is None:
+            return False
+        try:
+            if player.transport_state() == "PLAYING":
+                return False
+            if not (at is None or (episode["resume_at"] or "") <= at):
+                logger.info("ignoring a stale remote place for %s", episode["id"])
+                return True
+            player.seek_seconds(max(0, position))
+        except Exception:
+            logger.exception("could not move the paused speaker")
+            self._invalidate_player()
+            return False
+        self.db.set_resume(episode["id"], max(0, position), at)
+        logger.info("moved the paused speaker to a remote place (%s at %ss)",
+                    episode["id"], position)
+        return True
 
     def _newer_than_head(self, at: str | None) -> bool:
         """Whether a place reached at `at` (None: now) is later than the one
