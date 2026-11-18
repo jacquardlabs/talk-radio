@@ -434,6 +434,14 @@ class DJ:
             _, matches, cur_idx, cur = self._match_queue(player)
             episode = matches[cur_idx] if cur_idx < len(matches) else None
             if episode is not None and cur is not None:
+                # On air but not yet seeked to its saved place (Sonos still
+                # buffering, or paused within seconds of going on air): the
+                # speaker's own position is where it started, not where the
+                # listener is, and banking it would lose the real place.
+                if (self.db.kv_get("dj_state") == "playing"
+                        and episode["resume_seconds"] is not None
+                        and self._resume_tracking_episode_id != str(episode["id"])):
+                    return int(episode["id"])
                 self.db.set_resume(episode["id"], cur.position)
                 self.db.kv_set("resume_episode_id", str(episode["id"]))
                 return int(episode["id"])
@@ -578,7 +586,37 @@ class DJ:
             # gets its one-shot seek instead of being silently overwritten
             # by tick()'s position-tracking branch.
             self._resume_tracking_episode_id = None
+            self._seek_to_pending_resume(player)
             return None
+
+    # How long start() waits for Sonos to begin playing before it seeks to the
+    # saved place itself. Past this, the first tick does it, as it always has.
+    _START_SEEK_WAIT_SECONDS = 5.0
+
+    def _seek_to_pending_resume(self, player) -> None:
+        """Put the speaker at the saved place as soon as it plays, rather than
+        on the next tick: until then it plays from 0:00, which is what going
+        back to the speakers from a browser sounded like. Sonos ignores a seek
+        while it is still buffering, so this waits for PLAYING. The same
+        one-shot the tick applies, so the tick then just tracks the place.
+        Caller holds the lock."""
+        deadline = time.monotonic() + self._START_SEEK_WAIT_SECONDS
+        try:
+            while player.transport_state() != "PLAYING":
+                if time.monotonic() >= deadline:
+                    return
+                time.sleep(0.25)
+            _q, matches, cur_idx, _cur = self._match_queue(player)
+            episode = matches[cur_idx] if cur_idx < len(matches) else None
+            if episode is None or episode["resume_seconds"] is None:
+                return
+            player.seek_seconds(max(0, int(episode["resume_seconds"]) - 10))
+            self.db.set_resume(episode["id"], None)
+            self._resume_tracking_episode_id = str(episode["id"])
+            self.db.kv_set("resume_episode_id", str(episode["id"]))
+        except Exception:
+            logger.exception("start: could not seek to the saved place")
+            self._invalidate_player()
 
     # ── the reconcile loop ────────────────────────────────────────────
     def tick(self) -> None:

@@ -327,9 +327,12 @@ class TestTick:
         refreshed = db.get_episode(ep["id"])
         assert refreshed["status"] == "queued"
         assert player.queue[player.index]["uri"] == refreshed["play_uri"]
-        dj.tick()
+        # start() seeks as soon as the speaker plays; the tick after it
+        # tracks that place rather than seeking a second time
         assert player.seeks[-1] == 311  # 321 - 10s of context
-        assert db.get_episode(ep["id"])["resume_seconds"] is None
+        dj.tick()
+        assert player.seeks.count(311) == 1
+        assert db.get_episode(ep["id"])["resume_seconds"] == 311
 
     def test_tick_does_not_oscillate_over_many_ticks(self, db, cfg, player,
                                                       dj) -> None:
@@ -1386,6 +1389,30 @@ class TestPlayOnThisDevice:
 
     def _listed(self, dj) -> list[int]:
         return [e["episode_id"] for e in dj.status()["up_next"]]
+
+    def test_back_to_the_speakers_starts_at_the_browsers_place(
+            self, db, cfg, player, dj) -> None:
+        """Device -> Sonos: the speakers must open at the browser's place,
+        not play from 0:00 until the next tick gets round to the seek."""
+        head = self._off_air(db, player, dj)[0]
+        dj.report_from_device(head, 1200, "progress")
+        before = len(player.seeks)
+        assert dj.start() is None
+        assert player.seeks[before:] == [1190], "seeked at start, before any tick"
+
+    def test_a_pause_before_the_seek_keeps_the_place(
+            self, db, cfg, player, dj, monkeypatch) -> None:
+        """Sonos still buffering when you pause: the speaker sits at 0:00 and
+        saving that would overwrite the place it never got to."""
+        head = self._off_air(db, player, dj)[0]
+        dj.report_from_device(head, 1200, "progress")
+        monkeypatch.setattr(dj, "_START_SEEK_WAIT_SECONDS", 0)
+        monkeypatch.setattr(player, "transport_state", lambda: "TRANSITIONING")
+        assert dj.start() is None
+        monkeypatch.undo()
+        player.listen(4)
+        assert dj.pause() is None
+        assert db.get_episode(head)["resume_seconds"] == 1200
 
     def test_a_skip_reported_on_air_stays_dismissed(self, db, cfg, player, dj) -> None:
         """A finish from elsewhere counts as heard, but a Skip is still a

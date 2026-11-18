@@ -290,6 +290,7 @@ def test_fire_banks_the_position_before_tearing_the_queue_down(wake_env) -> None
     db, dj, player = wake_env
     dj.start()
     interrupted = playing_episode(db, player)
+    dj.tick()                             # the earlier tick, now tracking it
     db.set_resume(interrupted["id"], 5)   # a stale value from an earlier tick
     player.position = 640                 # where the listener actually is
     add_news_feed(db)
