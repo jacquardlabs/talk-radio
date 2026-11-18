@@ -277,8 +277,8 @@ function epMenu(e) {
     `aria-label="More actions for ${esc(e.title)}">${MORE_SVG}</button>` +
     `<div class="flap" data-epflap="${e.id}"${open ? "" : " hidden"}>` +
     `<span class="flap-title">${esc(e.title)}</span>` +
-    // an archived row's own button adds it to rotation, so Play next moves in here
-    (e.status === "archived"
+    // an archived or heard row's own button puts it back in rotation, so Play next moves in here
+    (e.status === "archived" || e.status === "played"
       ? `<button type="button" data-episode="${e.id}/play_next">Play next <i>after what's on</i></button>` : "") +
     `<button type="button" data-episode="${e.id}/play_now">Play now <i>interrupts what's on</i></button>` +
     `<button type="button" data-episode="${e.id}/play_last">Play last <i>end of Up next</i></button>` +
@@ -323,10 +323,13 @@ function episodeRow(e, opts) {
         `No sound ${e.failures}&times;</span>` : "",
   ].filter(Boolean).join("");
   // The button says what this row is for. An archived one is waiting to be
-  // let into rotation, which is what people did with it; the rest queue.
+  // let into rotation, which is what people did with it, and a heard one goes
+  // back there; the rest queue.
   const primary = onAir ? ""
     : e.status === "archived"
       ? `<button type="button" class="tab small" data-episode="${e.id}/release" title="The DJ may pick it">Add to rotation</button>`
+      : e.status === "played"
+      ? `<button type="button" class="tab small" data-episode="${e.id}/unheard" title="Back in rotation">Mark unheard</button>`
       : `<button type="button" class="tab small" data-episode="${e.id}/play_next" title="Play after current">Play next</button>`;
   return `<div class="ep-row st-${e.status}">` +
     `<div class="qmain"><div class="ep-title">${esc(e.title)}</div>` +
@@ -388,7 +391,6 @@ function settingsMenu(f, categories) {
     categories.map((cat) =>
       `<option value="${cat.id}"${f.category_id === cat.id ? " selected" : ""}>${esc(cat.name)}</option>`
     ).join("");
-  const random = f.playback_mode === "random";
   return `<div class="dropwrap">` +
     `<button type="button" class="tab small sheet-close" data-setmenu="${f.id}" ` +
     `aria-haspopup="true" aria-expanded="${open}">Settings</button>` +
@@ -406,8 +408,6 @@ function settingsMenu(f, categories) {
     `<input type="number" data-recut-count="${f.id}" min="1" value="5" aria-label="How many" hidden>` +
     `<button type="button" class="tab small" data-recut="${f.id}" data-confirm="1">Re-cut</button></span>` +
     `<span>The rest of its unplayed episodes are archived. Heard and queued ones stay as they are.</span></div>` +
-    `<button type="button" data-feed="${f.id}/playback">` +
-    `${random ? "Play in order" : "Play in random order"} <i>now ${random ? "random" : "oldest first"}</i></button>` +
     `<button type="button" data-feed="${f.id}/news">` +
     `${f.is_news ? "Not news" : "Mark as news"} <i>${f.is_news ? "now plays first" : "news plays first"}</i></button>` +
     `<button type="button" data-feed="${f.id}/toggle">` +
@@ -436,7 +436,6 @@ function sheetHeadHTML(f, categories) {
       : "") +
     // the tabs below carry the unheard, heard and archived counts
     `<div class="sheet-counts">` +
-    (f.playback_mode === "random" ? "<span>Random order</span>" : "") +
     (f.skip_titles.length ? `<span>Skips ${esc(f.skip_titles.join(", "))}</span>` : "") +
     (f.is_news ? '<span class="pri">Plays first, as news</span>' : "") +
     (f.enabled ? "" : '<span class="pri">Turned off</span>') +

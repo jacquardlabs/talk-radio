@@ -1,6 +1,3 @@
-import random
-
-import dj as dj_mod
 from db import Database
 from dj import pick_next
 
@@ -68,57 +65,3 @@ def test_pick_next_never_picks_rotation_disabled_category(db: Database) -> None:
         db.mark_played(ep["id"], "2026-01-01T00:00:00Z")
         db.insert_episode(on_feed, ep["guid"] + "-again", ep["title"],
                           ep["audio_url"], "2026-01-02T00:00:00Z")
-
-
-def test_random_mode_can_pick_nonchronologically(db: Database, monkeypatch) -> None:
-    fid = _feed_with_eps(db, "epi", 6)
-    db.toggle_feed_playback(fid)
-    monkeypatch.setattr(dj_mod.random, "choice", lambda seq: seq[-1])
-    assert pick_next(db)["guid"] == "g-epi-6"  # newest, not oldest
-
-
-def test_in_order_mode_ignores_randomness(db: Database, monkeypatch) -> None:
-    fid = _feed_with_eps(db, "serial", 5)  # default in_order
-    monkeypatch.setattr(dj_mod.random, "choice", lambda seq: seq[-1])
-    assert pick_next(db)["guid"] == "g-serial-1"  # still oldest
-
-
-def _saga_feed(db: Database) -> int:
-    fid = db.add_feed("https://saga/rss", "saga", None, False)
-    titles = ["Intro", "The Long War (Part 1)", "The Long War (Part 2)",
-              "The Long War (Part 3)"]
-    for i, t in enumerate(titles, 1):
-        db.insert_episode(fid, f"g-saga-{i}", t, f"https://cdn/saga/{i}.mp3",
-                          f"2026-01-{i:02d}T00:00:00Z")
-    return fid
-
-
-def test_arc_guard_redirects_midarc_draw(db: Database, monkeypatch) -> None:
-    fid = _saga_feed(db)
-    db.toggle_feed_playback(fid)
-    monkeypatch.setattr(dj_mod.random, "choice", lambda seq: seq[-1])  # draw Part 3
-    assert pick_next(db)["title"] == "The Long War (Part 1)"
-
-
-def test_arc_guard_resumes_partial_arc(db: Database, monkeypatch) -> None:
-    fid = _saga_feed(db)
-    db.toggle_feed_playback(fid)
-    part1 = next(e for e in db.episodes_for_feed(fid)
-                 if e["title"] == "The Long War (Part 1)")
-    db.mark_queued(part1["id"], "u")
-    db.mark_played(part1["id"], "2026-02-01T00:00:00Z")
-    monkeypatch.setattr(dj_mod.random, "choice", lambda seq: seq[-1])  # draw Part 3
-    assert pick_next(db)["title"] == "The Long War (Part 2)"  # not a replay of 1
-
-
-def test_random_mode_seeded_draws_vary(db: Database) -> None:
-    fid = _feed_with_eps(db, "epi", 30)
-    db.toggle_feed_playback(fid)
-    random.seed(42)
-    picks = []
-    for _ in range(10):
-        ep = pick_next(db)
-        picks.append(ep["guid"])
-        db.mark_queued(ep["id"], ep["audio_url"])  # consume
-    assert picks != [f"g-epi-{i}" for i in range(1, 11)]  # not chronological
-    assert len(set(picks)) == 10  # consumed picks never repeat

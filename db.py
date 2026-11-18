@@ -29,8 +29,6 @@ CREATE TABLE IF NOT EXISTS feeds (
     enabled INTEGER NOT NULL DEFAULT 1,
     added_at TEXT NOT NULL,
     category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-    playback_mode TEXT NOT NULL DEFAULT 'in_order'
-        CHECK (playback_mode IN ('in_order','random')),
     -- Title prefixes, one per line, that send a new episode straight to the
     -- back catalog: a feed's reruns and spin-offs stay reachable but don't
     -- join rotation. NULL skips nothing.
@@ -96,6 +94,16 @@ CREATE TABLE IF NOT EXISTS episodes (
     -- undecided. A finished listen clears it (mark_played). 'pruned' is a
     -- Never play from the back catalog: housekeeping, not a verdict on the show.
     review TEXT,
+    -- When the listener's decision took this episode out of rotation (Never
+    -- play, or sent to the back catalog). The gpodder sync API's `since` and
+    -- `timestamp` for it: played_at is the publish date on a Never play (see
+    -- Database.review_episodes) and NULL on an archive, so neither would
+    -- ever reach a phone that synced after the episode came out, and an old
+    -- timestamp would lose to the phone's own newer action anyway. NULL for
+    -- anything a listener didn't decide, so a cut or a prune never reaches
+    -- the phone. Cleared by a listen and by every listener action that puts
+    -- the episode back in rotation.
+    decided_at TEXT,
     UNIQUE (feed_id, guid)
 );
 CREATE INDEX IF NOT EXISTS idx_episodes_feed_status ON episodes (feed_id, status);
@@ -148,18 +156,23 @@ REVIEW_ELIGIBLE = {
     "back_catalog": f"(status='new' OR {_TAKEN_BACK})",
     "never": "status IN ('new','archived')",
 }
+# utcnow_iso() in SQL, for the statements below that can't take a parameter.
+_SQL_NOW = "strftime('%Y-%m-%dT%H:%M:%SZ','now')"
 REVIEW_WRITES = {
     # Keeping one already on the speaker leaves it there.
     "keep": "status=CASE status WHEN 'queued' THEN 'queued' ELSE 'new' END,"
-            " played_at=NULL, review='keep'",
+            " played_at=NULL, review='keep', decided_at=NULL",
     # A pruned episode going back was never a decision to leave rotation.
     "back_catalog": "status='archived', played_at=NULL,"
-                    " review=CASE review WHEN 'pruned' THEN NULL ELSE 'back_catalog' END",
+                    " review=CASE review WHEN 'pruned' THEN NULL ELSE 'back_catalog' END,"
+                    f" decided_at=CASE review WHEN 'pruned' THEN NULL ELSE {_SQL_NOW} END",
     # mark_played and clear_failures' fields, in the one statement a batch needs.
+    # Only one leaving rotation is dated: a pruned one was never on the phone.
     "never": "status='played', played_at=published_at, resume_seconds=NULL,"
              " resume_at=NULL, play_uri=NULL, local_path=NULL, observed_seconds=NULL,"
              " failure_count=0, pinned=0,"
-             " review=CASE status WHEN 'archived' THEN 'pruned' ELSE 'never' END",
+             " review=CASE status WHEN 'archived' THEN 'pruned' ELSE 'never' END,"
+             f" decided_at=CASE status WHEN 'archived' THEN NULL ELSE {_SQL_NOW} END",
 }
 
 
@@ -276,11 +289,11 @@ class Database:
                     "ALTER TABLE feeds ADD COLUMN category_id INTEGER"
                     " REFERENCES categories(id) ON DELETE SET NULL"
                 )
-            if "playback_mode" not in feed_cols:
-                c.execute(
-                    "ALTER TABLE feeds ADD COLUMN playback_mode TEXT NOT NULL"
-                    " DEFAULT 'in_order' CHECK (playback_mode IN ('in_order','random'))"
-                )
+            # Every show plays oldest-first now that rotation holds a curated
+            # backlog rather than whole back catalogs; the per-show random
+            # mode is gone.
+            if "playback_mode" in feed_cols:
+                c.execute("ALTER TABLE feeds DROP COLUMN playback_mode")
             # migration for databases created before conditional refresh.
             # NULL means "never asked" — the first refresh fetches in full
             # and fills them in.
@@ -311,6 +324,11 @@ class Database:
                 c.execute("ALTER TABLE episodes ADD COLUMN media_key TEXT")
             if "resume_at" not in cols:
                 c.execute("ALTER TABLE episodes ADD COLUMN resume_at TEXT")
+            # No backfill: a decision made before this column existed has no
+            # time to give it, and dating them all now would send every one
+            # to the phone in a single sync.
+            if "decided_at" not in cols:
+                c.execute("ALTER TABLE episodes ADD COLUMN decided_at TEXT")
             c.execute(
                 "CREATE INDEX IF NOT EXISTS idx_episodes_media_key"
                 " ON episodes (media_key)"
@@ -340,14 +358,12 @@ class Database:
 
     # ── feeds ─────────────────────────────────────────────────────────
     def add_feed(self, url: str, title: str, image_url: str | None, is_news: bool,
-                 playback_mode: str = "in_order",
                  description: str | None = None) -> int:
         with self._conn() as c:
             cur = c.execute(
                 "INSERT INTO feeds (url, title, image_url, is_news, added_at,"
-                " playback_mode, description) VALUES (?,?,?,?,?,?,?)",
-                (url, title, image_url, int(is_news), utcnow_iso(), playback_mode,
-                 description),
+                " description) VALUES (?,?,?,?,?,?)",
+                (url, title, image_url, int(is_news), utcnow_iso(), description),
             )
             return int(cur.lastrowid)
 
@@ -402,14 +418,6 @@ class Database:
     def toggle_feed(self, feed_id: int) -> None:
         with self._conn() as c:
             c.execute("UPDATE feeds SET enabled = 1 - enabled WHERE id=?", (feed_id,))
-
-    def toggle_feed_playback(self, feed_id: int) -> None:
-        with self._conn() as c:
-            c.execute(
-                "UPDATE feeds SET playback_mode = CASE playback_mode"
-                " WHEN 'in_order' THEN 'random' ELSE 'in_order' END WHERE id=?",
-                (feed_id,),
-            )
 
     def set_feed_news(self, feed_id: int, is_news: bool) -> None:
         with self._conn() as c:
@@ -474,8 +482,10 @@ class Database:
                 "SELECT id, title FROM episodes"
                 " WHERE feed_id=? AND status='new' AND review IS NULL", (feed_id,))
                    if title_is_skipped(r["title"], prefixes)]
-            c.executemany("UPDATE episodes SET status='archived' WHERE id=?",
-                          [(i,) for i in ids])
+            # In rotation until now, so in the phone's feed: dated, so it
+            # leaves the phone's queue (episodes.decided_at).
+            c.executemany(f"UPDATE episodes SET status='archived', decided_at={_SQL_NOW}"
+                          " WHERE id=?", [(i,) for i in ids])
         return len(ids)
 
     def set_feed_validators(self, feed_id: int, etag: str | None,
@@ -605,17 +615,32 @@ class Database:
             ).fetchone()
 
     def episodes_played_since(self, since_iso: str, limit: int = 5000) -> list[sqlite3.Row]:
-        """Rows to report as gpodder 'play' actions with position==total.
-        `>=` on played_at, not `>`: since is second-granularity, and an
-        episode played in the same second as a prior sync must not be lost."""
+        """Rows to report to a phone as finished: the heard, and the ones the
+        listener took out of rotation (decided_at), each as of `reported_at`.
+        An archive goes as played too — gpodder has no other way to take an
+        episode off a phone's queue — so a later "Add to rotation" brings it
+        back here but cannot un-play it there.
+        `>=`, not `>`: since is second-granularity, and an episode played in
+        the same second as a prior sync must not be lost.
+
+        At most `limit` rows, in whole seconds: one bulk decision on the
+        Review page dates every row it moves the same second, so a cut inside
+        that second could only be resumed from it, and would send the same
+        rows forever. The rest of the last second goes too, however many."""
+        reported = "COALESCE(e.decided_at, e.played_at)"
+        query = (f"SELECT e.*, f.url AS feed_url, {reported} AS reported_at"
+                 " FROM episodes e JOIN feeds f ON f.id=e.feed_id"
+                 f" WHERE ((e.status='played' AND {reported}>=?)"
+                 " OR (e.status='archived' AND e.decided_at>=?))")
         with self._conn() as c:
-            return c.execute(
-                "SELECT e.*, f.url AS feed_url FROM episodes e"
-                " JOIN feeds f ON f.id=e.feed_id"
-                " WHERE e.status='played' AND e.played_at>=?"
-                " ORDER BY e.played_at ASC LIMIT ?",
-                (since_iso, limit),
-            ).fetchall()
+            rows = c.execute(query + " ORDER BY reported_at ASC, e.id ASC LIMIT ?",
+                             (since_iso, since_iso, limit)).fetchall()
+            if len(rows) < limit:
+                return rows
+            last = rows[-1]
+            return rows + c.execute(
+                query + f" AND {reported}=? AND e.id>? ORDER BY e.id ASC",
+                (since_iso, since_iso, last["reported_at"], last["id"])).fetchall()
 
     def episodes_with_resume_since(self, since_iso: str) -> list[sqlite3.Row]:
         with self._conn() as c:
@@ -631,7 +656,7 @@ class Database:
     def _cooling(retry_after_iso: str | None, prefix: str = "") -> tuple[str, tuple]:
         """SQL excluding episodes that failed to play too recently to be worth
         retrying. An episode put back to 'new' the instant it fails is the
-        oldest unplayed row on its feed, so an in_order station would re-pick
+        oldest unplayed row on its feed, so its station would re-pick
         it on the very next top-up and burn its whole retry budget inside a
         minute — which turns a CDN hiccup into a permanent retirement."""
         if retry_after_iso is None:
@@ -648,16 +673,6 @@ class Database:
                 f"{cool} ORDER BY published_at ASC, id ASC LIMIT 1",
                 (feed_id, *params),
             ).fetchone()
-
-    def new_episodes_for_feed(self, feed_id: int,
-                              retry_after_iso: str | None = None) -> list[sqlite3.Row]:
-        cool, params = self._cooling(retry_after_iso)
-        with self._conn() as c:
-            return c.execute(
-                "SELECT * FROM episodes WHERE feed_id=? AND status='new'"
-                f"{cool} ORDER BY published_at ASC, id ASC",
-                (feed_id, *params),
-            ).fetchall()
 
     def rotation_feeds_with_new(self,
                                 retry_after_iso: str | None = None) -> list[sqlite3.Row]:
@@ -719,7 +734,7 @@ class Database:
             c.execute(
                 "UPDATE episodes SET status='played', played_at=?, resume_seconds=NULL,"
                 " resume_at=NULL, play_uri=NULL, local_path=NULL,"
-                " observed_seconds=NULL, review=? WHERE id=?",
+                " observed_seconds=NULL, review=?, decided_at=NULL WHERE id=?",
                 (played_at, "never" if never else None, episode_id),
             )
             return row["local_path"] if row else None
@@ -739,9 +754,9 @@ class Database:
         """Fill duration_seconds from the speaker's own read when the feed
         never supplied itunes:duration. Guarded on IS NULL, same convention
         as the other feed backfills — this never overwrites a value the feed
-        did provide. Gpodder sync needs a valid `total` to report an episode
-        played at all; a show with no itunes:duration could otherwise never
-        get one."""
+        did provide. Gpodder sync needs a valid `total` to report a position
+        part-way through an episode; a show with no itunes:duration could
+        otherwise never get one."""
         with self._conn() as c:
             c.execute(
                 "UPDATE episodes SET duration_seconds=? WHERE id=?"
@@ -896,26 +911,36 @@ class Database:
         with self._conn() as c:
             c.execute("UPDATE episodes SET status='archived' WHERE id=?", (episode_id,))
 
-    def set_rotation_depth(self, feed_id: int, keep: int | None) -> None:
+    def set_rotation_depth(self, feed_id: int, keep: int | None,
+                           decided: bool = False) -> None:
         """Put a station's `keep` newest episodes in rotation and the older
         unplayed ones in the back catalog (None: every one in rotation).
         Only 'new' and 'archived' move; a queued, played, or skipped episode
         keeps its status but still counts toward the newest `keep`. One
-        statement, so a capped 2,000-episode feed costs one commit."""
+        statement, so a capped 2,000-episode feed costs one commit.
+
+        `decided` is a re-cut of a station the phone already has: episodes it
+        takes out of rotation are dated (decided_at) so the phone drops them.
+        The cut made when a station is added is not — those never reached the
+        phone's rotation feed. Either way an episode put back clears it."""
+        in_keep = ("id IN (SELECT id FROM episodes WHERE feed_id=?"
+                   " ORDER BY published_at DESC, id DESC LIMIT ?)")
+        decided_at = (f"CASE WHEN {in_keep} THEN NULL"
+                      f" WHEN status='new' THEN {_SQL_NOW} ELSE decided_at END"
+                      if decided else f"CASE WHEN {in_keep} THEN NULL ELSE decided_at END")
+        limit = -1 if keep is None else keep
         with self._conn() as c:
             c.execute(
-                "UPDATE episodes SET status = CASE WHEN id IN ("
-                "  SELECT id FROM episodes WHERE feed_id=?"
-                "  ORDER BY published_at DESC, id DESC LIMIT ?)"
-                " THEN 'new' ELSE 'archived' END"
+                f"UPDATE episodes SET decided_at = {decided_at},"
+                f" status = CASE WHEN {in_keep} THEN 'new' ELSE 'archived' END"
                 " WHERE feed_id=? AND status IN ('new','archived')",
-                (feed_id, -1 if keep is None else keep, feed_id),
+                (feed_id, limit, feed_id, limit, feed_id),
             )
 
     def unarchive_feed(self, feed_id: int) -> int:
         with self._conn() as c:
             cur = c.execute(
-                "UPDATE episodes SET status='new', review='keep'"
+                "UPDATE episodes SET status='new', review='keep', decided_at=NULL"
                 " WHERE feed_id=? AND status='archived'",
                 (feed_id,),
             )
@@ -974,7 +999,7 @@ class Database:
     def release_episode(self, episode_id: int) -> bool:
         with self._conn() as c:
             cur = c.execute(
-                "UPDATE episodes SET status='new', review='keep'"
+                "UPDATE episodes SET status='new', review='keep', decided_at=NULL"
                 " WHERE id=? AND status='archived'",
                 (episode_id,),
             )
@@ -983,11 +1008,23 @@ class Database:
     def unrelease_episode(self, episode_id: int) -> bool:
         """Send an unplayed episode back to the back catalog. Only 'new'
         moves: one in Up Next is the queue's to drop, and a heard one would
-        lose its history."""
+        lose its history. A decision, so it is dated for the phone
+        (episodes.decided_at)."""
         with self._conn() as c:
             cur = c.execute(
-                "UPDATE episodes SET status='archived', review='back_catalog'"
-                " WHERE id=? AND status='new'",
+                "UPDATE episodes SET status='archived', review='back_catalog',"
+                " decided_at=? WHERE id=? AND status='new'",
+                (utcnow_iso(), episode_id),
+            )
+            return cur.rowcount == 1
+
+    def mark_unheard(self, episode_id: int) -> bool:
+        """Put a heard episode back in rotation, as a Keep. Only 'played'
+        moves: anything else is already unheard or the queue's."""
+        with self._conn() as c:
+            cur = c.execute(
+                "UPDATE episodes SET status='new', played_at=NULL, review='keep',"
+                " decided_at=NULL WHERE id=? AND status='played'",
                 (episode_id,),
             )
             return cur.rowcount == 1
@@ -998,7 +1035,8 @@ class Database:
         with self._conn() as c:
             placeholders = ",".join("?" * len(episode_ids))
             cur = c.execute(
-                f"UPDATE episodes SET status='new', review='keep' WHERE status='archived'"
+                f"UPDATE episodes SET status='new', review='keep', decided_at=NULL"
+                f" WHERE status='archived'"
                 f" AND id IN ({placeholders})",
                 episode_ids,
             )
@@ -1071,8 +1109,12 @@ class Database:
         before it can leave rotation.
 
         Never play sets played_at to the publish date, as the stale-news
-        migration does, so a batch doesn't flood a phone's sync, whose `since`
-        query is capped at 5000 rows."""
+        migration does, so a batch doesn't bury Recently played or flood a
+        phone's sync. What the phone needs instead is decided_at, set only on
+        rows leaving rotation: a prune from the back catalog was never on the
+        phone. A batch leaving rotation still dates every row the same second
+        — Select all on the Rotation view can move thousands — which is why
+        episodes_played_since never splits a second."""
         moved: list[int] = []
         paths: list[str] = []
         with self._conn() as c:
@@ -1105,11 +1147,14 @@ class Database:
                 " HAVING heard + kept + back_catalog + never > 0"
             ).fetchall()
 
-    def set_resume(self, episode_id: int, seconds: int | None) -> None:
+    def set_resume(self, episode_id: int, seconds: int | None,
+                   at: str | None = None) -> None:
         """resume_at tracks resume_seconds in lockstep — it is the gpodder
         sync API's evidence of which of two conflicting positions (ours, the
-        phone's) is newer, so every writer of one writes the other."""
-        resume_at = utcnow_iso() if seconds is not None else None
+        phone's) is newer, so every writer of one writes the other. `at` is
+        when the place was reached, for a report that arrives late (the
+        phone's own timestamp); default now."""
+        resume_at = (at or utcnow_iso()) if seconds is not None else None
         with self._conn() as c:
             c.execute(
                 "UPDATE episodes SET resume_seconds=?, resume_at=? WHERE id=?",

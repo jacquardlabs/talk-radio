@@ -341,6 +341,18 @@ def test_skip_archive_route(client) -> None:
     assert data["ok"] is False and "episode" in data["error"]  # nothing on air
 
 
+def test_unheard_episode_route(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    heard = _add_episode(db, fid, 1)
+    db.mark_played(heard, "2026-01-09T00:00:00Z")
+    assert c.post(f"/episodes/{heard}/unheard").get_json()["ok"] is True
+    assert db.get_episode(heard)["status"] == "new"
+    data = c.post(f"/episodes/{heard}/unheard").get_json()
+    assert data["ok"] is False and "heard" in data["error"]
+    assert c.post("/episodes/999/unheard").status_code == 404
+
+
 def test_release_episodes_bulk_route(client) -> None:
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X", None, False)
@@ -536,23 +548,12 @@ def test_set_feed_category_invalid_category_errors(client) -> None:
     assert resp.get_json()["ok"] is False
 
 
-def test_feed_playback_toggle_route(client) -> None:
+def test_playback_mode_is_retired(client) -> None:
+    """Every show plays oldest-first; there is no per-station random mode."""
     c, db, _ = client
     fid = db.add_feed("https://x/rss", "X", None, False)
-    assert c.post(f"/feeds/{fid}/playback").get_json()["ok"] is True
-    assert db.get_feed(fid)["playback_mode"] == "random"
-    data = c.get("/api/status").get_json()
-    station = next(s for s in data["stations"] if s["id"] == fid)
-    assert station["playback_mode"] == "random"
-    assert c.post(f"/feeds/{fid}/playback").get_json()["ok"] is True
-    assert db.get_feed(fid)["playback_mode"] == "in_order"
-
-
-def test_status_playback_mode_defaults_in_order(client) -> None:
-    c, db, _ = client
-    db.add_feed("https://x/rss", "X", None, False)
-    data = c.get("/api/status").get_json()
-    assert data["stations"][0]["playback_mode"] == "in_order"
+    assert c.post(f"/feeds/{fid}/playback").status_code == 404
+    assert "playback_mode" not in c.get("/api/status").get_json()["stations"][0]
 
 
 def test_reorder_route_validates_its_arguments(client) -> None:
@@ -658,11 +659,12 @@ def test_skip_is_one_tap_and_its_caret_keeps_the_episode(no_sonos_client) -> Non
 def test_controls_go_dead_when_nothing_is_on_air(no_sonos_client) -> None:
     """Skip and the seek buttons act on the episode playing. Off air stops
     the speaker whatever the DJ believes, so it stays live until the speaker
-    is silent too."""
+    is silent too. Playing on this device the speakers are already off air,
+    so it has nothing to stop."""
     body = no_sonos_client[0].get("/").data
     assert b"""["#btn-skip", "#btn-skip-more", '[data-player="back_15"]', '[data-player="fwd_30"]']""" in body
-    assert (b'$("btn-sleep").disabled = s.dj_state !== "playing" && '
-            b'(!s.transport || s.transport === "STOPPED");') in body
+    assert (b'$("btn-sleep").disabled = device.on\n'
+            b'    || (s.dj_state !== "playing" && (!s.transport || s.transport === "STOPPED"));') in body
 
 
 def test_off_air_is_one_control_now_or_later(no_sonos_client) -> None:
@@ -763,6 +765,10 @@ def test_a_sheet_rows_button_follows_the_row(no_sonos_client) -> None:
     assert (b'e.status === "archived"\n      ? `<button type="button" class="tab small" '
             b'data-episode="${e.id}/release" title="The DJ may pick it">Add to rotation</button>`') in body
     assert b'data-episode="${e.id}/play_next">Play next <i>after what\'s on</i></button>` : "") +' in body
+    # a heard row goes back to rotation the same way
+    assert (b'e.status === "played"\n      ? `<button type="button" class="tab small" '
+            b'data-episode="${e.id}/unheard" title="Back in rotation">Mark unheard</button>`') in body
+    assert b'(e.status === "archived" || e.status === "played"\n      ? `<button type="button" data-episode="${e.id}/play_next">' in body
 
 
 def test_the_sheet_sends_bulk_adding_to_review(no_sonos_client) -> None:
@@ -872,7 +878,7 @@ def _episode(db: Database) -> int:
     fid = db.add_feed("https://bbc/rss", "In Our Time", None, False)
     db.insert_episode(fid, "g-1", "P v NP", "https://open.bbc/redir/p037611x.mp3",
                       "2015-11-05T00:00:00Z")
-    return db.new_episodes_for_feed(fid)[0]["id"]
+    return db.oldest_new_for_feed(fid)["id"]
 
 
 def test_stream_proxies_upstream_bytes(client, monkeypatch) -> None:
@@ -957,7 +963,7 @@ def _feed_with(db: Database, titles: list[str]) -> int:
 def test_pin_route_toggles(client) -> None:
     c, db, _ = client
     fid = _feed_with(db, ["Solo Episode"])
-    ep = db.new_episodes_for_feed(fid)[0]
+    ep = db.oldest_new_for_feed(fid)
 
     assert c.post(f"/episodes/{ep['id']}/pin").get_json()["ok"] is True
     assert db.get_episode(ep["id"])["pinned"] == 1
@@ -970,7 +976,7 @@ def test_pin_route_accepts_an_explicit_value(client) -> None:
     want is idempotent where a blind toggle isn't."""
     c, db, _ = client
     fid = _feed_with(db, ["Solo Episode"])
-    ep = db.new_episodes_for_feed(fid)[0]
+    ep = db.oldest_new_for_feed(fid)
 
     c.post(f"/episodes/{ep['id']}/pin", json={"pinned": True})
     c.post(f"/episodes/{ep['id']}/pin", json={"pinned": True})
@@ -1026,7 +1032,7 @@ def test_queue_arc_route_queues_the_series(client) -> None:
 def test_queue_arc_route_reports_a_standalone_episode(client) -> None:
     c, db, _ = client
     fid = _feed_with(db, ["Solo Episode"])
-    solo = db.new_episodes_for_feed(fid)[0]
+    solo = db.oldest_new_for_feed(fid)
 
     body = c.post(f"/episodes/{solo['id']}/queue_arc").get_json()
 
@@ -1037,7 +1043,7 @@ def test_queue_arc_route_reports_a_standalone_episode(client) -> None:
 def test_status_reports_failures(client) -> None:
     c, db, _ = client
     fid = _feed_with(db, ["Solo Episode", "Another One"])
-    dead, wanted = db.new_episodes_for_feed(fid)
+    dead, wanted = reversed(db.episodes_for_feed(fid))
     db.mark_failed(dead["id"], "2026-01-01T00:00:00Z", 3)
 
     body = c.get("/api/status").get_json()
@@ -1178,8 +1184,10 @@ def test_review_route_reports_what_moved(client) -> None:
     c, db, _ = client
     _, ids = _review_seed(db)
     db.mark_queued(ids[2], "uri")
+    db.kv_set("dj_state", "playing")
     body = c.post("/episodes/review", json={"ids": ids, "decision": "back_catalog"}).get_json()
-    # queued but not on the speaker's queue: it can't be taken off, so it's held
+    # on air, queued but not on the speaker's queue: it can't be taken off,
+    # so it's held (off air nothing is on air, and it would move)
     assert body == {"ok": True, "error": None, "moved": 2, "held": 1}
     assert db.get_episode(ids[0])["status"] == "archived"
     assert db.get_episode(ids[2])["status"] == "queued"
@@ -1247,3 +1255,94 @@ def test_skip_titles_route_validates(client) -> None:
     assert c.post(f"/feeds/{fid}/skip_titles", json={"titles": "Selects"}).get_json()["ok"] is False
     assert c.post(f"/feeds/{fid}/skip_titles", json={"titles": [1]}).get_json()["ok"] is False
     assert c.post("/feeds/999/skip_titles", json={"titles": []}).status_code == 404
+
+
+# ── play on this device ────────────────────────────────────────────────
+def _device_episode(db) -> int:
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    db.insert_episode(fid, "d1", "One", "https://x/1.mp3", "2026-01-01T00:00:00Z",
+                      duration_seconds=1800)
+    ep = db.episodes_for_feed(fid)[0]["id"]
+    db.set_up_next([ep])
+    return ep
+
+
+def test_device_report_banks_a_position(client) -> None:
+    c, db, _ = client
+    ep = _device_episode(db)
+    body = c.post("/device/report", json={
+        "episode_id": ep, "position": 1795, "event": "progress"}).get_json()
+    assert body == {"ok": True, "error": None}
+    assert db.get_episode(ep)["resume_seconds"] == 1795
+    assert c.get("/api/status").get_json()["up_next"][0]["resume"] == 1795
+
+
+def test_device_report_ended_takes_it_off_up_next(client) -> None:
+    c, db, _ = client
+    ep = _device_episode(db)
+    c.post("/device/report", json={"episode_id": ep, "position": 1800, "event": "ended"})
+    assert db.get_episode(ep)["status"] == "played"
+    assert c.get("/api/status").get_json()["up_next"] == []
+
+
+def test_device_report_validates(client) -> None:
+    c, db, _ = client
+    ep = _device_episode(db)
+    assert c.post("/device/report", json={
+        "episode_id": ep, "position": 10, "event": "rewind"}).get_json()["ok"] is False
+    assert c.post("/device/report", json={
+        "episode_id": ep, "event": "progress"}).get_json()["ok"] is False
+    assert c.post("/device/report", json={
+        "episode_id": 999, "position": 1, "event": "progress"}).status_code == 404
+
+
+def test_device_next_appends_a_pick(client) -> None:
+    c, db, _ = client
+    fid = db.add_feed("https://x/rss", "X", None, False)
+    db.insert_episode(fid, "d1", "One", "https://x/1.mp3", "2026-01-01T00:00:00Z")
+    assert c.post("/device/next").get_json()["ok"] is True
+    assert [e["title"] for e in c.get("/api/status").get_json()["up_next"]] == ["One"]
+    assert c.post("/device/next").get_json()["ok"] is False   # nothing left to pick
+
+
+def test_device_unskip_puts_it_back_in_up_next(client) -> None:
+    c, db, _ = client
+    ep = _device_episode(db)
+    c.post("/device/report", json={"episode_id": ep, "position": 90, "event": "skip"})
+    assert c.post("/device/unskip", json={"episode_id": ep, "position": 90}).get_json()["ok"]
+    [head] = c.get("/api/status").get_json()["up_next"]
+    assert head["episode_id"] == ep and head["resume"] == 90
+    assert c.post("/device/unskip", json={"episode_id": ep}).get_json()["ok"] is False
+    assert c.post("/device/unskip", json={
+        "episode_id": 999, "position": 1}).status_code == 404
+
+
+def test_device_reports_are_not_usage_but_a_skip_is(client) -> None:
+    """The browser reports every 15 seconds; counting that would bury the
+    usage log under a player's clock. A skip is someone's choice."""
+    c, db, _ = client
+    ep = _device_episode(db)
+    c.post("/device/report", json={"episode_id": ep, "position": 60, "event": "progress"})
+    c.post("/device/report", json={"episode_id": ep, "position": 60, "event": "ended"})
+    c.post("/device/next")
+    db.mark_unheard(ep)
+    c.post("/device/report", json={"episode_id": ep, "position": 90, "event": "skip"})
+    actions = [r["action"] for r in db.usage_summary("2000-01-01T00:00:00Z")]
+    assert [a for a in actions if "/device/" in a] == ["POST /device/report/skip"]
+
+
+def test_on_air_offers_play_on_this_device(no_sonos_client) -> None:
+    page = no_sonos_client[0].get("/").data
+    assert b'id="btn-device"' in page and b'id="device-audio"' in page
+
+
+def test_device_player_recovers_and_keeps_its_place(no_sonos_client) -> None:
+    """Markup only: the suite has no browser (checked by hand in Chromium).
+    A stream that failed rejects play() until it is loaded again, so Play
+    reloads it; Undo after a Skip here puts it back at the head of Up Next;
+    a paused tab closing reports nothing, since its place may be older
+    than one another device has reported since."""
+    body = no_sonos_client[0].get("/").data
+    assert b"if (audio.error) return void devicePlay(device.entry," in body
+    assert b'post("/device/unskip", { episode_id: entry.episode_id, position: at })' in body
+    assert b"if (device.entry && !audio.paused) deviceReport(device.entry, \"progress\");" in body

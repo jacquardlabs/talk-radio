@@ -1,7 +1,7 @@
 import pytest
 import sqlite3
 
-from db import Database, EpisodeSeed, utcnow_iso
+from db import SCHEMA, Database, EpisodeSeed, utcnow_iso
 
 
 def _ep(db: Database, feed_id: int, n: int, status: str = "new") -> int:
@@ -247,6 +247,28 @@ def test_release_episode_only_affects_archived(db: Database) -> None:
     assert db.get_episode(archived_id)["status"] == "new"
 
 
+def test_mark_unheard_returns_a_heard_episode_to_rotation(db: Database) -> None:
+    fid = db.add_feed("https://ex.com/rss", "Show", None, False)
+    heard = _ep(db, fid, 1)
+    db.mark_queued(heard, "u")
+    db.mark_played(heard, utcnow_iso())
+    assert db.mark_unheard(heard) is True
+    row = db.get_episode(heard)
+    assert (row["status"], row["played_at"], row["review"]) == ("new", None, "keep")
+    assert db.oldest_new_for_feed(fid)["id"] == heard
+
+
+@pytest.mark.parametrize("status", ["new", "queued", "archived", "skipped"])
+def test_mark_unheard_moves_only_heard_episodes(db: Database, status: str) -> None:
+    fid = db.add_feed("https://ex.com/rss", "Show", None, False)
+    eid = _ep(db, fid, 1)
+    {"new": lambda: None, "queued": lambda: db.mark_queued(eid, "u"),
+     "archived": lambda: db.archive_episode(eid),
+     "skipped": lambda: db.mark_skipped(eid)}[status]()
+    assert db.mark_unheard(eid) is False
+    assert db.get_episode(eid)["status"] == status
+
+
 def test_release_episodes_bulk_only_releases_archived(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     ids = [_ep(db, fid, i) for i in range(1, 4)]
@@ -325,34 +347,52 @@ def test_rotation_feeds_excludes_rotation_disabled_category(db: Database) -> Non
     assert off_feed not in ids
 
 
-def test_playback_mode_default_and_toggle(db: Database) -> None:
-    fid = db.add_feed("https://ex.com/rss", "Show", None, False)
-    assert db.get_feed(fid)["playback_mode"] == "in_order"
-    db.toggle_feed_playback(fid)
-    assert db.get_feed(fid)["playback_mode"] == "random"
-    db.toggle_feed_playback(fid)
-    assert db.get_feed(fid)["playback_mode"] == "in_order"
+_OLD_PLAYBACK_COLUMN = ("    playback_mode TEXT NOT NULL DEFAULT 'in_order'\n"
+                        "        CHECK (playback_mode IN ('in_order','random')),\n")
 
 
-def test_add_feed_with_playback_mode(db: Database) -> None:
-    fid = db.add_feed("https://ex.com/rss", "Show", None, False, playback_mode="random")
-    assert db.get_feed(fid)["playback_mode"] == "random"
+def _database_with_playback_mode(tmp_path, built_in: bool) -> Database:
+    """A database from before random mode was retired, in either shape a live
+    one can have: the column in the original CREATE TABLE, mid-table with
+    commented columns after it, or added later by ALTER TABLE."""
+    path = str(tmp_path / "old.db")
+    with sqlite3.connect(path) as c:
+        if built_in:
+            anchor = "ON DELETE SET NULL,\n"
+            at = SCHEMA.index(anchor, SCHEMA.index("CREATE TABLE IF NOT EXISTS feeds")) + len(anchor)
+            c.executescript(SCHEMA[:at] + _OLD_PLAYBACK_COLUMN + SCHEMA[at:])
+        else:
+            c.executescript(SCHEMA)
+            c.execute("ALTER TABLE feeds ADD COLUMN playback_mode TEXT NOT NULL"
+                      " DEFAULT 'in_order' CHECK (playback_mode IN ('in_order','random'))")
+        c.execute("INSERT INTO feeds (url, title, added_at, playback_mode)"
+                  " VALUES ('https://x/rss', 'Shuffled', '2026-01-01T00:00:00Z', 'random')")
+        c.execute("INSERT INTO episodes (feed_id, guid, title, audio_url, published_at)"
+                  " VALUES (1, 'g1', 'Ep 1', 'https://cdn/1.mp3', '2026-01-01T00:00:00Z')")
+    return Database(path)
 
 
-def test_playback_mode_check_constraint(db: Database) -> None:
-    with pytest.raises(sqlite3.IntegrityError):
-        db.add_feed("https://ex.com/rss", "Show", None, False, playback_mode="chaos")
+@pytest.mark.parametrize("built_in", [True, False], ids=["create-table", "alter-table"])
+def test_init_retires_random_playback_mode(tmp_path, built_in: bool) -> None:
+    db = _database_with_playback_mode(tmp_path, built_in)
+
+    db.init()
+    db.init()  # and stays retired: nothing re-adds the column
+
+    with db._conn() as c:
+        assert "playback_mode" not in {r["name"] for r in c.execute("PRAGMA table_info(feeds)")}
+    assert db.get_feed(1)["title"] == "Shuffled"
+    assert db.oldest_new_for_feed(1)["guid"] == "g1"
+    assert db.get_feed(db.add_feed("https://y/rss", "Next", None, False))["title"] == "Next"
 
 
-def test_new_episodes_for_feed_ordering_and_filter(db: Database) -> None:
+def test_oldest_new_for_feed_skips_heard_episodes(db: Database) -> None:
     fid = db.add_feed("https://ex.com/rss", "Show", None, False)
     _ep(db, fid, 3)
-    _ep(db, fid, 1)
-    played = _ep(db, fid, 2)
+    played = _ep(db, fid, 1)
     db.mark_queued(played, "u")
     db.mark_played(played, utcnow_iso())
-    rows = db.new_episodes_for_feed(fid)
-    assert [r["guid"] for r in rows] == [f"guid-{fid}-1", f"guid-{fid}-3"]
+    assert db.oldest_new_for_feed(fid)["guid"] == f"guid-{fid}-3"
 
 
 # ── review ──────────────────────────────────────────────────────────
@@ -479,6 +519,105 @@ def test_never_play_can_be_taken_back(db) -> None:
     db.review_episodes([ep], "keep")
     row = db.get_episode(ep)
     assert row["status"] == "new" and row["review"] == "keep" and row["played_at"] is None
+
+
+def test_decided_at_column_added_to_an_existing_database(tmp_path) -> None:
+    path = str(tmp_path / "old.db")
+    db = Database(path)
+    db.init()
+    with db._conn() as c:
+        c.execute("ALTER TABLE episodes DROP COLUMN decided_at")
+    db.init()
+    with db._conn() as c:
+        assert "decided_at" in {r["name"] for r in c.execute("PRAGMA table_info(episodes)")}
+
+
+def _decided(db: Database, episode_id: int) -> str | None:
+    return db.get_episode(episode_id)["decided_at"]
+
+
+def test_decisions_that_leave_rotation_are_dated_now(db) -> None:
+    """decided_at is what a phone's sync selects on and reports: played_at is
+    the publish date on a Never play, and NULL on an archive."""
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    before = utcnow_iso()
+    db.review_episodes([fresh], "never")
+    db.review_episodes([old], "back_catalog")
+    assert _decided(db, fresh) >= before and _decided(db, old) >= before
+    assert db.get_episode(fresh)["played_at"] == "2026-11-01T00:00:00Z"  # unchanged
+
+
+def test_unrelease_is_dated(db) -> None:
+    show, _ = _review_library(db)
+    fresh = _by_guid(db, show, "fresh")["id"]
+    before = utcnow_iso()
+    assert db.unrelease_episode(fresh)
+    assert _decided(db, fresh) >= before
+
+
+def test_the_add_station_cut_and_prunes_are_not_dated(db) -> None:
+    """The cut made when a station is added never reached the phone, and a
+    prune is where the batches big enough to flood a sync are."""
+    show, _ = _review_library(db)
+    old = _by_guid(db, show, "old")["id"]
+    db.set_rotation_depth(show, 1)
+    assert db.get_episode(old)["status"] == "archived" and _decided(db, old) is None
+    db.review_episodes([old], "never")
+    assert db.get_episode(old)["review"] == "pruned" and _decided(db, old) is None
+    db.review_episodes([old], "back_catalog")  # undoing a prune isn't a decision
+    assert _decided(db, old) is None
+
+
+def test_a_recut_and_a_skipped_title_are_dated(db) -> None:
+    """Both take episodes out of a rotation feed the phone already has."""
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    db.set_rotation_depth(show, 1, decided=True)
+    assert db.get_episode(old)["status"] == "archived" and _decided(db, old) is not None
+    db.set_rotation_depth(show, None, decided=True)   # back in rotation: cleared
+    assert db.get_episode(old)["status"] == "new" and _decided(db, old) is None
+    db.set_feed_skip_titles(show, ["Fresh"])
+    assert db.get_episode(fresh)["status"] == "archived" and _decided(db, fresh) is not None
+
+
+def test_every_way_back_clears_decided_at(db) -> None:
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    undo = [
+        lambda: db.review_episodes([fresh], "keep"),
+        lambda: db.release_episode(fresh),
+        lambda: db.release_episodes([fresh]),
+        lambda: db.unarchive_feed(show),
+    ]
+    for back in undo:
+        db.unrelease_episode(fresh)
+        back()
+        assert db.get_episode(fresh)["status"] == "new" and _decided(db, fresh) is None
+    db.review_episodes([old], "never")
+    assert db.mark_unheard(old)
+    assert _decided(db, old) is None
+    db.review_episodes([old], "never")
+    db.mark_played(old, "2026-11-03T00:00:00Z")  # heard after all
+    assert _decided(db, old) is None
+
+
+def test_episodes_played_since_reports_decisions_by_when_they_were_made(db) -> None:
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    db.insert_episode(show, "heard", "Heard", "https://x/c.mp3", "2020-01-01T00:00:00Z")
+    heard = _by_guid(db, show, "heard")["id"]
+    db.mark_played(heard, "2026-11-05T00:00:00Z")
+    db.review_episodes([fresh], "never")
+    db.unrelease_episode(old)
+    with db._conn() as c:  # pin the decision times so the order is known
+        c.execute("UPDATE episodes SET decided_at='2026-11-06T00:00:00Z' WHERE id=?", (fresh,))
+        c.execute("UPDATE episodes SET decided_at='2026-11-04T00:00:00Z' WHERE id=?", (old,))
+    rows = db.episodes_played_since("2026-11-04T00:00:00Z")
+    assert [(r["id"], r["reported_at"]) for r in rows] == [
+        (old, "2026-11-04T00:00:00Z"), (heard, "2026-11-05T00:00:00Z"),
+        (fresh, "2026-11-06T00:00:00Z")]
+    assert [r["id"] for r in db.episodes_played_since("2026-11-05T00:00:01Z")] == [fresh]
 
 
 def test_review_shows_count_decisions_and_drop_undone_ones(db) -> None:

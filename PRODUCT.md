@@ -40,15 +40,12 @@ prompt is history — see *Superseded* below.
 
 1. **Random show rotation, with a no-repeat guard.** The DJ picks a random
    *show*, then an episode within it, and avoids `last_feed_id` whenever another
-   show has unplayed episodes [code, dj.py:37-46]. Only enabled non-news feeds
-   whose category has rotation on are candidates [code, db.py:407-418].
-2. **Multi-part stories stay in order.** `in_order` shows play their oldest
-   unplayed episode; `random` shows draw freely, but if the draw carries an arc
-   marker the arc's oldest unplayed member plays instead — never Part 3 before an
-   unplayed Part 1 [code, dj.py:49-64]. Rotation's guard uses the loose
-   `feeds.arc_key`; the deliberate *Queue series* action uses the stricter
-   `series_key`, because acting on a whole group cannot afford the truncation
-   that collapses every "SYMHC Classics: …" into one arc [code, dj.py:1140-1143].
+   show has unplayed episodes [code, dj.py:28-43]. Only enabled non-news feeds
+   whose category has rotation on are candidates [code, db.py:640-651].
+2. **Every show plays in order.** Within a show the DJ plays the oldest
+   unplayed episode in rotation, so a multi-part story arrives 1 → 2 → 3
+   [code, dj.py:43]. *Queue series* groups a story's parts by `feeds.series_key`,
+   the whole title minus its part marker [code, dj.py:1401-1422].
 3. **News plays first, unconditionally.** Every tick — 15s by default — if fresh
    news exists and the slot after the needle is not already news, the news is
    inserted there, oldest first [code, dj.py:654-666]. News never expires: it
@@ -92,6 +89,26 @@ first:
 6. **Rotation top-up, last.** It drains the saved Up Next before it picks
    anything new [code, dj.py:231-246], so a hand-built list is spent before the
    DJ improvises.
+
+*Play on this device* adds no rung. It plays the off-air list in the order
+above, news first; its *Play now* interrupts here as rung 3 does on the
+speaker; and when the list runs dry it asks for one rotation pick, rung 6,
+appended behind everything else. The episode playing in the browser is left
+out of the Up Next it shows, so as on the speaker only Skip and Play now take
+it off (rung 1). Going back on air resumes the head of the saved list, which
+is that episode; Undo after a Skip here puts the skipped one back at the
+head.
+
+**A listen off the speakers leads, at rung 3.** Off air, a place reported by
+the browser or by the phone's sync moves that episode to the head of the
+saved list, pinned, as *Play now* would: last write wins, judged by when the
+place was reached, so a phone syncing late cannot displace a newer listen or
+overwrite a newer place. News still goes ahead of it (rung 2). On air the
+speakers' list stands and only the place is kept. Off air, Back to rotation,
+Archive and Mark heard take any row out of the saved list, whether or not
+the stopped speaker still holds it.
+[code, dj.py `report_from_device`, `apply_remote_action`, `_apply_listen`,
+`queue_rotation_pick`, `unskip_on_device`, `_drop_off_air`]
 
 **Proposed rule for the next verb.** [inferred] A new queue verb must state its
 place on this ladder before it is built, and must not need a new one. If it
@@ -157,14 +174,11 @@ an issue, not here.
 
 `docs/original-build-prompt.md` is a historical artifact — the prompt the app was
 built from, not a current spec. Its "Product rules (non-negotiable)" heading is
-now misleading in at least three places:
+now misleading in at least two places:
 
 - "Parts of a series … must NOT be forced back-to-back" [build prompt, rule 2] —
   *Queue series* appends a whole story to Up Next in order on one tap
   [code, dj.py:1152-1213].
-- "Within a show, always play that show's *oldest unplayed* episode"
-  [build prompt, rule 2] — shows can be set to `random`, which draws any unplayed
-  episode subject only to the arc guard [code, dj.py:44-45].
 - `QUEUE_AHEAD` default 3 [build prompt, "Configuration"] — it is 10
   [code, config.py:42].
 

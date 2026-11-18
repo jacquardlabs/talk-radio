@@ -14,13 +14,8 @@ speakers like a personal talk-radio station — forever.
    shelf on *Stations* — without pausing or removing its stations. Force-play (*Play next*, *Play now*) ignores
    rotation settings, and an episode already queued when you switch a
    category off still plays out.
-2. **Multi-part episodes stay in order.** Shows set to *In order* play their
-   oldest unplayed episode. Shows set to *Random* draw any unplayed episode,
-   but an arc guard still applies: when a draw belongs to a multi-part story
-   ("Part 3", "(2/4)", a trailing "II"), the story's oldest unplayed part
-   plays first, so a series arrives 1 → 2 → 3. New shows are classified on
-   add — declared serials and heavily numbered feeds start *In order* — and
-   any show can be flipped from its station sheet's *Settings*.
+2. **Every show plays in order.** Within a show, the DJ plays the oldest
+   unplayed episode in rotation, so a multi-part story arrives 1 → 2 → 3.
 3. **News always plays first.** Feeds flagged "news" jump to the front of
    Up Next as they arrive, oldest first, and wait there until you play them,
    drop them, or move them down.
@@ -78,6 +73,21 @@ pointer — and each row's menu offers *Play now* (interrupts immediately),
 *Back to rotation*, *Archive*, and *Mark heard*. A chevron on the episode playing and on each Up
 Next row opens that episode's notes when the feed publishes them. On a phone
 every menu rises from the bottom, above the controls.
+
+**Play on this device.** The *Rooms* menu offers *Play on this device*, for a
+laptop on the tailnet or a phone's browser. The station goes off air the
+ordinary way, and the browser plays Up Next itself — news first, then the
+saved order, each from where it was left — through `/stream/<id>.mp3`. When
+the list runs out it asks the rotation for the next pick. It reports its
+place every 15 seconds, on pause, and when an episode ends, so the speakers
+pick up from there. Play/Pause, the seek bar, back 15 and forward 30 act on
+the browser, and so does Skip (marked heard, with Undo); a phone's lock
+screen gets the same controls. The speakers win: press Play anywhere else,
+or let a wake alarm fire, and the browser pauses and hands back. *Play on the
+speakers* in the same menu hands back on purpose. Alarms always ring on the
+speakers. It plays only while the On air page is open: close the tab, or
+follow a link to Stations or Review, and it stops, with its place saved. There
+is no offline mode.
 
 **Light and dark.** The page follows the device's setting; the button in the
 header steps through *match this device*, light and dark, and the choice is
@@ -214,7 +224,15 @@ sets `usesCleartextTraffic="true"`. Enter the credentials above, and the
 station list arrives as subscriptions.
 
 What syncs: played/unplayed and playback position, both directions, for
-every enabled non-news feed. Subscriptions are one-way, station → phone — the
+every enabled non-news feed. An episode you take out of rotation here —
+Never play, or sent to the back catalog — reaches the phone as played, so it
+leaves the phone's queue too; putting it back in rotation later can't
+un-play it there. Re-cutting a station or adding a skipped title sends what
+it takes out of rotation the same way; the cut made when a station is added
+is not sent, since the phone never had those episodes. Off air, an episode you were last playing on the
+phone moves to the head of Up Next, pinned, at the phone's place, so *Play on
+this device* or the speakers pick it up there; on air, only its place is
+kept. Subscriptions are one-way, station → phone — the
 phone can't add or remove stations here, since it knows nothing about a
 feed's category, rotation, or news flag. The phone mirrors the radio: turning
 a station off, deleting it, or flagging it as news unsubscribes the phone at
@@ -250,9 +268,9 @@ credential because the gpodder protocol requires one — it protects nothing
 else, and only exists when `GPODDER_USER`/`GPODDER_PASSWORD` are set.
 
 It also runs Flask's development server — fine for a few LAN clients and one
-speaker, not for real traffic. Both `DOWNLOAD_MODE` and the automatic proxy
-below make that server the audio path, so whole episodes move through it while
-you listen.
+speaker, not for real traffic. `DOWNLOAD_MODE`, the automatic proxy below,
+and *Play on this device* all make that server the audio path, so whole
+episodes move through it while you listen.
 
 ## Audio delivery
 
@@ -311,7 +329,7 @@ from:
 ## Usage log
 
 Every action, search, and page view is counted in the database (polling is
-not), with the page it came from and whether it worked. Dropping an Up next
+not, nor are a browser's playback reports under *Play on this device*), with the page it came from and whether it worked. Dropping an Up next
 row and a review decision are counted by what they did. So are a menu
 opening, an appearance change, and the layout each page loaded in: narrow
 (760px and under), medium, or wide (1024px and up). Scripted calls like the

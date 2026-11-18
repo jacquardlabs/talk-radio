@@ -39,6 +39,8 @@ USAGE_GETS = frozenset({
 # Jobs the dashboard does without a request of its own, reported by beacon.
 UI_EVENTS = frozenset({
     "earlier", "wake", "trouble", "description", "mode",
+    # Play on this device switched on, and the speakers taking it back
+    "device", "device_yield",
     # the layout a page loaded in: docked transport, upright tablet, or wide
     "load_narrow", "load_medium", "load_wide",
     # a menu opening, so one opened and left shows up as opens without actions
@@ -53,7 +55,19 @@ USAGE_BODY_VERBS = {
     "/episodes/review": "decision",
     "/feeds/bulk": "action",
     "/feeds/<int:feed_id>/backfill": "include",
+    "/device/report": "event",
 }
+DEVICE_EVENTS = frozenset({"progress", "ended", "skip"})
+
+
+def _device_clock(rule: str, body) -> bool:
+    """A POST the browser's player makes on its own schedule — a position
+    report, or the next pick as a track starts — rather than a person. A
+    skip rides the same route and is somebody's action."""
+    if rule == "/device/next":
+        return True
+    return rule == "/device/report" and not (
+        isinstance(body, dict) and body.get("event") == "skip")
 
 
 def _origin_is_foreign(origin: str, host: str) -> bool:
@@ -175,6 +189,8 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
         if not (request.method == "POST" or (request.method == "GET"
                                              and rule.rule in USAGE_GETS)):
             return response   # polling, assets, audio: nobody did anything
+        if _device_clock(rule.rule, request.get_json(silent=True)):
+            return response
         # Read the body only now: a streamed or file response can't be.
         ok = response.status_code < 400
         if ok and response.is_json:
@@ -312,6 +328,45 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             return result("volume (int) required")
         return call_player(lambda: dj.set_volume(value))
 
+    # ── play on this device ────────────────────────────────────────────
+    # A browser playing Up Next itself, off air, over /stream. It reports
+    # what it heard here, and asks for rotation when the list runs dry; the
+    # rest — going off air, coming back on — is the ordinary transport.
+    @app.post("/device/report")
+    def device_report():
+        """{"episode_id", "position", "event"}: event is "progress" (every
+        so often, and on pause), "ended", or "skip"."""
+        body = request.get_json(silent=True) or {}
+        event = body.get("event")
+        if event not in DEVICE_EVENTS:
+            return result(f"event must be one of {sorted(DEVICE_EVENTS)}")
+        try:
+            episode_id = int(body["episode_id"])
+            position = int(body["position"])
+        except (KeyError, TypeError, ValueError):
+            return result("episode_id and position (ints) required")
+        if db.get_episode(episode_id) is None:
+            return result("no such episode"), 404
+        dj.report_from_device(episode_id, position, event)
+        return result()
+
+    @app.post("/device/next")
+    def device_next():
+        return result(dj.queue_rotation_pick())
+
+    @app.post("/device/unskip")
+    def device_unskip():
+        """{"episode_id", "position"}: Undo after a Skip here."""
+        body = request.get_json(silent=True) or {}
+        try:
+            episode_id = int(body["episode_id"])
+            position = int(body["position"])
+        except (KeyError, TypeError, ValueError):
+            return result("episode_id and position (ints) required")
+        if db.get_episode(episode_id) is None:
+            return result("no such episode"), 404
+        return result(dj.unskip_on_device(episode_id, position))
+
     @app.get("/api/podcasts/search")
     def api_podcast_search():
         q = (request.args.get("q") or "").strip()
@@ -383,7 +438,8 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             last_n = int(body.get("count") or 0) or None
         except (TypeError, ValueError):
             return result("count must be a number")
-        db.set_rotation_depth(feed_id, feeds_mod.rotation_depth(include, last_n))
+        db.set_rotation_depth(feed_id, feeds_mod.rotation_depth(include, last_n),
+                              decided=True)
         return result()
 
     @app.post("/feeds/<int:feed_id>/<action>")
@@ -399,8 +455,6 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             db.set_feed_news(feed_id, not feed["is_news"])
         elif action == "unarchive":
             db.unarchive_feed(feed_id)
-        elif action == "playback":
-            db.toggle_feed_playback(feed_id)
         else:
             return result(f"unknown action: {action}"), 404
         return result()
@@ -509,6 +563,14 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             return result("no such episode"), 404
         if not db.unrelease_episode(episode_id):
             return result("only an unplayed episode can be archived")
+        return result()
+
+    @app.post("/episodes/<int:episode_id>/unheard")
+    def mark_episode_unheard(episode_id: int):
+        if db.get_episode(episode_id) is None:
+            return result("no such episode"), 404
+        if not db.mark_unheard(episode_id):
+            return result("only a heard episode can be marked unheard")
         return result()
 
     @app.post("/episodes/<int:episode_id>/done")
@@ -696,10 +758,12 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
 
     @app.get("/stream/<int:episode_id>.mp3")
     def stream(episode_id: int):
-        """Pipe a CDN episode through to Sonos.
+        """Pipe a CDN episode through to Sonos, or to a browser.
 
         For hosts whose signed URLs run past what Sonos will store (see
-        audio.SONOS_URI_LIMIT) the speaker gets this address instead. Range
+        audio.SONOS_URI_LIMIT) the speaker gets this address instead, and a
+        browser playing on its own device (Play on this device) always does:
+        one same-origin address, whatever the CDN or download mode. Range
         headers pass both ways so seeking still works, and the body streams —
         a full episode is tens of megabytes and must never be buffered whole.
         """

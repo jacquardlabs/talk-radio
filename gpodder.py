@@ -19,8 +19,11 @@ Verified against AntennaPod's own source (net/sync/service*), not assumed:
 - A PLAY action needs started>=0, position>0, total>0 together, or the
   fields are dropped entirely (EpisodeAction.readFromJsonObject) and the app
   writes a negative position (AntennaPod #5380).
-- "Played" is expressed as a PLAY action whose position sits within
-  smartMarkAsPlayedSecs (default 30s) of total, not as its own action type.
+- "Played" is expressed as a PLAY action, not as its own action type. The
+  phone marks it played, and takes it off its queue, when position reaches
+  within smartMarkAsPlayedSecs (default 30s) of the duration of its *own*
+  copy of the file — `total` is ignored, and position is never capped
+  (SyncService.processEpisodeActions). See PLAYED_POSITION.
 - Timestamps are "yyyy-MM-dd'T'HH:mm:ss" UTC, no trailing Z
   (EpisodeAction.writeToJsonObject/PATTERN_ISO_DATEFORMAT) — a remote action
   with a timestamp that doesn't parse loses to any local one, silently.
@@ -62,8 +65,17 @@ def _epoch(iso_z: str) -> int:
                .replace(tzinfo=timezone.utc).timestamp())
 
 
+def _iso_z(gpodder_ts) -> str | None:
+    """A phone action's timestamp in our '...Z' form, or None when it is
+    missing or not gpodder's shape (the report is then treated as now)."""
+    try:
+        return datetime.strptime(str(gpodder_ts), _TS_FORMAT).strftime(_TS_FORMAT) + "Z"
+    except ValueError:
+        return None
+
+
 def _fmt_ts(iso_z: str | None) -> str:
-    """played_at/resume_at are stored as '...Z'; gpodder wants the same UTC
+    """Our timestamps are stored as '...Z'; gpodder wants the same UTC
     instant with no zone suffix at all."""
     if not iso_z:
         return datetime.now(timezone.utc).strftime(_TS_FORMAT)
@@ -72,33 +84,47 @@ def _fmt_ts(iso_z: str | None) -> str:
 
 # ── pure mappers: DB row -> gpodder action ──────────────────────────────
 
-def played_action(episode, feed_url: str) -> dict | None:
-    """A finished episode, in the shape AntennaPod's own first-sync upload
-    uses: started == position == total == duration. None when there is no
-    valid total to report — see dj.tick()'s duration_seconds backfill,
-    which is what shrinks that set over time."""
-    duration = episode["duration_seconds"]
-    if not duration:
-        return None
+# Where a finished episode is reported to have stopped: past the end of any
+# copy of it a phone could hold. Our duration_seconds won't do — the phone's
+# file is often minutes longer (different inserted ads), and a position that
+# falls short of its own length reads as paused near the end. A week clears
+# any episode, and stays far below the 2,147,483s at which AntennaPod's
+# `position * 1000` overflows its int milliseconds.
+PLAYED_POSITION = 7 * 24 * 3600
+
+# Finished episodes per episode-actions GET. A first sync, or a bulk decision
+# on the Review page, can have tens of thousands; the rest follow on the next.
+PLAYED_PER_SYNC = 5000
+
+
+def played_action(episode, feed_url: str) -> dict:
+    """A finished episode — heard, or taken out of rotation — as of its
+    `reported_at` (db.episodes_played_since), in the shape AntennaPod's own
+    first-sync upload uses: started == position == total. Needs no
+    duration, so a show without itunes:duration is reported too. A phone
+    that hasn't read its copy's length yet (duration 0) still won't mark it
+    played; nothing sent from here can change that."""
     return {
         "podcast": feed_url,
         "episode": episode["audio_url"],
         "guid": episode["guid"],
         "action": "play",
-        "timestamp": _fmt_ts(episode["played_at"]),
-        "started": duration,
-        "position": duration,
-        "total": duration,
+        "timestamp": _fmt_ts(episode["reported_at"]),
+        "started": PLAYED_POSITION,
+        "position": PLAYED_POSITION,
+        "total": PLAYED_POSITION,
     }
 
 
 def resume_action(episode, feed_url: str) -> dict | None:
-    """An in-progress episode. None when duration is unknown — a PLAY action
-    needs all three of started/position/total or AntennaPod drops it."""
-    duration = episode["duration_seconds"]
+    """An in-progress episode. A PLAY action needs started, position and
+    total all present or AntennaPod drops it, but it never reads total for a
+    resume (SyncService compares position with its own file's length), so an
+    unknown duration falls back to the position rather than losing the place."""
     position = episode["resume_seconds"]
-    if not duration or position is None:
+    if position is None:
         return None
+    position = max(1, int(position))
     return {
         "podcast": feed_url,
         "episode": episode["audio_url"],
@@ -106,8 +132,8 @@ def resume_action(episode, feed_url: str) -> dict | None:
         "action": "play",
         "timestamp": _fmt_ts(episode["resume_at"]),
         "started": 0,
-        "position": max(1, int(position)),
-        "total": duration,
+        "position": position,
+        "total": episode["duration_seconds"] or position,
     }
 
 
@@ -378,18 +404,22 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
     def get_episode_actions(username: str):
         floor = datetime.fromtimestamp(_since_arg(), tz=timezone.utc) \
             .strftime("%Y-%m-%dT%H:%M:%SZ")
-        actions: list[dict] = []
-        for row in db.episodes_played_since(floor):
-            a = played_action(row, _url(feed_path(row["feed_id"])))
-            if a is not None:
-                actions.append(a)
+        played = db.episodes_played_since(floor, PLAYED_PER_SYNC)
+        actions: list[dict] = [played_action(row, _url(feed_path(row["feed_id"])))
+                               for row in played]
         for row in db.episodes_with_resume_since(floor):
             a = resume_action(row, _url(feed_path(row["feed_id"])))
             if a is not None:
                 actions.append(a)
         status = dj.status()
         now_playing = status.get("now_playing")
-        if now_playing is not None:
+        # Only while the speakers are actually playing is their place news.
+        # Off air they report the last session's track; paused, the place
+        # the pause banked. Either way stamped now, it would beat a place the
+        # phone or a browser reached since — resume_action above already
+        # sends the banked one, dated when it was banked.
+        if (now_playing is not None and status.get("dj_state") == "playing"
+                and status.get("transport") == "PLAYING"):
             episode = db.get_episode(now_playing["episode_id"])
             feed = db.get_feed(episode["feed_id"]) if episode else None
             if episode is not None and feed is not None:
@@ -397,14 +427,24 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
                                        episode["audio_url"], episode["guid"])
                 if a is not None:
                     actions.append(a)
-        return jsonify({"actions": actions,
-                        "timestamp": _now()})
+        # The phone's next `since`. Cut short, the played list ends on a
+        # whole second (db.episodes_played_since), so the next sync starts
+        # just after it rather than now, which would skip the rest for good.
+        timestamp = _now()
+        if len(played) >= PLAYED_PER_SYNC:
+            timestamp = min(timestamp, _epoch(played[-1]["reported_at"]) + 1)
+        return jsonify({"actions": actions, "timestamp": timestamp})
 
     @bp.post("/api/2/episodes/<username>.json")
     @require_auth
     def post_episode_actions(username: str):
         body = request.get_json(silent=True) or []
-        for item in body if isinstance(body, list) else []:
+        # Oldest first, so the episode played most recently is the last to
+        # lead Up Next (DJ._apply_listen) and ends up at its head.
+        items = sorted((i for i in body if isinstance(i, dict)),
+                       key=lambda i: str(i.get("timestamp") or "")) \
+            if isinstance(body, list) else []
+        for item in items:
             action = item.get("action")
             if action != "play":
                 # AntennaPod itself never acts on a received new/download/
@@ -423,7 +463,8 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
                            item.get("episode"))
                 continue
             dj.apply_remote_action(episode["id"], position,
-                                   total if isinstance(total, int) and total > 0 else None)
+                                   total if isinstance(total, int) and total > 0 else None,
+                                   _iso_z(item.get("timestamp")))
         return jsonify({"timestamp": _now(),
                         "update_urls": []})
 
