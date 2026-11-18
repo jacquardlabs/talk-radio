@@ -7,6 +7,7 @@ covers the three commits that came out of the adversarial review in
 - `1c58d0b` fix: take finished and retired episodes off the phone's queue
 - `cc90cd2` feat: play Up Next on this device from the web UI
 - `0c75562` fix: close gaps the review found in phone sync and play on this device
+- the handoff fix (section H): the last episode played off the speakers leads Up Next; places reach the phone without a known duration; a stopped speaker's stale place is no longer sent
 
 Devices:
 
@@ -77,7 +78,7 @@ The Archive entry points are:
 6. `[db]` The `decided_at` column exists. It is NULL on every row decided before the deploy, because there is no backfill.
 7. Turn on USB or wireless debugging on the Pixel. `[hands]` Then Claude confirms `adb devices` and that the dump, screencap and `dumpsys media_session` commands work.
 8. Note the wake schedules that exist now. Only the one added in B13 is removed afterwards.
-9. Agree which shows to use for area A. They must be non-news (news never syncs) and have a known `duration_seconds`, because a position can't be reported without one. Record 4–6 episode ids, ideally from shows whose phone copy is longer.
+9. Agree which shows to use for areas A and H. They must be non-news (news never syncs). Record 4–6 episode ids, ideally from shows whose phone copy is longer, plus one with `duration_seconds` NULL for H5.
 
 ### P1. Clearing the baseline (decision needed before running)
 
@@ -159,6 +160,58 @@ Sync on demand with AntennaPod → Settings → Synchronization → *Synchronize
 **A10. Finish on the phone while Sonos is playing the same episode**
 1. On air with episode R playing on the speakers, finish R in AntennaPod and run *Synchronize now*. `[hands]`
 - Expect: ignored. R keeps playing on the speakers and stays `queued`. Expected, not a bug: the track on air leaves only by Skip or Play now. `[curl]`
+
+## H. Handoff between the web player and AntennaPod
+
+The rule under test: off air, whatever was played last on the phone or in a browser leads Up Next, pinned, at its place. On air, the speakers' list stands and only the place is kept. AntennaPod never jumps to an episode by itself; you open it, and it resumes at the synced place.
+
+Run each case with the station **off air**. "Sync" means AntennaPod → *Synchronize now*. For each case record the place on both sides (`[curl]` `up_next[0].resume`, `[adb]` AntennaPod's episode screen) and the difference in seconds.
+
+**H1. AntennaPod → web, mid-episode**
+1. In AntennaPod, play episode P (any show, not at the head of Up Next) to about 15:00, pause. `[hands]`
+2. Sync.
+3. `[curl]` `up_next[0]` is P, `resume` ≈ 900, pinned.
+4. Laptop: Play on this device.
+- Expect: P starts at about 14:50 (the 10s lead-in). Note any offset from inserted ads (H7).
+
+**H2. Web → AntennaPod, mid-episode**
+1. Laptop, Play on this device: play P on to about 25:00, pause.
+2. Sync; open P in AntennaPod.
+- Expect: AntennaPod shows P at about 25:00 and resumes there. `[adb]`
+
+**H3. Round trip twice**
+1. Repeat H1 then H2 once more, ending at about 35:00 on the phone.
+- Expect: each side starts where the other stopped, every time; no episode is marked played on the way.
+
+**H4. Phone not yet synced**
+1. Play P in AntennaPod to about 40:00 and pause, but do **not** sync.
+2. Laptop: Play on this device.
+- Expect: the browser starts at the last *synced* place (H3's), not 40:00. Expected, not a bug: the server only knows what the phone has sent. Then sync, pause the browser, reload: the browser's report and the phone's compete, and the newer one wins. Record which.
+
+**H5. Episode with no known duration**
+1. With the H-episode whose `duration_seconds` is NULL: play it in the browser to about 5:00, pause, Sync.
+- Expect: AntennaPod resumes it at about 5:00. (Before this fix the place was never sent.)
+
+**H6. Near the end**
+1. In AntennaPod, play P to 45s before its end, pause, Sync.
+2. Laptop: Play on this device; let it end.
+- Expect: the browser plays the last seconds and ends; P is `played`, out of Up Next, and after the next Sync it is played and out of AntennaPod's queue. Then confirm the phone did not mark it finished early: in step 1 it should still be in AntennaPod's queue.
+
+**H7. Ad offset**
+1. Pick a show with dynamically inserted ads. In AntennaPod, stop at a recognisable sentence about 20 minutes in. Sync, Play on this device.
+- Expect: the browser starts within a minute or two of that sentence. Record the gap; this is the size of the "pick up where I left off" error no code can remove.
+
+**H8. Two phone episodes in one sync**
+1. In AntennaPod, play A to 5:00, then B to 7:00, pause. Sync once.
+- Expect: `up_next[0]` is B (the later one), then A; both carry their places.
+
+**H9. Handoff while the speakers are on air**
+1. Sonos playing episode S. In AntennaPod play a different episode Q to 10:00, Sync.
+- Expect: Up Next on the speakers is unchanged; Q's place is saved (`[db]` `resume_seconds`). Go off air: Q is not at the head (only off-air listens lead). Expected, not a bug.
+
+**H10. Speakers → phone**
+1. On air, let S play to about 8:00, then Off air. Sync.
+- Expect: AntennaPod resumes S at about 8:00 when opened. `[adb]` And no stale place is sent after: `[curl]` the gpodder actions since the Off air carry S once, at the banked place.
 
 ## B. Play on this device: laptop browser (TS URL; repeat B1, B2, B5 and B11 on LAN)
 

@@ -1182,7 +1182,12 @@ class DJ:
     def _apply_listen(self, episode_id: int, position: int, finished: bool,
                       never: bool = False) -> None:
         """Bank a listen that happened somewhere other than the speaker:
-        a resume position, or the episode heard and out of Up Next."""
+        a resume position, or the episode heard and out of Up Next.
+
+        Off air, a resume also puts the episode at the head of the saved Up
+        Next, pinned: whatever you were last listening to, on the phone or in
+        a browser, is what the next device — browser or speakers — picks up.
+        On air the speakers' own list stands; only the place is kept."""
         with self._lock:
             episode = self.db.get_episode(episode_id)
             if episode is None or episode["status"] in ("played", "archived"):
@@ -1198,6 +1203,8 @@ class DJ:
                 return
             if not finished:
                 self.db.set_resume(episode_id, max(0, position))
+                if not on_air and position > 0:
+                    self._lead_up_next(episode)
                 return
             # Only on air is a queued episode really on the speaker. Off air
             # the speaker still holds the last session's tracks, but start()
@@ -1218,6 +1225,18 @@ class DJ:
             # Out of the saved order explicitly, as every removal is: status
             # alone would put it back the moment Undo or Keep made it 'new'.
             self.db.remove_from_up_next(episode_id)
+
+    def _lead_up_next(self, episode) -> None:
+        """Put an episode at the head of the saved Up Next, pinned so Refresh
+        all keeps it. A 'new' one is claimed as queue_rotation_pick claims a
+        pick, so rotation cannot add it a second time. Caller holds the lock."""
+        order = self.db.up_next_order()
+        if episode["status"] == "new":
+            self.db.mark_queued(episode["id"], None)
+        if not episode["pinned"]:
+            self.db.set_pinned(episode["id"], True)
+        if order[:1] != [episode["id"]]:
+            self.db.set_up_next([episode["id"]] + [i for i in order if i != episode["id"]])
 
     def _at_needle(self, player, episode_id: int) -> bool:
         """Is this the episode the speaker is on? An unreadable speaker says

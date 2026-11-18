@@ -53,10 +53,13 @@ def test_resume_action_reports_mid_position() -> None:
     assert a["position"] == 300 and a["started"] == 0 and a["total"] == 1800
 
 
-def test_resume_action_none_without_duration() -> None:
+def test_resume_action_keeps_the_place_without_a_duration() -> None:
+    """AntennaPod never reads total for a resume, so an unknown duration
+    must not cost the phone the browser's or the speakers' place."""
     row = {"duration_seconds": None, "resume_seconds": 300, "audio_url": "x",
-          "guid": "g", "resume_at": "z"}
-    assert gpodder.resume_action(row, "feed") is None
+          "guid": "g", "resume_at": "2026-09-08T11:00:00Z"}
+    a = gpodder.resume_action(row, "feed")
+    assert a["position"] == 300 and a["started"] == 0 and a["total"] > 0
 
 
 def test_now_playing_action_none_without_live_duration() -> None:
@@ -335,7 +338,67 @@ def test_post_play_action_sets_resume(gclient) -> None:
     row = db.get_episode(ep["id"])
     assert row["resume_seconds"] == 300
     assert row["resume_at"] is not None
-    assert row["status"] == "new"  # unaffected — no rotation impact
+    # Off air, what the phone was playing leads Up Next for the next device.
+    assert db.up_next_order()[0] == ep["id"]
+    assert row["status"] == "queued" and row["pinned"] == 1
+
+
+def _play(ep, position: int, ts: str) -> dict:
+    return {"podcast": "https://showa/rss", "episode": ep["audio_url"],
+            "guid": ep["guid"], "action": "play", "timestamp": ts,
+            "started": 0, "position": position, "total": 1800}
+
+
+def test_the_phones_latest_listen_leads_up_next_whatever_the_upload_order(gclient) -> None:
+    c, db, dj, player = gclient
+    make_feed(db, "showa", 2)
+    older, newer = db.episodes_with_status("new")
+    body = [_play(newer, 200, "2026-09-08T12:00:00"), _play(older, 100, "2026-09-08T11:00:00")]
+    c.post("/api/2/episodes/radio.json", json=body, headers=basic_header())
+    assert db.up_next_order()[:2] == [newer["id"], older["id"]]
+
+
+def test_a_phone_listen_on_air_keeps_only_the_place(gclient) -> None:
+    """On air the speakers' list stands: the phone's episode is not pushed
+    into what Sonos plays next."""
+    c, db, dj, player = gclient
+    make_feed(db, "showa", 15)
+    make_feed(db, "showb", 15)
+    dj.start()
+    before = db.up_next_order()
+    ep = next(e for e in db.episodes_with_status("new"))
+    c.post("/api/2/episodes/radio.json", json=[_play(ep, 300, "2026-09-08T11:00:00")],
+           headers=basic_header())
+    assert db.get_episode(ep["id"])["resume_seconds"] == 300
+    assert ep["id"] not in db.up_next_order()[:1]
+    assert db.up_next_order() == before
+
+
+def test_phone_then_browser_picks_up_where_the_phone_left_off(gclient) -> None:
+    """The handoff: pause in AntennaPod mid-episode, open the web player —
+    it offers that episode first, at the phone's place."""
+    c, db, dj, player = gclient
+    make_feed(db, "showa", 15)
+    dj.start()
+    dj.stop_off_air()
+    elsewhere = db.episodes_with_status("new")[0]
+    c.post("/api/2/episodes/radio.json", json=[_play(elsewhere, 754, "2026-09-08T11:00:00")],
+           headers=basic_header())
+    head = dj.status()["up_next"][0]
+    assert head["episode_id"] == elsewhere["id"] and head["resume"] == 754
+
+
+def test_browser_then_phone_gets_the_browsers_place(gclient) -> None:
+    c, db, dj, player = gclient
+    make_feed(db, "showa", 2)
+    dj.start()
+    dj.stop_off_air()
+    head = db.up_next_order()[0]
+    dj.report_from_device(head, 612, "progress")
+    actions = c.get("/api/2/episodes/radio.json?since=0", headers=basic_header()).get_json()["actions"]
+    mine = [a for a in actions if a["episode"] == db.get_episode(head)["audio_url"]]
+    # only the browser's place: not also the stopped speaker's stale one
+    assert [a["position"] for a in mine] == [612]
 
 
 def test_post_play_action_near_end_marks_played(gclient) -> None:

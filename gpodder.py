@@ -108,12 +108,14 @@ def played_action(episode, feed_url: str) -> dict:
 
 
 def resume_action(episode, feed_url: str) -> dict | None:
-    """An in-progress episode. None when duration is unknown — a PLAY action
-    needs all three of started/position/total or AntennaPod drops it."""
-    duration = episode["duration_seconds"]
+    """An in-progress episode. A PLAY action needs started, position and
+    total all present or AntennaPod drops it, but it never reads total for a
+    resume (SyncService compares position with its own file's length), so an
+    unknown duration falls back to the position rather than losing the place."""
     position = episode["resume_seconds"]
-    if not duration or position is None:
+    if position is None:
         return None
+    position = max(1, int(position))
     return {
         "podcast": feed_url,
         "episode": episode["audio_url"],
@@ -121,8 +123,8 @@ def resume_action(episode, feed_url: str) -> dict | None:
         "action": "play",
         "timestamp": _fmt_ts(episode["resume_at"]),
         "started": 0,
-        "position": max(1, int(position)),
-        "total": duration,
+        "position": position,
+        "total": episode["duration_seconds"] or position,
     }
 
 
@@ -402,7 +404,10 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
                 actions.append(a)
         status = dj.status()
         now_playing = status.get("now_playing")
-        if now_playing is not None:
+        # Off air the speaker still reports the last session's track and a
+        # stale place, stamped now: sent, it would beat the place a browser
+        # or the phone itself banked since (resume_action above).
+        if now_playing is not None and status.get("dj_state") == "playing":
             episode = db.get_episode(now_playing["episode_id"])
             feed = db.get_feed(episode["feed_id"]) if episode else None
             if episode is not None and feed is not None:
@@ -422,7 +427,12 @@ def create_blueprint(db: Database, dj: DJ, cfg: Config) -> Blueprint:
     @require_auth
     def post_episode_actions(username: str):
         body = request.get_json(silent=True) or []
-        for item in body if isinstance(body, list) else []:
+        # Oldest first, so the episode played most recently is the last to
+        # lead Up Next (DJ._apply_listen) and ends up at its head.
+        items = sorted((i for i in body if isinstance(i, dict)),
+                       key=lambda i: str(i.get("timestamp") or "")) \
+            if isinstance(body, list) else []
+        for item in items:
             action = item.get("action")
             if action != "play":
                 # AntennaPod itself never acts on a received new/download/
