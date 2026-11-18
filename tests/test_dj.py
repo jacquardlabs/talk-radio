@@ -258,6 +258,77 @@ class TestTick:
         dj.tick()
         assert player.state == "PLAYING" and player.index == 1
 
+    @staticmethod
+    def _fresh_links(monkeypatch) -> list[int]:
+        """Resolve the way a signed CDN does: a new token every time, so a
+        re-staged queue is told apart from the one the pause left behind."""
+        import audio
+        calls: list[int] = []
+
+        def resolve(url: str, user_agent: str) -> str:
+            calls.append(1)
+            return f"{url}?token={len(calls)}"
+
+        monkeypatch.setattr(audio, "resolve_audio_url", resolve)
+        return calls
+
+    def test_play_after_a_long_pause_restages_the_queue(
+            self, db, cfg, player, dj, monkeypatch) -> None:
+        """Regression (2026-11-18): resumed after an overnight pause, the
+        queue still held links resolved the evening before. Sonos could not
+        fetch the paused PBS News Hour, skipped it, and it went unheard.
+        A stale pause re-stages, and the listener's place comes with it."""
+        self._fresh_links(monkeypatch)
+        make_feed(db, "showa", 10)
+        dj.start()
+        paused_on = current_episode_row(db, player)
+        player.listen(600)
+        dj.tick()
+        dj.tick()
+        dj.pause()
+        stale_queue = player.queue_uris()
+        db.kv_set("paused", iso(NOW - timedelta(hours=11)))
+
+        assert dj.play() is None
+
+        assert player.state == "PLAYING"
+        assert player.queue_uris()[0] not in stale_queue, "resumed dead links"
+        assert current_episode_row(db, player)["id"] == paused_on["id"]
+        assert player.seeks[-1] == 590  # the place, minus ~10s of context
+        assert not dj._is_paused()
+
+    def test_play_after_a_short_pause_resumes_in_place(
+            self, db, cfg, player, dj, monkeypatch) -> None:
+        self._fresh_links(monkeypatch)
+        make_feed(db, "showa", 10)
+        dj.start()
+        player.listen(600)
+        dj.tick()
+        dj.pause()
+        queue_before = player.queue_uris()
+        db.kv_set("paused", iso(NOW - timedelta(minutes=5)))
+
+        assert dj.play() is None
+
+        assert player.queue_uris() == queue_before
+        assert player.position == 600
+
+    def test_a_pause_with_no_time_counts_as_stale(
+            self, db, cfg, player, dj, monkeypatch) -> None:
+        """The flag deployed before the pause carried its time read "1"."""
+        self._fresh_links(monkeypatch)
+        make_feed(db, "showa", 10)
+        dj.start()
+        player.listen(600)
+        dj.tick()
+        dj.pause()
+        stale_queue = player.queue_uris()
+        db.kv_set("paused", "1")
+
+        assert dj._is_paused()
+        assert dj.play() is None
+        assert player.queue_uris()[0] not in stale_queue
+
     def test_recovering_a_stopped_speaker_keeps_the_listeners_place(
             self, db, cfg, player, dj) -> None:
         """play_from_queue restarts the track at its top. Without handing the
@@ -753,6 +824,28 @@ class TestPlaybackVerification:
         assert row["status"] == "played"
         assert row["failure_count"] == 0
         assert [e["id"] for e in db.recently_played()] == [heard["id"]]
+
+    def test_a_position_read_while_paused_is_not_evidence(
+            self, db, cfg, player, dj) -> None:
+        """Regression (2026-11-18): PBS News Hour was paused 3s after a skip,
+        before it ever played. The ticks overnight banked the paused speaker's
+        position, and when Sonos refused its link in the morning that
+        position booked it as heard instead of putting it back to retry."""
+        make_feed(db, "showa", 5)
+        dj.start()
+        never_heard = current_episode_row(db, player)
+
+        player.state = "PAUSED_PLAYBACK"
+        player.position = 3
+        dj.tick()
+        dj.tick()
+        player.advance_to(1)       # Sonos skips the dead link...
+        player.state = "PLAYING"   # ...and plays the next track
+        dj.tick()
+
+        row = db.get_episode(never_heard["id"])
+        assert row["status"] != "played"
+        assert row["failure_count"] == 1
 
     def test_repeated_failures_give_up_and_stop_cycling(
             self, db, cfg, player, dj) -> None:
