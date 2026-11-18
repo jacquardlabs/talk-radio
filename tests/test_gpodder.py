@@ -263,17 +263,41 @@ def test_archive_decision_is_sent_as_played(gclient, archive) -> None:
     assert _played(actions) == [ep["guid"]] and _recent(actions[0], since)
 
 
-def test_archives_nobody_decided_are_not_sent(gclient) -> None:
-    """A depth cut, a skipped title, and a prune of what the cut left were
-    never the listener retiring an episode the phone was playing."""
+def test_a_recut_or_skipped_title_reaches_the_phone(gclient) -> None:
+    """Lowering a station's depth and adding a skipped title take episodes
+    out of the rotation feed the phone already has, so they go as played."""
     c, db, *_ = gclient
     fid = make_feed(db, "showa", 3)
-    db.set_rotation_depth(fid, 1)                    # cuts 1 and 2, keeps 3
-    assert db.set_feed_skip_titles(fid, ["showa 3"]) == 1
-    cut = [e["id"] for e in db.episodes_with_status("archived")]
-    assert len(cut) == 3
     since = _synced_after_publish()
+    assert c.post(f"/feeds/{fid}/backfill", json={"include": "latest"}).get_json()["ok"]
+    assert db.set_feed_skip_titles(fid, ["showa 3"]) == 1
+    archived = {e["guid"] for e in db.episodes_with_status("archived")}
+    assert len(archived) == 3
+    assert set(_played(_actions(c, since))) == archived
+
+
+def test_adding_a_station_sends_nothing_for_its_back_catalog(gclient) -> None:
+    """The cut made when a station is added never reached the phone: its
+    rotation feed was born without those episodes."""
+    c, db, *_ = gclient
+    import feedparser
+    from feeds import add_feed_from_parsed
+    items = "".join(
+        f"<item><title>Ep {i}</title><guid>a{i}</guid><pubDate>Mon, 0{i} Jun 2026 00:00:00 GMT</pubDate>"
+        f"<enclosure url='https://cdn/a/{i}.mp3' type='audio/mpeg'/></item>" for i in range(1, 6))
+    parsed = feedparser.parse(f"<rss version='2.0'><channel><title>A</title>{items}</channel></rss>")
+    since = _synced_after_publish()
+    add_feed_from_parsed(db, parsed, "https://a/rss", False, include="latest")
+    assert len(db.episodes_with_status("archived")) == 4
     assert _actions(c, since) == []
+
+
+def test_a_prune_of_the_back_catalog_is_not_sent(gclient) -> None:
+    c, db, *_ = gclient
+    fid = make_feed(db, "showa", 3)
+    db.set_rotation_depth(fid, 1)
+    cut = [e["id"] for e in db.episodes_with_status("archived")]
+    since = _synced_after_publish()
     _review(c, cut, "never")  # Never play from the back catalog: a prune
     assert _actions(c, since) == []
 

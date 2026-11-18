@@ -556,19 +556,29 @@ def test_unrelease_is_dated(db) -> None:
     assert _decided(db, fresh) >= before
 
 
-def test_cuts_and_prunes_are_not_dated(db) -> None:
-    """None of these is the listener retiring an episode from rotation, and
-    a prune is where the batches big enough to flood a sync are."""
+def test_the_add_station_cut_and_prunes_are_not_dated(db) -> None:
+    """The cut made when a station is added never reached the phone, and a
+    prune is where the batches big enough to flood a sync are."""
     show, _ = _review_library(db)
-    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    old = _by_guid(db, show, "old")["id"]
     db.set_rotation_depth(show, 1)
     assert db.get_episode(old)["status"] == "archived" and _decided(db, old) is None
     db.review_episodes([old], "never")
     assert db.get_episode(old)["review"] == "pruned" and _decided(db, old) is None
     db.review_episodes([old], "back_catalog")  # undoing a prune isn't a decision
     assert _decided(db, old) is None
+
+
+def test_a_recut_and_a_skipped_title_are_dated(db) -> None:
+    """Both take episodes out of a rotation feed the phone already has."""
+    show, _ = _review_library(db)
+    fresh, old = _by_guid(db, show, "fresh")["id"], _by_guid(db, show, "old")["id"]
+    db.set_rotation_depth(show, 1, decided=True)
+    assert db.get_episode(old)["status"] == "archived" and _decided(db, old) is not None
+    db.set_rotation_depth(show, None, decided=True)   # back in rotation: cleared
+    assert db.get_episode(old)["status"] == "new" and _decided(db, old) is None
     db.set_feed_skip_titles(show, ["Fresh"])
-    assert db.get_episode(fresh)["status"] == "archived" and _decided(db, fresh) is None
+    assert db.get_episode(fresh)["status"] == "archived" and _decided(db, fresh) is not None
 
 
 def test_every_way_back_clears_decided_at(db) -> None:

@@ -438,7 +438,8 @@ def create_app(db: Database, dj: DJ, cfg: Config) -> Flask:
             last_n = int(body.get("count") or 0) or None
         except (TypeError, ValueError):
             return result("count must be a number")
-        db.set_rotation_depth(feed_id, feeds_mod.rotation_depth(include, last_n))
+        db.set_rotation_depth(feed_id, feeds_mod.rotation_depth(include, last_n),
+                              decided=True)
         return result()
 
     @app.post("/feeds/<int:feed_id>/<action>")

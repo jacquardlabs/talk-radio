@@ -227,8 +227,9 @@ What syncs: played/unplayed and playback position, both directions, for
 every enabled non-news feed. An episode you take out of rotation here —
 Never play, or sent to the back catalog — reaches the phone as played, so it
 leaves the phone's queue too; putting it back in rotation later can't
-un-play it there. Episodes a station's rotation depth or skipped titles
-leave out are not sent. Off air, an episode you were last playing on the
+un-play it there. Re-cutting a station or adding a skipped title sends what
+it takes out of rotation the same way; the cut made when a station is added
+is not sent, since the phone never had those episodes. Off air, an episode you were last playing on the
 phone moves to the head of Up Next, pinned, at the phone's place, so *Play on
 this device* or the speakers pick it up there; on air, only its place is
 kept. Subscriptions are one-way, station → phone — the

@@ -482,8 +482,10 @@ class Database:
                 "SELECT id, title FROM episodes"
                 " WHERE feed_id=? AND status='new' AND review IS NULL", (feed_id,))
                    if title_is_skipped(r["title"], prefixes)]
-            c.executemany("UPDATE episodes SET status='archived' WHERE id=?",
-                          [(i,) for i in ids])
+            # In rotation until now, so in the phone's feed: dated, so it
+            # leaves the phone's queue (episodes.decided_at).
+            c.executemany(f"UPDATE episodes SET status='archived', decided_at={_SQL_NOW}"
+                          " WHERE id=?", [(i,) for i in ids])
         return len(ids)
 
     def set_feed_validators(self, feed_id: int, etag: str | None,
@@ -909,20 +911,30 @@ class Database:
         with self._conn() as c:
             c.execute("UPDATE episodes SET status='archived' WHERE id=?", (episode_id,))
 
-    def set_rotation_depth(self, feed_id: int, keep: int | None) -> None:
+    def set_rotation_depth(self, feed_id: int, keep: int | None,
+                           decided: bool = False) -> None:
         """Put a station's `keep` newest episodes in rotation and the older
         unplayed ones in the back catalog (None: every one in rotation).
         Only 'new' and 'archived' move; a queued, played, or skipped episode
         keeps its status but still counts toward the newest `keep`. One
-        statement, so a capped 2,000-episode feed costs one commit."""
+        statement, so a capped 2,000-episode feed costs one commit.
+
+        `decided` is a re-cut of a station the phone already has: episodes it
+        takes out of rotation are dated (decided_at) so the phone drops them.
+        The cut made when a station is added is not — those never reached the
+        phone's rotation feed. Either way an episode put back clears it."""
+        in_keep = ("id IN (SELECT id FROM episodes WHERE feed_id=?"
+                   " ORDER BY published_at DESC, id DESC LIMIT ?)")
+        decided_at = (f"CASE WHEN {in_keep} THEN NULL"
+                      f" WHEN status='new' THEN {_SQL_NOW} ELSE decided_at END"
+                      if decided else f"CASE WHEN {in_keep} THEN NULL ELSE decided_at END")
+        limit = -1 if keep is None else keep
         with self._conn() as c:
             c.execute(
-                "UPDATE episodes SET status = CASE WHEN id IN ("
-                "  SELECT id FROM episodes WHERE feed_id=?"
-                "  ORDER BY published_at DESC, id DESC LIMIT ?)"
-                " THEN 'new' ELSE 'archived' END"
+                f"UPDATE episodes SET decided_at = {decided_at},"
+                f" status = CASE WHEN {in_keep} THEN 'new' ELSE 'archived' END"
                 " WHERE feed_id=? AND status IN ('new','archived')",
-                (feed_id, -1 if keep is None else keep, feed_id),
+                (feed_id, limit, feed_id, limit, feed_id),
             )
 
     def unarchive_feed(self, feed_id: int) -> int:
