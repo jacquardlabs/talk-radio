@@ -473,7 +473,15 @@ Record pass, fail or observed per case, with a screenshot or probe output for ev
 
 | Case | Result | Notes |
 |---|---|---|
-| P1 | | |
+| P1 | pass | Re-decided 18 entries (12 Mark heard, 5 heard, 1 archive); after one sync AntennaPod's queue went 21 → 4, all 4 unplayed on the server. |
+| H10 (speakers → phone) | pass | Sonos paused at 49:37; AntennaPod showed 49:37, same 1:38:45 length. |
+| B1 (speakers → browser) | pass | Speakers off air; browser started at 49:29 (10s lead-in); progress every ~15s; no console errors. Headless Chromium against the live server. |
+| H2 (browser → phone) | pass | AntennaPod 49:41 = server's place. The headless close lost the last ~8s report; recheck with a real tab. |
+| H1 (phone → browser) | pass | Phone listen synced at 53:30; browser opened that episode first at 53:20. |
+| H3 (round trip) | pass | Phone resumed at 53:27 after the browser's 53:29 (AntennaPod's own rewind). Watch: on the first phone play it landed ~3 min past the synced place; not reproduced. |
+| H7b (late phone sync) | pass | Browser 1:00:09 newer than unsynced phone 53:40; server kept 1:00:09 and the phone took it on the next sync. |
+| B (speakers take over) | pass | Browser paused itself within one poll; Sonos resumed at 1:00:02 (lead-in plus one report that landed after the switch). |
+| B (ended → advance) | pass | Episode ended in the browser, left Up Next, went to Recently played, next item (news) started; after a sync it left AntennaPod's queue. |
 | A1–A10 | | |
 | B1–B14 | | |
 | C1–C7 | | |
