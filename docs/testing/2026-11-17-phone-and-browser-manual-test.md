@@ -488,6 +488,7 @@ Record pass, fail or observed per case, with a screenshot or probe output for ev
 | H7b (late phone sync) | pass | Browser 1:00:09 newer than unsynced phone 53:40; server kept 1:00:09 and the phone took it on the next sync. |
 | B (speakers take over) | pass | Browser paused itself within one poll; Sonos resumed at 1:00:02 (lead-in plus one report that landed after the switch). |
 | B (ended → advance) | pass | Episode ended in the browser, left Up Next, went to Recently played, next item (news) started; after a sync it left AntennaPod's queue. |
+| Phone jump while the speakers are paused | fail, then pass | First run: the jump never reached the web (the paused speakers' episode was treated as on air, and each sync sent their stale place stamped now). Fixed in f7a3954; rerun by the owner passed, and the log shows the speaker moved to the phone's place (2218s). |
 | A1–A10 | | |
 | B1–B14 | | |
 | C1–C7 | | |
