@@ -490,14 +490,39 @@ class DJ:
 
         In kv rather than on self: the process outlives most sessions but not
         all of them, and a restart that forgot a pause would leave tick()
-        free to make the same noise on the next STOPPED it saw."""
+        free to make the same noise on the next STOPPED it saw. Stored as the
+        moment of the pause, which play() reads to tell a short break from an
+        overnight one."""
         if paused:
-            self.db.kv_set("paused", "1")
+            self.db.kv_set("paused", utcnow_iso())
         else:
             self.db.kv_del("paused")
 
     def _is_paused(self) -> bool:
-        return self.db.kv_get("paused") == "1"
+        return self.db.kv_get("paused") is not None
+
+    # Past this, play() rebuilds the session rather than resuming the speaker.
+    # The Sonos queue holds the CDN links as they were resolved at staging,
+    # and signed ones die: acast's last about 3h15m from the resolve. Resumed
+    # after that, Sonos cannot fetch the paused track and skips it — how the
+    # 17 Nov PBS News Hour, paused overnight, went unheard at 06:55 on
+    # 18 Nov. Well under the link's life because the link was minted at
+    # staging, which can be long before the pause.
+    _STALE_PAUSE_SECONDS = 30 * 60
+
+    def _pause_is_stale(self) -> bool:
+        """Whether the pause is old enough that the queue's links may have
+        expired. A pause without a readable time (the old "1" flag) counts as
+        stale: rebuilding costs a few seconds, a dead link costs the episode."""
+        value = self.db.kv_get("paused")
+        if value is None:
+            return False
+        try:
+            since = datetime.fromisoformat(value)
+        except ValueError:
+            return True
+        age = datetime.now(timezone.utc) - since
+        return age.total_seconds() > self._STALE_PAUSE_SECONDS
 
     def _queue_plan(self) -> tuple[list, list]:
         """(fresh news, the saved Up Next behind it) — what going on air
@@ -658,7 +683,13 @@ class DJ:
             if cur is not None and cur.position:
                 here = matches[cur_idx] if cur_idx < len(matches) else None
                 if here is not None:
-                    self.db.record_observed(here["id"], cur.position)
+                    # Only while PLAYING: a paused or loading speaker still
+                    # reports a position, and that is no proof of sound. The
+                    # 17 Nov PBS News Hour was paused 3s after a skip, before
+                    # it ever played, and the position read overnight booked
+                    # it as heard when Sonos later refused its link.
+                    if transport == "PLAYING":
+                        self.db.record_observed(here["id"], cur.position)
                     # A show with no itunes:duration can never produce a
                     # valid gpodder `total` for a paused position, so
                     # backfill it from the one place a length can still
@@ -748,11 +779,18 @@ class DJ:
             # re-rendered — must not fall through to start(), which clears the
             # queue and rebuilds the session out from under the track Sonos is
             # in the middle of starting.
+            transport = player.transport_state()
             if (self.db.kv_get("dj_state") == "playing"
-                    and player.transport_state() in ("PAUSED_PLAYBACK", "TRANSITIONING")):
-                player.play()
-                self._set_paused(False)
-                return None
+                    and transport in ("PAUSED_PLAYBACK", "TRANSITIONING")):
+                if transport == "TRANSITIONING" or not self._pause_is_stale():
+                    player.play()
+                    self._set_paused(False)
+                    return None
+                # Paused long enough for the queue's links to have died:
+                # re-stage instead. Up Next and the place survive start() —
+                # the place banked here first, as stop_off_air() does, so it
+                # does not hang on what pause() banked hours ago.
+                self._save_resume(player)
             return self.start()
 
     def pause(self) -> str | None:
